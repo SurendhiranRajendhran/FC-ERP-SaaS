@@ -1,3 +1,4 @@
+const { AsyncLocalStorage } = require('async_hooks');
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -55,7 +56,152 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0,
 });
+
 crm.setPool(pool);
+
+// ==========================================
+// SAAS MULTI-TENANT QUERY ISOLATION WRAPPER
+// ==========================================
+const tenantStorage = new AsyncLocalStorage();
+const tenantTables = [
+  'vendors', 'items', 'orders', 'staff', 'raw_materials', 'shifts', 'shift_roster',
+  'shift_swap_requests', 'leaves', 'leave_balances', 'attendance', 'payroll',
+  'holidays', 'customers', 'customer_feedback', 'daily_reconciliation',
+  'stock_logs', 'suppliers', 'vendor_settlements', 'broadcast_campaigns',
+  'cash_drawer', 'notification_logs', 'vendor_common_expenses', 'overheads', 'central_settlements',
+  'stock_transfers'
+];
+
+function getTableIdentifier(sql, tableName) {
+  const regex = new RegExp('(?:from|join)\\s+' + tableName + '\\s+(?:as\\s+)?([a-zA-Z0-9_]+)\\b', 'i');
+  const match = sql.match(regex);
+  if (match) {
+    const alias = match[1];
+    const keywords = new Set(['on', 'left', 'right', 'join', 'inner', 'outer', 'where', 'order', 'group', 'limit', 'as', 'using']);
+    if (!keywords.has(alias.toLowerCase())) {
+      return alias;
+    }
+  }
+  return tableName;
+}
+
+function rewriteQuery(sql, params, tenantId) {
+  if (!tenantId) return { sql, params };
+  
+  const matchedTables = [];
+  for (const table of tenantTables) {
+    const tableRegex = new RegExp('\\b' + table + '\\b', 'i');
+    const match = sql.match(tableRegex);
+    if (match) {
+      matchedTables.push({ name: table, index: match.index });
+    }
+  }
+
+  if (matchedTables.length === 0) return { sql, params };
+
+  matchedTables.sort((a, b) => a.index - b.index);
+  const targetTable = matchedTables[0].name;
+
+  if (/\btenant_id\b/i.test(sql)) return { sql, params };
+
+  let rewrittenSql = sql;
+  let rewrittenParams = params ? [...params] : [];
+  const lowerSql = sql.toLowerCase();
+
+  if (/^\s*(select|update|delete)\b/i.test(sql)) {
+    if (/\bwhere\b/i.test(sql)) {
+      const whereIdx = lowerSql.lastIndexOf('where');
+      const sqlBeforeWhere = sql.slice(0, whereIdx);
+      const paramsBeforeWhereCount = (sqlBeforeWhere.match(/\?/g) || []).length;
+      
+      const tableAlias = getTableIdentifier(sql, targetTable);
+      rewrittenSql = sql.slice(0, whereIdx + 5) + ` ${tableAlias}.tenant_id = ? AND ` + sql.slice(whereIdx + 5);
+      rewrittenParams.splice(paramsBeforeWhereCount, 0, tenantId);
+    } else {
+      let insertIdx = sql.length;
+      const orderByIdx = lowerSql.lastIndexOf('order by');
+      const groupByIdx = lowerSql.lastIndexOf('group by');
+      const limitIdx = lowerSql.lastIndexOf('limit');
+      
+      const indices = [orderByIdx, groupByIdx, limitIdx].filter(idx => idx !== -1);
+      if (indices.length > 0) {
+        insertIdx = Math.min(...indices);
+      }
+      
+      const tableAlias = getTableIdentifier(sql, targetTable);
+      const countBeforeInsert = (sql.slice(0, insertIdx).match(/\\?/g) || []).length;
+      
+      rewrittenSql = sql.slice(0, insertIdx) + ` WHERE ${tableAlias}.tenant_id = ? ` + sql.slice(insertIdx);
+      rewrittenParams.splice(countBeforeInsert, 0, tenantId);
+    }
+  } 
+  else if (/^\s*insert\b/i.test(sql)) {
+    if (/\bvalues\b/i.test(sql)) {
+      const valuesIdx = lowerSql.indexOf('values');
+      const colsPart = sql.slice(0, valuesIdx);
+      const valuesPart = sql.slice(valuesIdx);
+      
+      const lastParenInCols = colsPart.lastIndexOf(')');
+      if (lastParenInCols !== -1) {
+        const newColsPart = colsPart.slice(0, lastParenInCols) + ', tenant_id' + colsPart.slice(lastParenInCols);
+        
+        const firstParenInValues = valuesPart.indexOf('(');
+        const lastParenInValues = valuesPart.lastIndexOf(')');
+        if (firstParenInValues !== -1 && lastParenInValues !== -1) {
+          const newValuesPart = valuesPart.slice(0, lastParenInValues) + ', ?' + valuesPart.slice(lastParenInValues);
+          rewrittenSql = newColsPart + newValuesPart;
+          rewrittenParams.push(tenantId);
+        }
+      }
+    } else if (/\bset\b/i.test(sql)) {
+      rewrittenSql = sql + ', tenant_id = ?';
+      rewrittenParams.push(tenantId);
+    }
+  }
+
+  return { sql: rewrittenSql, params: rewrittenParams };
+}
+
+// Wrap Pool query/execute methods
+const originalPoolQuery = pool.query;
+pool.query = async function(sql, params) {
+  const context = tenantStorage.getStore();
+  const tenantId = context ? context.tenant_id : null;
+  const { sql: newSql, params: newParams } = rewriteQuery(sql, params, tenantId);
+  return originalPoolQuery.apply(pool, [newSql, newParams]);
+};
+
+const originalPoolExecute = pool.execute;
+pool.execute = async function(sql, params) {
+  const context = tenantStorage.getStore();
+  const tenantId = context ? context.tenant_id : null;
+  const { sql: newSql, params: newParams } = rewriteQuery(sql, params, tenantId);
+  return originalPoolExecute.apply(pool, [newSql, newParams]);
+};
+
+// Wrap Pool getConnection to support connection level queries (e.g. transactions)
+const originalGetConnection = pool.getConnection;
+pool.getConnection = async function() {
+  const conn = await originalGetConnection.apply(pool);
+  return new Proxy(conn, {
+    get(target, prop, receiver) {
+      if (prop === 'query' || prop === 'execute') {
+        return async function(sql, params) {
+          const context = tenantStorage.getStore();
+          const tenantId = context ? context.tenant_id : null;
+          const { sql: newSql, params: newParams } = rewriteQuery(sql, params, tenantId);
+          return target[prop](newSql, newParams);
+        };
+      }
+      const val = Reflect.get(target, prop, receiver);
+      if (typeof val === 'function') {
+        return val.bind(target);
+      }
+      return val;
+    }
+  });
+};
+
 crm.startDailySummaryScheduler();
 console.log('[CRM] Notifications & CRM Engine initialized');
 
@@ -74,13 +220,24 @@ console.log('[CRM] Notifications & CRM Engine initialized');
 // AUTHENTICATION & RBAC MIDDLEWARES
 // ==========================================
 const authenticateToken = (req, res, next) => {
-  // Public routes that don't require auth
-  // NOTE: When mounted at app.use('/api', ...), req.path is relative (e.g. '/auth/login' not '/api/auth/login')
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  // If a token is provided, verify it and set req.user
+  if (token) {
+    try {
+      req.user = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      // Ignore token errors for public routes, but for protected routes we'll handle it below
+    }
+  }
+
+  // Public routes that don't require auth (but we still populated req.user if they had a token)
   const publicPaths = ['/server-info', '/auth/login'];
   if (publicPaths.some(p => req.path === p || req.path.startsWith(p))) return next();
   
-  // Allow QR menu to fetch active items without auth
-  if (req.path === '/items' && req.method === 'GET') return next();
+  // Allow QR menu to fetch active items and combos without auth
+  if ((req.path === '/items' || req.path === '/combos') && req.method === 'GET') return next();
   
   // Allow QR menu to submit orders without auth
   if (req.path === '/orders' && req.method === 'POST') return next();
@@ -91,15 +248,11 @@ const authenticateToken = (req, res, next) => {
   // Allow QR menu to submit feedback without auth
   if (req.path === '/feedback' && req.method === 'POST') return next();
 
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Access denied. No token provided.' });
+  if (!req.user) {
+    return res.status(401).json({ error: 'Access denied. No valid token provided.' });
+  }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid or expired token.' });
-    req.user = user;
-    next();
-  });
+  next();
 };
 
 const authorizeRoles = (...allowedRoles) => {
@@ -115,6 +268,20 @@ const authorizeRoles = (...allowedRoles) => {
 
 // Apply authentication to all /api routes
 app.use('/api', authenticateToken);
+
+// SaaS Tenant Isolation Context Middleware
+app.use('/api', (req, res, next) => {
+  let tenantId = req.user ? req.user.tenant_id : null;
+  if (!tenantId && req.headers['x-tenant-id']) {
+    tenantId = parseInt(req.headers['x-tenant-id'], 10);
+  }
+  
+  if (tenantId) {
+    tenantStorage.run({ tenant_id: tenantId }, next);
+  } else {
+    next();
+  }
+});
 
 // Apply RBAC based on route prefixes
 app.use('/api/hr', authorizeRoles('Owner', 'Manager'));
@@ -162,14 +329,14 @@ app.post('/api/auth/login', async (req, res) => {
     if (!validPassword) return res.status(401).json({ error: 'Invalid credentials.' });
 
     const token = jwt.sign(
-      { id: user.id, name: user.name, role: user.role, vendor_id: user.vendor_id },
+      { id: user.id, name: user.name, role: user.role, vendor_id: user.vendor_id, tenant_id: user.tenant_id },
       JWT_SECRET,
       { expiresIn: '12h' }
     );
 
     res.json({
       token,
-      user: { id: user.id, name: user.name, role: user.role, email: user.email, vendor_id: user.vendor_id }
+      user: { id: user.id, name: user.name, role: user.role, email: user.email, vendor_id: user.vendor_id, tenant_id: user.tenant_id }
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -352,7 +519,20 @@ app.get('/api/dashboard', async (req, res) => {
 // Get all menu items
 app.get('/api/items', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM items WHERE is_deleted = 0 ORDER BY category, name');
+    let query = 'SELECT * FROM items WHERE is_deleted = 0';
+    let params = [];
+    
+    if (req.user && req.user.vendor_id) {
+      query += ' AND vendor_id = ?';
+      params.push(req.user.vendor_id);
+    } else if (req.query.vendor_id) {
+      query += ' AND vendor_id = ?';
+      params.push(req.query.vendor_id);
+    }
+    
+    query += ' ORDER BY category, name';
+    
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch menu items' });
@@ -366,6 +546,11 @@ app.post('/api/items', async (req, res) => {
     return res.status(400).json({ error: 'Name, Category and Price are required.' });
   }
 
+  let final_vendor_id = vendor_id ? parseInt(vendor_id) : null;
+  if (req.user && req.user.vendor_id) {
+    final_vendor_id = req.user.vendor_id;
+  }
+
   try {
     const [result] = await pool.query(
       'INSERT INTO items (name, category, price, gst_rate, image_url, description, vendor_id, is_special, special_price, available_from, available_until, mess_eligible) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -376,7 +561,7 @@ app.post('/api/items', async (req, res) => {
         gst_rate || 5.00, 
         image_url || null, 
         description || null, 
-        vendor_id ? parseInt(vendor_id) : null,
+        final_vendor_id,
         is_special ? 1 : 0,
         special_price !== undefined && special_price !== '' ? parseFloat(special_price) : null,
         available_from || null,
@@ -424,7 +609,10 @@ app.put('/api/items/:id', async (req, res) => {
     const updateActive = is_active !== undefined ? is_active : item.is_active;
     const updateImage = image_url !== undefined ? image_url : item.image_url;
     const updateDesc = description !== undefined ? description : item.description;
-    const updateVendor = vendor_id !== undefined ? (vendor_id ? parseInt(vendor_id) : null) : item.vendor_id;
+    let updateVendor = vendor_id !== undefined ? (vendor_id ? parseInt(vendor_id) : null) : item.vendor_id;
+    if (req.user && req.user.vendor_id) {
+      updateVendor = req.user.vendor_id;
+    }
     const updateIsSpecial = is_special !== undefined ? (is_special ? 1 : 0) : item.is_special;
     const updateSpecialPrice = special_price !== undefined ? (special_price !== '' && special_price !== null ? parseFloat(special_price) : null) : item.special_price;
     const updateAvailableFrom = available_from !== undefined ? (available_from === '' || available_from === null ? null : available_from) : item.available_from;
@@ -519,7 +707,26 @@ app.delete('/api/items/:id', async (req, res) => {
 // Get all raw materials
 app.get('/api/raw-materials', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM raw_materials ORDER BY name');
+    let query = 'SELECT * FROM raw_materials';
+    let params = [];
+    
+    let vendor_id = req.query.vendor_id;
+    if (req.user && req.user.vendor_id) {
+      vendor_id = req.user.vendor_id;
+    }
+    
+    if (vendor_id === 'all') {
+      // Central admin viewing all stalls, no WHERE clause needed
+    } else if (vendor_id && vendor_id !== 'null') {
+      query += ' WHERE vendor_id = ?';
+      params.push(parseInt(vendor_id));
+    } else if (vendor_id === 'null' || (req.user && req.user.vendor_id === null)) {
+      query += ' WHERE vendor_id IS NULL'; // Central
+    }
+    
+    query += ' ORDER BY name';
+    
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch raw materials' });
@@ -528,26 +735,32 @@ app.get('/api/raw-materials', async (req, res) => {
 
 // Add a raw material
 app.post('/api/raw-materials', async (req, res) => {
-  const { name, unit, stock_level, min_stock } = req.body;
+  const { name, unit, stock_level, min_stock, vendor_id } = req.body;
   if (!name || !unit) {
     return res.status(400).json({ error: 'Name and Unit are required.' });
   }
 
+  let final_vendor_id = vendor_id ? parseInt(vendor_id) : null;
+  if (req.user && req.user.vendor_id) {
+    final_vendor_id = req.user.vendor_id;
+  }
+
   try {
     const [result] = await pool.query(
-      'INSERT INTO raw_materials (name, unit, stock_level, min_stock) VALUES (?, ?, ?, ?)',
-      [name, unit, stock_level || 0, min_stock || 0]
+      'INSERT INTO raw_materials (name, unit, stock_level, min_stock, vendor_id) VALUES (?, ?, ?, ?, ?)',
+      [name, unit, stock_level || 0, min_stock || 0, final_vendor_id]
     );
 
     if (stock_level > 0) {
       await pool.query(
-        'INSERT INTO stock_logs (material_id, change_qty, log_type, reason) VALUES (?, ?, "Opening", "Initial stock setup")',
-        [result.insertId, stock_level]
+        'INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id) VALUES (?, ?, "Opening", "Initial stock setup", ?)',
+        [result.insertId, stock_level, final_vendor_id]
       );
     }
 
-    res.status(201).json({ id: result.insertId, name, unit, stock_level: parseFloat(stock_level || 0), min_stock: parseFloat(min_stock || 0) });
+    res.status(201).json({ id: result.insertId, name, unit, stock_level: parseFloat(stock_level || 0), min_stock: parseFloat(min_stock || 0), vendor_id: final_vendor_id });
   } catch (error) {
+    console.error('Error creating raw material:', error);
     res.status(500).json({ error: 'Failed to create raw material' });
   }
 });
@@ -564,6 +777,11 @@ app.put('/api/raw-materials/:id', async (req, res) => {
     }
 
     const mat = existing[0];
+    // Enforce vendor_id boundary for stall managers
+    if (req.user && req.user.vendor_id && mat.vendor_id !== req.user.vendor_id) {
+      return res.status(403).json({ error: 'Forbidden: Cannot modify another stall\'s raw material' });
+    }
+
     const updateName = name !== undefined ? name : mat.name;
     const updateUnit = unit !== undefined ? unit : mat.unit;
     const updateMin = min_stock !== undefined ? min_stock : mat.min_stock;
@@ -583,10 +801,352 @@ app.put('/api/raw-materials/:id', async (req, res) => {
 app.delete('/api/raw-materials/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    const [existing] = await pool.query('SELECT vendor_id FROM raw_materials WHERE id = ?', [id]);
+    if (existing.length > 0 && req.user && req.user.vendor_id && existing[0].vendor_id !== req.user.vendor_id) {
+      return res.status(403).json({ error: 'Forbidden: Cannot delete another stall\'s raw material' });
+    }
+
     await pool.query('DELETE FROM raw_materials WHERE id = ?', [id]);
     res.json({ success: true, message: 'Raw material deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete raw material' });
+  }
+});
+
+
+// ==========================================
+// STOCK TRANSFERS & ALLOCATION API
+// ==========================================
+
+// Get all stock transfers
+app.get('/api/stock-transfers', async (req, res) => {
+  try {
+    let query = `
+      SELECT t.*, t.transfer_date as created_at, m.name as material_name, m.unit as material_unit,
+             vf.name as from_vendor_name, vt.name as to_vendor_name
+      FROM stock_transfers t
+      JOIN raw_materials m ON t.material_id = m.id
+      LEFT JOIN vendors vf ON t.from_vendor_id = vf.id
+      LEFT JOIN vendors vt ON t.to_vendor_id = vt.id
+    `;
+    let params = [];
+
+    // Filter by vendor if Stall Manager
+    let vendor_id = req.query.vendor_id;
+    if (req.user && req.user.vendor_id) {
+      vendor_id = req.user.vendor_id;
+    }
+
+    if (vendor_id) {
+      query += ' WHERE t.from_vendor_id = ? OR t.to_vendor_id = ?';
+      params.push(parseInt(vendor_id), parseInt(vendor_id));
+    }
+
+    query += ' ORDER BY t.transfer_date DESC';
+
+    const [rows] = await pool.query(query, params);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching stock transfers:', error);
+    res.status(500).json({ error: 'Failed to fetch stock transfers.' });
+  }
+});
+
+// Request or execute a stock transfer
+app.post('/api/stock-transfers', async (req, res) => {
+  const { material_id, quantity, from_vendor_id, to_vendor_id, requested_by, status } = req.body;
+  
+  if (!material_id || !quantity || quantity <= 0) {
+    return res.status(400).json({ error: 'material_id and positive quantity are required.' });
+  }
+
+  let final_from = from_vendor_id === undefined ? null : (from_vendor_id ? parseInt(from_vendor_id) : null);
+  let final_to = to_vendor_id === undefined ? null : (to_vendor_id ? parseInt(to_vendor_id) : null);
+  let final_status = status || 'Requested';
+
+  // Stall Managers can only request/send transfers involving their own stall
+  if (req.user && req.user.vendor_id) {
+    if (final_from !== req.user.vendor_id && final_to !== req.user.vendor_id) {
+      return res.status(403).json({ error: 'Forbidden: You can only request transfers for your own stall.' });
+    }
+    final_status = 'Requested'; // Force to requested
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // Verify material exists at source
+    const [sourceMat] = await connection.query(
+      'SELECT id, name, unit, stock_level, min_stock, supplier_id, cost_per_unit, vendor_id FROM raw_materials WHERE id = ?',
+      [material_id]
+    );
+
+    if (sourceMat.length === 0) {
+      throw new Error('Source material not found.');
+    }
+
+    const [insertResult] = await connection.query(
+      'INSERT INTO stock_transfers (from_vendor_id, to_vendor_id, material_id, quantity, status, requested_by, tenant_id, material_name, unit, qty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [final_from, final_to, material_id, quantity, final_status, requested_by || (req.user ? req.user.name : 'System'), req.user ? req.user.tenant_id : null, sourceMat[0].name, sourceMat[0].unit, quantity]
+    );
+
+    const transferId = insertResult.insertId;
+
+    if (final_status === 'Completed') {
+      const source = sourceMat[0];
+      
+      let actualSourceMatId = material_id;
+      let actualSourceMat = source;
+
+      // If the request specifies a different from_vendor_id than where the material_id lives
+      // we need to look it up by name in the correct from_vendor location.
+      if (source.vendor_id !== final_from) {
+        const [actualSource] = await connection.query(
+          'SELECT id, name, unit, stock_level, min_stock, supplier_id, cost_per_unit, vendor_id FROM raw_materials WHERE LOWER(name) = LOWER(?) AND (vendor_id = ? OR (vendor_id IS NULL AND ? IS NULL))',
+          [source.name.trim(), final_from, final_from]
+        );
+        if (actualSource.length === 0) {
+          let fromNameStr = final_from ? `Stall #${final_from}` : 'Central Warehouse';
+          throw new Error(`Naming conflict: Could not find material named "${source.name}" in ${fromNameStr}. Please ensure material names match exactly.`);
+        }
+        actualSourceMat = actualSource[0];
+        actualSourceMatId = actualSourceMat.id;
+      }
+
+      if (parseFloat(actualSourceMat.stock_level) < parseFloat(quantity)) {
+        throw new Error(`Insufficient stock in source inventory for "${actualSourceMat.name}". Available: ${actualSourceMat.stock_level}, Required: ${quantity}`);
+      }
+
+      // Deduct from source
+      await connection.query(
+        'UPDATE raw_materials SET stock_level = stock_level - ? WHERE id = ?',
+        [quantity, actualSourceMatId]
+      );
+
+      // Get vendor names for logs
+      let fromName = 'Central Warehouse';
+      if (final_from) {
+        const [fv] = await connection.query('SELECT name FROM vendors WHERE id = ?', [final_from]);
+        if (fv.length > 0) fromName = fv[0].name;
+      }
+      let toName = 'Central Warehouse';
+      if (final_to) {
+        const [tv] = await connection.query('SELECT name FROM vendors WHERE id = ?', [final_to]);
+        if (tv.length > 0) toName = tv[0].name;
+      }
+
+      // Log source deduction
+      await connection.query(
+        "INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id, tenant_id) VALUES (?, ?, 'Transfer Out', ?, ?, ?)",
+        [actualSourceMatId, -quantity, `Transfer to ${toName} (Ref #${transferId})`, final_from, req.user ? req.user.tenant_id : null]
+      );
+
+      // Add to target
+      const [targetMat] = await connection.query(
+        'SELECT id FROM raw_materials WHERE LOWER(name) = LOWER(?) AND (vendor_id = ? OR (vendor_id IS NULL AND ? IS NULL))',
+        [source.name.trim(), final_to, final_to]
+      );
+
+      let targetMatId;
+      if (targetMat.length > 0) {
+        targetMatId = targetMat[0].id;
+        await connection.query(
+          'UPDATE raw_materials SET stock_level = stock_level + ? WHERE id = ?',
+          [quantity, targetMatId]
+        );
+      } else {
+        const [newMatResult] = await connection.query(
+          'INSERT INTO raw_materials (name, unit, stock_level, min_stock, supplier_id, vendor_id, cost_per_unit) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [source.name.trim(), source.unit, quantity, source.min_stock, source.supplier_id, final_to, source.cost_per_unit]
+        );
+        targetMatId = newMatResult.insertId;
+      }
+
+      // Log target addition
+      await connection.query(
+        "INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id, tenant_id) VALUES (?, ?, 'Transfer In', ?, ?, ?)",
+        [targetMatId, quantity, `Transfer from ${fromName} (Ref #${transferId})`, final_to, req.user ? req.user.tenant_id : null]
+      );
+    }
+
+    await connection.commit();
+    res.status(201).json({ success: true, transfer_id: transferId, status: final_status });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error initiating stock transfer:', error);
+    res.status(500).json({ error: error.message || 'Failed to initiate stock transfer.' });
+  } finally {
+    connection.release();
+  }
+});
+
+// Update stock transfer status (Approve, Reject, Complete)
+app.put('/api/stock-transfers/:id', async (req, res) => {
+  const { id } = req.params;
+  const { status, approved_by, rejection_reason } = req.body;
+
+  if (!status || !['Approved', 'Rejected', 'Completed'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status. Must be Approved, Rejected, or Completed.' });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [transfers] = await connection.query(
+      'SELECT * FROM stock_transfers WHERE id = ? FOR UPDATE',
+      [id]
+    );
+
+    if (transfers.length === 0) {
+      throw new Error('Stock transfer request not found.');
+    }
+
+    const transfer = transfers[0];
+
+    // Stall Managers security check
+    if (req.user && req.user.vendor_id) {
+      if (status === 'Completed' || status === 'Approved') {
+        if (transfer.to_vendor_id !== req.user.vendor_id && transfer.from_vendor_id !== req.user.vendor_id) {
+          throw new Error('Forbidden: You cannot approve/complete this transfer.');
+        }
+      } else if (status === 'Rejected') {
+        if (transfer.to_vendor_id !== req.user.vendor_id && transfer.from_vendor_id !== req.user.vendor_id) {
+          throw new Error('Forbidden: You cannot reject this transfer.');
+        }
+      }
+    }
+
+    if (status === 'Completed' && transfer.status !== 'Completed') {
+      // Find the material associated with the transfer request
+      const [reqMat] = await connection.query(
+        'SELECT * FROM raw_materials WHERE id = ? FOR UPDATE',
+        [transfer.material_id]
+      );
+
+      if (reqMat.length === 0) {
+        throw new Error('Requested material not found.');
+      }
+
+      const reqMaterial = reqMat[0];
+      
+      // Determine if the requested material belongs to the source (from_vendor) or target (to_vendor)
+      const reqMatVendorId = reqMaterial.vendor_id;
+      let isSourceMaterial = false;
+      
+      // reqMatVendorId can be null (Central) or a vendor ID
+      if (reqMatVendorId === transfer.from_vendor_id) {
+        isSourceMaterial = true;
+      } else if (reqMatVendorId === transfer.to_vendor_id) {
+        isSourceMaterial = false;
+      } else {
+        // Fallback: assume it is the source
+        isSourceMaterial = true;
+      }
+
+      let sourceMatId, targetMatId;
+      let source, target;
+
+      if (isSourceMaterial) {
+        sourceMatId = reqMaterial.id;
+        source = reqMaterial;
+
+        // Find target by name
+        const [tMat] = await connection.query(
+          'SELECT * FROM raw_materials WHERE LOWER(name) = LOWER(?) AND (vendor_id = ? OR (vendor_id IS NULL AND ? IS NULL))',
+          [reqMaterial.name.trim(), transfer.to_vendor_id, transfer.to_vendor_id]
+        );
+        if (tMat.length > 0) {
+          target = tMat[0];
+          targetMatId = target.id;
+        }
+      } else {
+        targetMatId = reqMaterial.id;
+        target = reqMaterial;
+
+        // Find source by name
+        const [sMat] = await connection.query(
+          'SELECT * FROM raw_materials WHERE LOWER(name) = LOWER(?) AND (vendor_id = ? OR (vendor_id IS NULL AND ? IS NULL)) FOR UPDATE',
+          [reqMaterial.name.trim(), transfer.from_vendor_id, transfer.from_vendor_id]
+        );
+        
+        if (sMat.length > 0) {
+          source = sMat[0];
+          sourceMatId = source.id;
+        } else {
+          // If names don't match, we cannot deduct from source
+          let fromName = transfer.from_vendor_id ? `Stall #${transfer.from_vendor_id}` : 'Central Warehouse';
+          throw new Error(`Naming conflict: Could not find material named "${reqMaterial.name}" in ${fromName}. Please ensure material names match exactly.`);
+        }
+      }
+
+      if (parseFloat(source.stock_level) < parseFloat(transfer.quantity)) {
+        throw new Error(`Insufficient stock in source inventory for "${source.name}". Available: ${source.stock_level}, Required: ${transfer.quantity}`);
+      }
+
+      // Deduct from source
+      await connection.query(
+        'UPDATE raw_materials SET stock_level = stock_level - ? WHERE id = ?',
+        [transfer.quantity, sourceMatId]
+      );
+
+      // Get vendor names for logs
+      let fromName = 'Central Warehouse';
+      if (transfer.from_vendor_id) {
+        const [fv] = await connection.query('SELECT name FROM vendors WHERE id = ?', [transfer.from_vendor_id]);
+        if (fv.length > 0) fromName = fv[0].name;
+      }
+      let toName = 'Central Warehouse';
+      if (transfer.to_vendor_id) {
+        const [tv] = await connection.query('SELECT name FROM vendors WHERE id = ?', [transfer.to_vendor_id]);
+        if (tv.length > 0) toName = tv[0].name;
+      }
+
+      // Log source deduction
+      await connection.query(
+        "INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id, tenant_id) VALUES (?, ?, 'Transfer Out', ?, ?, ?)",
+        [sourceMatId, -transfer.quantity, `Transfer to ${toName} (Ref #${id})`, transfer.from_vendor_id, req.user ? req.user.tenant_id : null]
+      );
+
+      // Add to target
+      if (targetMatId) {
+        await connection.query(
+          'UPDATE raw_materials SET stock_level = stock_level + ? WHERE id = ?',
+          [transfer.quantity, targetMatId]
+        );
+      } else {
+        // Create it in the target location
+        const [newMatResult] = await connection.query(
+          'INSERT INTO raw_materials (name, unit, stock_level, min_stock, supplier_id, vendor_id, cost_per_unit) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [source.name.trim(), source.unit, transfer.quantity, source.min_stock, source.supplier_id, transfer.to_vendor_id, source.cost_per_unit]
+        );
+        targetMatId = newMatResult.insertId;
+      }
+
+      // Log target addition
+      await connection.query(
+        "INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id, tenant_id) VALUES (?, ?, 'Transfer In', ?, ?, ?)",
+        [targetMatId, transfer.quantity, `Transfer from ${fromName} (Ref #${id})`, transfer.to_vendor_id, req.user ? req.user.tenant_id : null]
+      );
+    }
+
+    // Update status in stock_transfers
+    await connection.query(
+      'UPDATE stock_transfers SET status = ?, approved_by = ?, rejection_reason = ? WHERE id = ?',
+      [status, approved_by || (req.user ? req.user.name : 'System'), rejection_reason || null, id]
+    );
+
+    await connection.commit();
+    res.json({ success: true, message: `Transfer status updated to ${status}.` });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error updating stock transfer:', error);
+    res.status(500).json({ error: error.message || 'Failed to update stock transfer.' });
+  } finally {
+    connection.release();
   }
 });
 
@@ -598,14 +1158,21 @@ app.delete('/api/raw-materials/:id', async (req, res) => {
 // Get all recipe mappings grouped by item
 app.get('/api/recipes', async (req, res) => {
   try {
-    const [rows] = await pool.query(`
+    let query = `
       SELECT r.id, r.item_id, i.name as item_name, r.material_id, m.name as material_name, m.unit, r.quantity
       FROM recipes r
       JOIN items i ON r.item_id = i.id
       JOIN raw_materials m ON r.material_id = m.id
       WHERE i.is_deleted = 0
-      ORDER BY i.name
-    `);
+    `;
+    let params = [];
+    if (req.user && req.user.vendor_id) {
+      query += ' AND i.vendor_id = ?';
+      params.push(req.user.vendor_id);
+    }
+    query += ' ORDER BY i.name';
+    
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch recipes' });
@@ -667,13 +1234,30 @@ app.post('/api/recipes', async (req, res) => {
 // Get stock logs
 app.get('/api/stock-logs', async (req, res) => {
   try {
-    const [rows] = await pool.query(`
-      SELECT l.id, l.material_id, m.name as material_name, m.unit, l.change_qty, l.log_type, l.reason, l.logged_at, l.responsible_person
+    let query = `
+      SELECT l.id, l.material_id, m.name as material_name, m.unit, l.change_qty, l.log_type, l.reason, l.logged_at, l.responsible_person, l.vendor_id
       FROM stock_logs l
       JOIN raw_materials m ON l.material_id = m.id
-      ORDER BY l.logged_at DESC
-      LIMIT 100
-    `);
+    `;
+    const params = [];
+    
+    let vendor_id = req.query.vendor_id;
+    if (req.user && req.user.vendor_id) {
+      vendor_id = req.user.vendor_id;
+    }
+    
+    if (vendor_id === 'all') {
+      // Central admin viewing all stalls, no WHERE clause needed
+    } else if (vendor_id && vendor_id !== 'null') {
+      query += ' WHERE l.vendor_id = ?';
+      params.push(parseInt(vendor_id));
+    } else if (vendor_id === 'null' || (req.user && req.user.vendor_id === null)) {
+      query += ' WHERE l.vendor_id IS NULL';
+    }
+
+    query += ' ORDER BY l.logged_at DESC LIMIT 100';
+    
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch stock audit logs' });
@@ -700,13 +1284,20 @@ app.post('/api/stock-logs', async (req, res) => {
     await connection.beginTransaction();
 
     // Check material exists
-    const [existing] = await connection.query('SELECT stock_level, cost_per_unit FROM raw_materials WHERE id = ?', [material_id]);
+    const [existing] = await connection.query('SELECT stock_level, cost_per_unit, vendor_id FROM raw_materials WHERE id = ?', [material_id]);
     if (existing.length === 0) {
       connection.release();
       return res.status(404).json({ error: 'Raw material not found' });
     }
 
-    let currentCost = parseFloat(existing[0].cost_per_unit || 0);
+    const mat = existing[0];
+    if (req.user && req.user.vendor_id && mat.vendor_id !== req.user.vendor_id) {
+      await connection.rollback();
+      connection.release();
+      return res.status(403).json({ error: 'Forbidden: Cannot adjust stock for another stall' });
+    }
+
+    let currentCost = parseFloat(mat.cost_per_unit || 0);
     if (log_type === 'Purchase' && cost_per_unit && parseFloat(cost_per_unit) > 0) {
       currentCost = parseFloat(cost_per_unit);
     }
@@ -714,8 +1305,8 @@ app.post('/api/stock-logs', async (req, res) => {
 
     // Insert Stock Log
     await connection.query(
-      'INSERT INTO stock_logs (material_id, change_qty, recorded_cost, log_type, reason, responsible_person) VALUES (?, ?, ?, ?, ?, ?)',
-      [material_id, adjustedQty, recordedCost, log_type, reason || null, responsible_person || null]
+      'INSERT INTO stock_logs (material_id, change_qty, recorded_cost, log_type, reason, responsible_person, vendor_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [material_id, adjustedQty, recordedCost, log_type, reason || null, responsible_person || null, mat.vendor_id]
     );
 
     // Update current stock level
@@ -754,9 +1345,14 @@ app.post('/api/stock-logs', async (req, res) => {
 
 // Bulk Purchase Entry (Invoice Log)
 app.post('/api/purchase-entry', async (req, res) => {
-  let { supplier_name, invoice_number, items, supplier_id, supplier_details } = req.body;
+  let { supplier_name, invoice_number, items, supplier_id, supplier_details, vendor_id } = req.body;
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Invoice items array is required.' });
+  }
+
+  let final_vendor_id = vendor_id ? parseInt(vendor_id) : null;
+  if (req.user && req.user.vendor_id) {
+    final_vendor_id = req.user.vendor_id;
   }
 
   const connection = await pool.getConnection();
@@ -770,8 +1366,8 @@ app.post('/api/purchase-entry', async (req, res) => {
       const { name, contact_phone, email, payment_terms, items_supplied } = supplier_details;
       sName = name || sName;
       const [insertSupp] = await connection.query(
-        'INSERT INTO suppliers (name, phone, email, payment_terms, items_supplied, outstanding_balance) VALUES (?, ?, ?, ?, ?, 0)',
-        [name, contact_phone || '', email || '', payment_terms || '', items_supplied || '']
+        'INSERT INTO suppliers (name, phone, email, payment_terms, items_supplied, outstanding_balance, vendor_id) VALUES (?, ?, ?, ?, ?, 0, ?)',
+        [name, contact_phone || '', email || '', payment_terms || '', items_supplied || '', final_vendor_id]
       );
       supplier_id = insertSupp.insertId;
     } else if (supplier_id) {
@@ -801,28 +1397,42 @@ app.post('/api/purchase-entry', async (req, res) => {
           throw new Error('Either material_id or material_name is required.');
         }
 
-        // Check if material already exists (case-insensitive)
+        // Check if material already exists for this vendor (case-insensitive)
         const [existing] = await connection.query(
-          'SELECT id FROM raw_materials WHERE LOWER(name) = LOWER(?)',
-          [item.material_name.trim()]
+          'SELECT id FROM raw_materials WHERE LOWER(name) = LOWER(?) AND (vendor_id = ? OR (vendor_id IS NULL AND ? IS NULL))',
+          [item.material_name.trim(), final_vendor_id, final_vendor_id]
         );
 
         if (existing.length > 0) {
           materialId = existing[0].id;
         } else {
-          // Create new material in master list
+          // Create new material
           const [insertResult] = await connection.query(
-            'INSERT INTO raw_materials (name, unit, stock_level, min_stock, supplier_id) VALUES (?, ?, 0, ?, ?)',
-            [item.material_name.trim(), item.unit || 'packet', parseFloat(item.min_stock) || 0.0, supplier_id ? parseInt(supplier_id) : null]
+            'INSERT INTO raw_materials (name, unit, stock_level, min_stock, supplier_id, vendor_id) VALUES (?, ?, 0, ?, ?, ?)',
+            [item.material_name.trim(), item.unit || 'packet', parseFloat(item.min_stock) || 0.0, supplier_id ? parseInt(supplier_id) : null, final_vendor_id]
           );
           materialId = insertResult.insertId;
         }
-      } else if (supplier_id) {
-        // Link existing material to supplier
-        await connection.query(
-          'UPDATE raw_materials SET supplier_id = ? WHERE id = ?',
-          [supplier_id, materialId]
+      } else {
+        // Verify material belongs to target vendor
+        const [matVerify] = await connection.query(
+          'SELECT vendor_id FROM raw_materials WHERE id = ?',
+          [materialId]
         );
+        if (matVerify.length > 0) {
+          const matVendor = matVerify[0].vendor_id;
+          if (matVendor !== final_vendor_id) {
+            throw new Error(`Material ID ${materialId} does not belong to the selected vendor/stall.`);
+          }
+        }
+        
+        if (supplier_id) {
+          // Link existing material to supplier
+          await connection.query(
+            'UPDATE raw_materials SET supplier_id = ? WHERE id = ?',
+            [supplier_id, materialId]
+          );
+        }
       }
 
       // Update current stock level (cumulative addition)
@@ -842,8 +1452,8 @@ app.post('/api/purchase-entry', async (req, res) => {
       // Insert Stock Log (Purchase type)
       const recordedCost = qty * unitCost;
       await connection.query(
-        'INSERT INTO stock_logs (material_id, change_qty, recorded_cost, log_type, reason, supplier_id) VALUES (?, ?, ?, "Purchase", ?, ?)',
-        [materialId, qty, recordedCost, formattedReason, supplier_id || null]
+        'INSERT INTO stock_logs (material_id, change_qty, recorded_cost, log_type, reason, supplier_id, vendor_id) VALUES (?, ?, ?, "Purchase", ?, ?, ?)',
+        [materialId, qty, recordedCost, formattedReason, supplier_id || null, final_vendor_id]
       );
     }
 
@@ -889,7 +1499,8 @@ app.post('/api/orders', async (req, res) => {
     customer_phone = null,
     pickup_slot = null,
     customer_staff_id = null,
-    loyalty_redeem_points = 0   // NEW: loyalty points to redeem as a discount
+    loyalty_redeem_points = 0,   // loyalty points to redeem as a discount
+    vendor_id = null              // stall that placed this order (for wallet settlement tracking)
   } = req.body; // items: Array of { item_id, quantity }
   
   if (!orderItems || !Array.isArray(orderItems) || orderItems.length === 0 || !payment_mode) {
@@ -960,7 +1571,7 @@ app.post('/api/orders', async (req, res) => {
             const qtyNeeded = parseFloat(recipe.quantity) * childQty;
 
             // Fetch current stock
-            const [matRows] = await connection.query('SELECT name, stock_level, unit, cost_per_unit FROM raw_materials WHERE id = ? FOR UPDATE', [matId]);
+            const [matRows] = await connection.query('SELECT name, stock_level, unit, cost_per_unit, vendor_id FROM raw_materials WHERE id = ? FOR UPDATE', [matId]);
             if (matRows.length === 0) {
               throw new Error(`Ingredient for combo component not found in stock master.`);
             }
@@ -977,8 +1588,8 @@ app.post('/api/orders', async (req, res) => {
 
             // Record stock log
             await connection.query(
-              'INSERT INTO stock_logs (material_id, change_qty, log_type, reason) VALUES (?, ?, "Sale Deduction", ?)',
-              [matId, -qtyNeeded, `Combo Component Order: ${valItem.name} -> Item #${comboItem.child_item_id} x${childQty}`]
+              'INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id) VALUES (?, ?, "Sale Deduction", ?, ?)',
+              [matId, -qtyNeeded, `Combo Component Order: ${valItem.name} -> Item #${comboItem.child_item_id} x${childQty}`, mat.vendor_id]
             );
 
             valItem.recordedCogs = (valItem.recordedCogs || 0) + (qtyNeeded * parseFloat(mat.cost_per_unit || 0));
@@ -993,7 +1604,7 @@ app.post('/api/orders', async (req, res) => {
           const qtyNeeded = parseFloat(recipe.quantity) * valItem.quantity;
 
           // Fetch current stock
-          const [matRows] = await connection.query('SELECT name, stock_level, unit, cost_per_unit FROM raw_materials WHERE id = ? FOR UPDATE', [matId]);
+          const [matRows] = await connection.query('SELECT name, stock_level, unit, cost_per_unit, vendor_id FROM raw_materials WHERE id = ? FOR UPDATE', [matId]);
           if (matRows.length === 0) {
             throw new Error(`Ingredient for ${valItem.name} not found in stock master.`);
           }
@@ -1013,8 +1624,8 @@ app.post('/api/orders', async (req, res) => {
 
           // Record stock log
           await connection.query(
-            'INSERT INTO stock_logs (material_id, change_qty, log_type, reason) VALUES (?, ?, "Sale Deduction", ?)',
-            [matId, -qtyNeeded, `Order Token Checkout (Item: ${valItem.name} x${valItem.quantity})`]
+            'INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id) VALUES (?, ?, "Sale Deduction", ?, ?)',
+            [matId, -qtyNeeded, `Order Token Checkout (Item: ${valItem.name} x${valItem.quantity})`, mat.vendor_id]
           );
           
           valItem.recordedCogs = (valItem.recordedCogs || 0) + (qtyNeeded * parseFloat(mat.cost_per_unit || 0));
@@ -1078,9 +1689,9 @@ app.post('/api/orders', async (req, res) => {
         const newBal = parseFloat((currentBal - finalPayable).toFixed(2));
         await connection.query('UPDATE customers SET wallet_balance = ? WHERE id = ?', [newBal, custId]);
         await connection.query(
-          `INSERT INTO wallet_transactions (customer_id, type, amount, meals_count, balance_after, meals_after, reference_id, description)
-           VALUES (?, 'debit', ?, 0, ?, ?, ?, ?)`,
-          [custId, finalPayable, newBal, cust.mess_meals_left || 0, String(orderId), `Order Payment (Token: ${tokenNumber})`]
+          `INSERT INTO wallet_transactions (customer_id, vendor_id, type, amount, meals_count, balance_after, meals_after, reference_id, description)
+           VALUES (?, ?, 'debit', ?, 0, ?, ?, ?, ?)`,
+          [custId, vendor_id || null, finalPayable, newBal, cust.mess_meals_left || 0, String(orderId), `Order Payment (Token: ${tokenNumber})`]
         );
       } else if (payment_mode === 'Mess Plan') {
         // Validate all items are mess-eligible
@@ -1097,9 +1708,9 @@ app.post('/api/orders', async (req, res) => {
         const newMeals = mealsLeft - 1;
         await connection.query('UPDATE customers SET mess_meals_left = ? WHERE id = ?', [newMeals, custId]);
         await connection.query(
-          `INSERT INTO wallet_transactions (customer_id, type, amount, meals_count, balance_after, meals_after, reference_id, description)
-           VALUES (?, 'debit', 0, -1, ?, ?, ?, ?)`,
-          [custId, parseFloat(cust.wallet_balance || 0), newMeals, String(orderId), `Mess Meal Used (Token: ${tokenNumber})`]
+          `INSERT INTO wallet_transactions (customer_id, vendor_id, type, amount, meals_count, balance_after, meals_after, reference_id, description)
+           VALUES (?, ?, 'debit', 0, -1, ?, ?, ?, ?)`,
+          [custId, vendor_id || null, parseFloat(cust.wallet_balance || 0), newMeals, String(orderId), `Mess Meal Used (Token: ${tokenNumber})`]
         );
       }
     }
@@ -1248,7 +1859,10 @@ Item                 Qty
 
 // Get active kitchen orders (Pending + Preparing) with items — polled every 5s by KDS
 app.get('/api/kds/orders', async (req, res) => {
-  const { vendor_id } = req.query;
+  let vendor_id = req.query.vendor_id;
+  if (req.user && req.user.vendor_id) {
+    vendor_id = req.user.vendor_id;
+  }
   try {
     let ordersQuery = '';
     let ordersParams = [];
@@ -1377,10 +1991,14 @@ app.put('/api/orders/:id/status', async (req, res) => {
               for (const recipe of recipesRows) {
                 const matId = recipe.material_id;
                 const qtyRestored = parseFloat(recipe.quantity) * childQty;
+                
+                const [matRows] = await connection.query('SELECT vendor_id FROM raw_materials WHERE id = ?', [matId]);
+                const matVendorId = matRows.length > 0 ? matRows[0].vendor_id : null;
+
                 await connection.query('UPDATE raw_materials SET stock_level = stock_level + ? WHERE id = ?', [qtyRestored, matId]);
                 await connection.query(
-                  'INSERT INTO stock_logs (material_id, change_qty, log_type, reason) VALUES (?, ?, "Adjustment", ?)',
-                  [matId, qtyRestored, `Order Cancellation Reversion (Combo Component of Order #${id})`]
+                  'INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id) VALUES (?, ?, "Adjustment", ?, ?)',
+                  [matId, qtyRestored, `Order Cancellation Reversion (Combo Component of Order #${id})`, matVendorId]
                 );
               }
             }
@@ -1390,10 +2008,14 @@ app.put('/api/orders/:id/status', async (req, res) => {
             for (const recipe of recipesRows) {
               const matId = recipe.material_id;
               const qtyRestored = parseFloat(recipe.quantity) * itemQty;
+
+              const [matRows] = await connection.query('SELECT vendor_id FROM raw_materials WHERE id = ?', [matId]);
+              const matVendorId = matRows.length > 0 ? matRows[0].vendor_id : null;
+
               await connection.query('UPDATE raw_materials SET stock_level = stock_level + ? WHERE id = ?', [qtyRestored, matId]);
               await connection.query(
-                'INSERT INTO stock_logs (material_id, change_qty, log_type, reason) VALUES (?, ?, "Adjustment", ?)',
-                [matId, qtyRestored, `Order Cancellation Reversion (Order #${id})`]
+                'INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id) VALUES (?, ?, "Adjustment", ?, ?)',
+                [matId, qtyRestored, `Order Cancellation Reversion (Order #${id})`, matVendorId]
               );
             }
           }
@@ -1516,14 +2138,39 @@ app.get('/api/orders/:id/status', async (req, res) => {
 // Get all orders with items
 app.get('/api/orders', async (req, res) => {
   try {
-    const [orders] = await pool.query('SELECT * FROM orders ORDER BY order_date DESC LIMIT 100');
+    const { vendor_id } = req.query;
+
+    let orderQuery;
+    let orderParams = [];
+
+    if (vendor_id) {
+      // Stall Manager: only orders that contain at least one item from their stall
+      orderQuery = `
+        SELECT DISTINCT o.*
+        FROM orders o
+        JOIN order_items oi ON oi.order_id = o.id
+        JOIN items i ON oi.item_id = i.id
+        WHERE i.vendor_id = ?
+        ORDER BY o.order_date DESC
+        LIMIT 200
+      `;
+      orderParams = [vendor_id];
+    } else {
+      // Central Admin: all orders
+      orderQuery = 'SELECT * FROM orders ORDER BY order_date DESC LIMIT 200';
+    }
+
+    const [orders] = await pool.query(orderQuery, orderParams);
     if (orders.length === 0) return res.json([]);
-    
+
     const orderIds = orders.map(o => o.id);
     const [items] = await pool.query(`
-      SELECT oi.order_id, oi.quantity, oi.price, oi.spice_level, oi.special_instructions, i.name, i.vendor_id
+      SELECT oi.order_id, oi.item_id, oi.quantity, oi.price, oi.spice_level, oi.special_instructions,
+             i.name, i.vendor_id,
+             v.name AS vendor_name, v.stall_number
       FROM order_items oi
       JOIN items i ON oi.item_id = i.id
+      LEFT JOIN vendors v ON i.vendor_id = v.id
       WHERE oi.order_id IN (?)
     `, [orderIds]);
 
@@ -1533,13 +2180,17 @@ app.get('/api/orders', async (req, res) => {
       itemsByOrder[item.order_id].push(item);
     });
 
+    // If filtering by vendor_id, only include items from that vendor in each order
     const result = orders.map(order => ({
       ...order,
-      items: itemsByOrder[order.id] || []
+      items: vendor_id
+        ? (itemsByOrder[order.id] || []).filter(it => String(it.vendor_id) === String(vendor_id))
+        : (itemsByOrder[order.id] || [])
     }));
 
     res.json(result);
   } catch (error) {
+    console.error('Error fetching orders:', error);
     res.status(500).json({ error: 'Failed to fetch orders' });
   }
 });
@@ -1774,13 +2425,151 @@ app.put('/api/vendors/settlements/:id/settle', async (req, res) => {
 });
 
 // ==========================================
+// 8.5 CENTRAL ORDER SETTLEMENTS (Task 5)
+// ==========================================
+
+// Get all stalls with their total pending payout (centrally placed POS/QR orders)
+app.get('/api/vendors/central-settlements/pending', async (req, res) => {
+  const tenantId = req.user.tenant_id;
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        v.id, 
+        v.name, 
+        v.stall_number, 
+        v.commission_rate,
+        IFNULL((
+          SELECT SUM(oi.quantity * oi.price)
+          FROM order_items oi
+          JOIN items i ON oi.item_id = i.id
+          JOIN orders o ON oi.order_id = o.id
+          LEFT JOIN staff s ON o.billing_staff_id = s.id
+          WHERE i.vendor_id = v.id
+            AND oi.central_settlement_id IS NULL
+            AND o.status != 'Cancelled'
+            AND o.tenant_id = ?
+            AND (o.order_source = 'QR' OR o.billing_staff_id IS NULL OR s.vendor_id IS NULL)
+        ), 0) AS pending_amount
+      FROM vendors v
+      WHERE v.tenant_id = ?
+    `, [tenantId, tenantId]);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching pending central settlements:', error);
+    res.status(500).json({ error: 'Failed to fetch pending central settlements' });
+  }
+});
+
+// Get pending itemized central orders for a specific vendor
+app.get('/api/vendors/central-settlements/pending/:vendorId', async (req, res) => {
+  const { vendorId } = req.params;
+  const tenantId = req.user.tenant_id;
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        oi.id AS order_item_id,
+        o.id AS order_id,
+        o.token_number,
+        o.order_date,
+        o.order_source,
+        i.name AS item_name,
+        oi.quantity,
+        oi.price,
+        (oi.quantity * oi.price) AS total_price
+      FROM order_items oi
+      JOIN orders o ON oi.order_id = o.id
+      JOIN items i ON oi.item_id = i.id
+      LEFT JOIN staff s ON o.billing_staff_id = s.id
+      WHERE oi.central_settlement_id IS NULL
+        AND i.vendor_id = ?
+        AND o.status != 'Cancelled'
+        AND (o.order_source = 'QR' OR (o.order_source = 'POS' AND (o.billing_staff_id IS NULL OR s.vendor_id IS NULL)))
+        AND o.tenant_id = ?
+      ORDER BY o.order_date DESC
+    `, [vendorId, tenantId]);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching pending items for vendor:', error);
+    res.status(500).json({ error: 'Failed to fetch pending items' });
+  }
+});
+
+// Process a payout settlement for a vendor
+app.post('/api/vendors/central-settlements/settle', async (req, res) => {
+  const { vendorId, orderItemIds, amount } = req.body;
+  const tenantId = req.user.tenant_id;
+  if (!vendorId || !orderItemIds || !Array.isArray(orderItemIds) || orderItemIds.length === 0 || amount === undefined) {
+    return res.status(400).json({ error: 'vendorId, orderItemIds (array), and amount are required.' });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Insert payout record
+    const [insertResult] = await connection.query(`
+      INSERT INTO central_settlements (vendor_id, amount, tenant_id)
+      VALUES (?, ?, ?)
+    `, [vendorId, parseFloat(amount), tenantId]);
+
+    const settlementId = insertResult.insertId;
+
+    // 2. Mark order items as settled
+    await connection.query(`
+      UPDATE order_items 
+      SET central_settlement_id = ? 
+      WHERE id IN (?)
+    `, [settlementId, orderItemIds]);
+
+    await connection.commit();
+    res.json({ success: true, message: 'Payout settled successfully', settlementId });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Settle transaction failed:', error);
+    res.status(500).json({ error: 'Failed to process payout settlement' });
+  } finally {
+    connection.release();
+  }
+});
+
+// Get settlement history
+app.get('/api/vendors/central-settlements/history', async (req, res) => {
+  const tenantId = req.user.tenant_id;
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        cs.id,
+        cs.amount,
+        cs.settled_at,
+        v.name as vendor_name,
+        v.stall_number
+      FROM central_settlements cs
+      JOIN vendors v ON cs.vendor_id = v.id
+      WHERE cs.tenant_id = ?
+      ORDER BY cs.settled_at DESC
+    `, [tenantId]);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching settlement history:', error);
+    res.status(500).json({ error: 'Failed to fetch settlement history' });
+  }
+});
+
+// ==========================================
 // 9. STAFF CRUD API (HR)
 // ==========================================
 
 // Get all staff
 app.get('/api/staff', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM staff ORDER BY name');
+    let query = 'SELECT * FROM staff';
+    const params = [];
+    if (req.user.vendor_id) {
+      query += ' WHERE vendor_id = ?';
+      params.push(req.user.vendor_id);
+    }
+    query += ' ORDER BY name';
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching staff:', error);
@@ -1879,37 +2668,30 @@ app.get('/api/staff/:id', async (req, res) => {
 
 // Add a staff member
 app.post('/api/staff', async (req, res) => {
-  const { name, phone, email, role, pay_type, daily_rate, monthly_salary, pf_enabled, esi_enabled, tds_percentage, bank_account, vendor_id, exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance } = req.body;
-  if (!name || !role) {
-    return res.status(400).json({ error: 'Name and Role are required.' });
+  const {
+    name, phone, email, password, role, pay_type, daily_rate, monthly_salary,
+    pf_enabled, esi_enabled, tds_percentage, bank_account, joined_at,
+    exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance, vendor_id
+  } = req.body;
+
+  let assigned_vendor_id = vendor_id || null;
+  if (req.user.vendor_id) {
+    assigned_vendor_id = req.user.vendor_id;
   }
 
   try {
-    // Generate default password if not provided
-    const defaultPassword = 'password123';
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(defaultPassword, salt);
-
+    const passwordHash = password ? await bcrypt.hash(password, 10) : null;
     const [result] = await pool.query(
-      `INSERT INTO staff (name, phone, email, role, pay_type, daily_rate, monthly_salary, pf_enabled, esi_enabled, tds_percentage, bank_account, joined_at, is_active, vendor_id, password_hash, exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 1, ?, ?, ?, ?, ?, ?)`,[
-        name,
-        phone || null,
-        email || null,
-        role,
-        pay_type || 'monthly',
-        daily_rate || 0,
-        monthly_salary || 0,
-        pf_enabled ? 1 : 0,
-        esi_enabled ? 1 : 0,
-        tds_percentage || 0,
-        bank_account || null,
-        vendor_id ? parseInt(vendor_id) : null,
-        hashedPassword,
-        exclude_from_payroll ? 1 : 0,
-        exclude_from_roster ? 1 : 0,
-        exclude_from_attendance ? 1 : 0,
-        exclude_from_performance ? 1 : 0
+      `INSERT INTO staff (
+        name, phone, email, password_hash, role, pay_type, daily_rate, monthly_salary,
+        pf_enabled, esi_enabled, tds_percentage, bank_account, joined_at,
+        exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance, vendor_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        name, phone, email, passwordHash, role, pay_type, daily_rate || 0, monthly_salary || 0,
+        pf_enabled || 0, esi_enabled || 0, tds_percentage || 0.00, bank_account, joined_at,
+        exclude_from_payroll || 0, exclude_from_roster || 0, exclude_from_attendance || 0, exclude_from_performance || 0,
+        assigned_vendor_id
       ]
     );
     res.status(201).json({
@@ -1965,11 +2747,17 @@ app.put('/api/staff/:id', async (req, res) => {
     const updateExcludeAttendance = exclude_from_attendance !== undefined ? (exclude_from_attendance ? 1 : 0) : s.exclude_from_attendance;
     const updateExcludePerformance = exclude_from_performance !== undefined ? (exclude_from_performance ? 1 : 0) : s.exclude_from_performance;
 
+    let updatePasswordHash = s.password_hash;
+    if (req.body.password) {
+      const salt = await bcrypt.genSalt(10);
+      updatePasswordHash = await bcrypt.hash(req.body.password, salt);
+    }
+
     await pool.query(
       `UPDATE staff SET name = ?, phone = ?, email = ?, role = ?, pay_type = ?, daily_rate = ?, monthly_salary = ?,
-       pf_enabled = ?, esi_enabled = ?, tds_percentage = ?, bank_account = ?, is_active = ?, vendor_id = ?, exclude_from_payroll = ?, exclude_from_roster = ?, exclude_from_attendance = ?, exclude_from_performance = ? WHERE id = ?`,
+       pf_enabled = ?, esi_enabled = ?, tds_percentage = ?, bank_account = ?, is_active = ?, vendor_id = ?, exclude_from_payroll = ?, exclude_from_roster = ?, exclude_from_attendance = ?, exclude_from_performance = ?, password_hash = ? WHERE id = ?`,
       [updateName, updatePhone, updateEmail, updateRole, updatePayType, updateDailyRate, updateMonthlySalary,
-       updatePf, updateEsi, updateTds, updateBank, updateActive, updateVendor, updateExclude, updateExcludeRoster, updateExcludeAttendance, updateExcludePerformance, id]
+       updatePf, updateEsi, updateTds, updateBank, updateActive, updateVendor, updateExclude, updateExcludeRoster, updateExcludeAttendance, updateExcludePerformance, updatePasswordHash, id]
     );
 
     res.json({
@@ -3850,14 +4638,14 @@ app.post('/api/stock/opening-entry', async (req, res) => {
     for (const entry of entries) {
       const matId = parseInt(entry.material_id);
       const opQty = parseFloat(entry.opening_qty);
-      const [mat] = await connection.query('SELECT stock_level FROM raw_materials WHERE id = ? FOR UPDATE', [matId]);
+      const [mat] = await connection.query('SELECT stock_level, vendor_id FROM raw_materials WHERE id = ? FOR UPDATE', [matId]);
       if (mat.length > 0) {
         const current = parseFloat(mat[0].stock_level);
         const diff = opQty - current;
         await connection.query('UPDATE raw_materials SET stock_level = ? WHERE id = ?', [opQty, matId]);
         await connection.query(
-          'INSERT INTO stock_logs (material_id, change_qty, log_type, reason) VALUES (?, ?, "Opening", ?)',
-          [matId, diff, 'Bulk Opening Stock Entry']
+          'INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id) VALUES (?, ?, "Opening", ?, ?)',
+          [matId, diff, 'Bulk Opening Stock Entry', mat[0].vendor_id]
         );
       }
     }
@@ -3885,14 +4673,14 @@ app.post('/api/stock/closing-entry', async (req, res) => {
     for (const entry of entries) {
       const matId = parseInt(entry.material_id);
       const physQty = parseFloat(entry.physical_qty);
-      const [mat] = await connection.query('SELECT name, stock_level FROM raw_materials WHERE id = ? FOR UPDATE', [matId]);
+      const [mat] = await connection.query('SELECT name, stock_level, vendor_id FROM raw_materials WHERE id = ? FOR UPDATE', [matId]);
       if (mat.length > 0) {
         const systemQty = parseFloat(mat[0].stock_level);
         const variance = physQty - systemQty;
         await connection.query('UPDATE raw_materials SET stock_level = ? WHERE id = ?', [physQty, matId]);
         await connection.query(
-          'INSERT INTO stock_logs (material_id, change_qty, log_type, reason) VALUES (?, ?, "Closing", ?)',
-          [matId, variance, `Daily Physical Closing Count (System: ${systemQty.toFixed(2)}, Physical: ${physQty.toFixed(2)}, Var: ${variance.toFixed(2)})`]
+          'INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id) VALUES (?, ?, "Closing", ?, ?)',
+          [matId, variance, `Daily Physical Closing Count (System: ${systemQty.toFixed(2)}, Physical: ${physQty.toFixed(2)}, Var: ${variance.toFixed(2)})`, mat[0].vendor_id]
         );
         results.push({
           material_id: matId,
@@ -3917,7 +4705,30 @@ app.post('/api/stock/closing-entry', async (req, res) => {
 // Suppliers CRUD
 app.get('/api/suppliers', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM suppliers ORDER BY name');
+    let query = `
+      SELECT s.*, IFNULL(SUM(CASE WHEN l.log_type = 'Purchase' AND l.payment_status = 'Pending' THEN l.recorded_cost ELSE 0 END), 0) as outstanding_balance
+      FROM suppliers s
+      LEFT JOIN stock_logs l ON s.id = l.supplier_id
+    `;
+    let params = [];
+    
+    let vendor_id = req.query.vendor_id;
+    if (req.user && req.user.vendor_id) {
+      vendor_id = req.user.vendor_id;
+    }
+    
+    if (vendor_id === 'all') {
+      // Central admin viewing all stalls, no WHERE clause needed
+    } else if (vendor_id && vendor_id !== 'null') {
+      query += ' WHERE s.vendor_id = ?';
+      params.push(parseInt(vendor_id));
+    } else if (vendor_id === 'null' || (req.user && req.user.vendor_id === null)) {
+      query += ' WHERE s.vendor_id IS NULL'; // Central Store
+    }
+    
+    query += ' GROUP BY s.id ORDER BY s.name';
+    
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching suppliers:', error);
@@ -3942,16 +4753,57 @@ app.get('/api/suppliers/:id/history', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch supplier history' });
   }
 });
+
+app.get('/api/suppliers/:id/pending-bills', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await pool.query(`
+      SELECT sl.id, sl.logged_at, sl.change_qty, sl.recorded_cost, rm.name as material_name, rm.unit
+      FROM stock_logs sl
+      JOIN raw_materials rm ON sl.material_id = rm.id
+      WHERE sl.supplier_id = ? AND sl.log_type = 'Purchase' AND sl.payment_status = 'Pending'
+      ORDER BY sl.logged_at ASC
+    `, [id]);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching pending bills:', error);
+    res.status(500).json({ error: 'Failed to fetch pending bills' });
+  }
+});
+
+app.post('/api/suppliers/:id/pay', async (req, res) => {
+  const { id } = req.params;
+  const { log_ids } = req.body;
+  if (!log_ids || log_ids.length === 0) return res.status(400).json({ error: 'No bills selected' });
+  try {
+    const placeholders = log_ids.map(() => '?').join(',');
+    await pool.query(`
+      UPDATE stock_logs 
+      SET payment_status = 'Paid' 
+      WHERE supplier_id = ? AND log_type = 'Purchase' AND id IN (${placeholders})
+    `, [id, ...log_ids]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error settling bills:', error);
+    res.status(500).json({ error: 'Failed to settle bills' });
+  }
+});
 app.post('/api/suppliers', async (req, res) => {
-  const { name, contact_person, phone, email, address, payment_terms, items_supplied, delivery_schedule } = req.body;
+  const { name, contact_person, phone, email, address, gst_no, payment_terms, items_supplied, delivery_schedule, vendor_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Supplier name is required.' });
+
+  let final_vendor_id = vendor_id ? parseInt(vendor_id) : null;
+  if (req.user && req.user.vendor_id) {
+    final_vendor_id = req.user.vendor_id;
+  }
+
   try {
     const [result] = await pool.query(
-      `INSERT INTO suppliers (name, contact_person, phone, email, address, payment_terms, items_supplied, delivery_schedule) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, contact_person || null, phone || null, email || null, address || null, payment_terms || 'Net 30', items_supplied || null, delivery_schedule || null]
+      `INSERT INTO suppliers (name, contact_person, phone, email, address, gst_no, payment_terms, items_supplied, delivery_schedule, vendor_id) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, contact_person || null, phone || null, email || null, address || null, gst_no || null, payment_terms || 'Net 30', items_supplied || null, delivery_schedule || null, final_vendor_id]
     );
-    res.status(201).json({ id: result.insertId, name, contact_person, phone, email, address, payment_terms, items_supplied, delivery_schedule, outstanding_balance: 0.00 });
+    res.status(201).json({ id: result.insertId, name, contact_person, phone, email, address, gst_no, payment_terms, items_supplied, delivery_schedule, outstanding_balance: 0.00, vendor_id: final_vendor_id });
   } catch (error) {
     console.error('Error creating supplier:', error);
     res.status(500).json({ error: 'Failed to create supplier' });
@@ -3959,14 +4811,26 @@ app.post('/api/suppliers', async (req, res) => {
 });
 app.put('/api/suppliers/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, contact_person, phone, email, address, payment_terms, items_supplied, delivery_schedule, outstanding_balance } = req.body;
+  const { name, contact_person, phone, email, address, gst_no, payment_terms, items_supplied, delivery_schedule, vendor_id } = req.body;
+
+  let final_vendor_id = vendor_id ? parseInt(vendor_id) : null;
+  if (req.user && req.user.vendor_id) {
+    final_vendor_id = req.user.vendor_id;
+  }
+
   try {
+    // Enforce vendor_id boundary for stall managers
+    const [existing] = await pool.query('SELECT * FROM suppliers WHERE id = ?', [id]);
+    if (existing.length > 0 && req.user && req.user.vendor_id && existing[0].vendor_id !== req.user.vendor_id) {
+      return res.status(403).json({ error: "Forbidden: Cannot modify another stall's supplier" });
+    }
+
     await pool.query(
-      `UPDATE suppliers SET name = ?, contact_person = ?, phone = ?, email = ?, address = ?, payment_terms = ?, items_supplied = ?, delivery_schedule = ?, outstanding_balance = ?
+      `UPDATE suppliers SET name = ?, contact_person = ?, phone = ?, email = ?, address = ?, gst_no = ?, payment_terms = ?, items_supplied = ?, delivery_schedule = ?, vendor_id = ?
        WHERE id = ?`,
-      [name, contact_person || null, phone || null, email || null, address || null, payment_terms, items_supplied || null, delivery_schedule || null, outstanding_balance || 0.00, id]
+      [name, contact_person || null, phone || null, email || null, address || null, gst_no || null, payment_terms, items_supplied || null, delivery_schedule || null, final_vendor_id, id]
     );
-    res.json({ id: parseInt(id), name, contact_person, phone, email, address, payment_terms, items_supplied, delivery_schedule, outstanding_balance });
+    res.json({ id: parseInt(id), name, contact_person, phone, email, address, gst_no, payment_terms, items_supplied, delivery_schedule, vendor_id: final_vendor_id });
   } catch (error) {
     console.error('Error updating supplier:', error);
     res.status(500).json({ error: 'Failed to update supplier' });
@@ -4948,6 +5812,63 @@ app.put('/api/wallet/assign-rfid', authenticateToken, async (req, res) => {
 
 
 
+
+// ==========================================
+// SAAS TENANT MANAGEMENT (SUPER ADMIN)
+// ==========================================
+app.get('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT id, name, owner_email, plan, is_active, created_at FROM tenants ORDER BY id DESC');
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching tenants:', error);
+    res.status(500).json({ error: 'Failed to fetch tenants' });
+  }
+});
+
+app.post('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
+  const { name, owner_name, email, password } = req.body;
+  if (!name || !owner_name || !email || !password) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // 1. Check if email already exists
+    const [existing] = await conn.query('SELECT id FROM staff WHERE email = ?', [email]);
+    if (existing.length > 0) {
+      throw new Error('Email is already registered');
+    }
+
+    // 2. Create the tenant
+    const [tenantResult] = await conn.query(
+      'INSERT INTO tenants (name, owner_email) VALUES (?, ?)',
+      [name, email]
+    );
+    const tenantId = tenantResult.insertId;
+
+    // 3. Create the owner user
+    const bcrypt = require('bcryptjs');
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    await conn.query(
+      'INSERT INTO staff (name, email, password_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?)',
+      [owner_name, email, hashedPassword, 'Owner', tenantId]
+    );
+
+    await conn.commit();
+    res.status(201).json({ success: true, message: 'Food Court registered successfully', tenant_id: tenantId });
+  } catch (error) {
+    await conn.rollback();
+    console.error('Error creating tenant:', error);
+    res.status(400).json({ error: error.message || 'Failed to register food court' });
+  } finally {
+    conn.release();
+  }
+});
 
 // ==========================================
 // SPA Fallback — serve React app for /menu and all frontend routes

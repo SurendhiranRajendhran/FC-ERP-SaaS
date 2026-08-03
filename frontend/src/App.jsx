@@ -28,6 +28,319 @@ window.fetch = async (...args) => {
   return response;
 };
 
+
+
+// --- SUPER ADMIN DASHBOARD ---
+function SuperAdminDashboard({ user, onLogout }) {
+  const [tenants, setTenants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [formParams, setFormParams] = useState({ name: '', owner_name: '', email: '', password: '' });
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    fetchTenants();
+  }, []);
+
+  const fetchTenants = async () => {
+    try {
+      const res = await originalFetch(`${API_BASE}/tenants`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (Array.isArray(data)) setTenants(data);
+    } catch (err) {
+      console.error('Failed to fetch tenants:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddTenant = async (e) => {
+    e.preventDefault();
+    setAdding(true);
+    try {
+      const res = await originalFetch(`${API_BASE}/tenants`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify(formParams)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add food court');
+      
+      setShowAddModal(false);
+      setFormParams({ name: '', owner_name: '', email: '', password: '' });
+      fetchTenants();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  /* ── Inline styles scoped to Super Admin only ── */
+  const saStyles = {
+    container: { display: 'flex', height: '100vh', background: '#0a0a0f', color: '#e2e8f0', fontFamily: "'Inter', 'Segoe UI', sans-serif", overflow: 'hidden' },
+    sidebar: { width: '260px', background: '#111118', borderRight: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', flexShrink: 0 },
+    sidebarLogo: { padding: '28px 24px', display: 'flex', alignItems: 'center', gap: '12px' },
+    logoTitle: { fontSize: '1.1rem', fontWeight: 700, letterSpacing: '1.5px', color: '#f1f5f9', margin: 0 },
+    logoSub: { fontSize: '0.7rem', color: '#64748b', margin: 0, letterSpacing: '0.5px' },
+    navList: { listStyle: 'none', padding: '12px 16px', margin: 0, flex: 1 },
+    navItem: (active) => ({
+      display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '10px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 500, marginBottom: '4px', transition: 'all 0.2s',
+      color: active ? '#f1f5f9' : '#94a3b8',
+      background: active ? 'linear-gradient(135deg, rgba(138,75,241,0.18), rgba(138,75,241,0.04))' : 'transparent',
+      border: active ? '1px solid rgba(138,75,241,0.25)' : '1px solid transparent',
+    }),
+    footer: { padding: '20px', borderTop: '1px solid rgba(255,255,255,0.06)' },
+    footerProfile: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' },
+    avatar: { width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.9rem', color: '#fff', flexShrink: 0 },
+    profileName: { fontSize: '0.85rem', fontWeight: 600, color: '#f1f5f9', margin: 0 },
+    profileRole: { fontSize: '0.72rem', color: '#64748b', margin: 0 },
+    logoutBtn: { width: '100%', padding: '8px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', borderRadius: '8px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 500, transition: 'all 0.2s' },
+    main: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+    topBar: { padding: '20px 32px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+    topTitle: { fontSize: '1.5rem', fontWeight: 700, color: '#f1f5f9', margin: 0 },
+    topSub: { fontSize: '0.85rem', color: '#64748b', margin: '4px 0 0 0' },
+    statusBadge: { background: '#111118', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.85rem', color: '#94a3b8' },
+    content: { flex: 1, padding: '28px 32px', overflowY: 'auto' },
+    statsRow: { display: 'flex', gap: '20px', marginBottom: '28px' },
+    statCard: (borderColor) => ({
+      flex: 1, background: '#111118', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', padding: '24px', borderLeft: `4px solid ${borderColor}`, display: 'flex', flexDirection: 'column',
+    }),
+    statLabel: { fontSize: '0.78rem', fontWeight: 700, color: '#64748b', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' },
+    statValue: { fontSize: '2.4rem', fontWeight: 800, color: '#f1f5f9' },
+    tableCard: { background: '#111118', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', padding: '24px' },
+    tableHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
+    tableTitle: { fontSize: '1.1rem', fontWeight: 700, color: '#f1f5f9', margin: 0 },
+    addBtn: { padding: '10px 22px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 600, transition: 'all 0.2s', boxShadow: '0 4px 15px rgba(139,92,246,0.3)' },
+    th: { textAlign: 'left', padding: '12px 16px', fontSize: '0.78rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.5px', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+    td: { padding: '14px 16px', fontSize: '0.88rem', borderBottom: '1px solid rgba(255,255,255,0.04)' },
+    // Modal styles
+    overlay: { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+    modal: { background: '#16161e', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', width: '100%', maxWidth: '460px', boxShadow: '0 25px 50px rgba(0,0,0,0.5)' },
+    modalHeader: { padding: '24px 28px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+    modalTitle: { fontSize: '1.15rem', fontWeight: 700, color: '#f1f5f9', margin: 0 },
+    closeBtn: { background: 'none', border: 'none', color: '#94a3b8', fontSize: '1.5rem', cursor: 'pointer', padding: '4px', lineHeight: 1 },
+    modalBody: { padding: '24px 28px' },
+    formGroup: { marginBottom: '18px' },
+    formLabel: { display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#94a3b8', marginBottom: '6px' },
+    formInput: { width: '100%', padding: '10px 14px', background: '#0a0a0f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#f1f5f9', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box', transition: 'border-color 0.2s' },
+    modalActions: { display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' },
+    cancelBtn: { padding: '10px 20px', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', borderRadius: '8px', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 500 },
+    submitBtn: (disabled) => ({
+      padding: '10px 24px', background: disabled ? '#4c3a7a' : 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: '#fff', border: 'none', borderRadius: '8px', cursor: disabled ? 'not-allowed' : 'pointer', fontSize: '0.88rem', fontWeight: 600, opacity: disabled ? 0.6 : 1,
+    }),
+  };
+
+  return (
+    <div style={saStyles.container}>
+      {/* ── SIDEBAR ── */}
+      <aside style={saStyles.sidebar}>
+        <div style={saStyles.sidebarLogo}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2" width="30" height="30">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+          </svg>
+          <div>
+            <p style={saStyles.logoTitle}>ERP</p>
+            <p style={saStyles.logoSub}>SaaS Control Panel</p>
+          </div>
+        </div>
+
+        <ul style={saStyles.navList}>
+          <li style={saStyles.navItem(true)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><path d="M3 9h18M9 21V9" />
+            </svg>
+            Food Courts
+          </li>
+          <li style={saStyles.navItem(false)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+              <path d="M12 20v-6M6 20V10M18 20V4" />
+            </svg>
+            Analytics (Soon)
+          </li>
+        </ul>
+
+        <div style={saStyles.footer}>
+          <div style={saStyles.footerProfile}>
+            <div style={saStyles.avatar}>{user.name ? user.name.charAt(0).toUpperCase() : 'S'}</div>
+            <div>
+              <p style={saStyles.profileName}>{user.name || 'Super Admin'}</p>
+              <p style={saStyles.profileRole}>Super Admin</p>
+            </div>
+          </div>
+          <button style={saStyles.logoutBtn} onClick={onLogout}
+            onMouseEnter={e => { e.target.style.background = 'rgba(239,68,68,0.18)'; }}
+            onMouseLeave={e => { e.target.style.background = 'rgba(239,68,68,0.08)'; }}>
+            Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* ── MAIN CONTENT ── */}
+      <div style={saStyles.main}>
+        <div style={saStyles.topBar}>
+          <div>
+            <h1 style={saStyles.topTitle}>Platform Overview</h1>
+            <p style={saStyles.topSub}>Manage all registered food courts and subscriptions</p>
+          </div>
+          <span style={saStyles.statusBadge}>
+            Platform Status: <span style={{color: '#10b981', fontWeight: 700}}> Operational</span>
+          </span>
+        </div>
+
+        <div style={saStyles.content}>
+          {/* Stats Row */}
+          <div style={saStyles.statsRow}>
+            <div style={saStyles.statCard('#8b5cf6')}>
+              <span style={saStyles.statLabel}>Total Food Courts</span>
+              <span style={saStyles.statValue}>{tenants.length}</span>
+            </div>
+            <div style={saStyles.statCard('#10b981')}>
+              <span style={saStyles.statLabel}>Active Tenants</span>
+              <span style={saStyles.statValue}>{tenants.filter(t => t.is_active).length}</span>
+            </div>
+            <div style={saStyles.statCard('#f59e0b')}>
+              <span style={saStyles.statLabel}>System Alerts</span>
+              <span style={saStyles.statValue}>0</span>
+            </div>
+          </div>
+
+          {/* Food Courts Table */}
+          <div style={saStyles.tableCard}>
+            <div style={saStyles.tableHeader}>
+              <h3 style={saStyles.tableTitle}>Registered Food Courts</h3>
+              <button style={saStyles.addBtn} onClick={() => setShowAddModal(true)}
+                onMouseEnter={e => { e.target.style.transform = 'translateY(-1px)'; e.target.style.boxShadow = '0 6px 20px rgba(139,92,246,0.4)'; }}
+                onMouseLeave={e => { e.target.style.transform = 'translateY(0)'; e.target.style.boxShadow = '0 4px 15px rgba(139,92,246,0.3)'; }}>
+                + Add New Food Court
+              </button>
+            </div>
+
+            {loading ? (
+              <div style={{textAlign: 'center', padding: '48px', color: '#64748b'}}>
+                <div style={{marginBottom: '12px', fontSize: '1.5rem'}}>⏳</div>
+                Loading food courts...
+              </div>
+            ) : tenants.length === 0 ? (
+              <div style={{textAlign: 'center', padding: '48px', color: '#64748b'}}>
+                <div style={{marginBottom: '12px', fontSize: '2rem'}}>🏗️</div>
+                <p style={{margin: 0, fontSize: '0.95rem'}}>No food courts registered yet.</p>
+                <p style={{margin: '8px 0 0 0', fontSize: '0.82rem'}}>Click "+ Add New Food Court" to get started.</p>
+              </div>
+            ) : (
+              <div style={{overflowX: 'auto'}}>
+                <table style={{width: '100%', borderCollapse: 'collapse'}}>
+                  <thead>
+                    <tr>
+                      <th style={saStyles.th}>ID</th>
+                      <th style={saStyles.th}>Food Court Name</th>
+                      <th style={saStyles.th}>Owner Email</th>
+                      <th style={saStyles.th}>Plan</th>
+                      <th style={{...saStyles.th, textAlign: 'center'}}>Status</th>
+                      <th style={{...saStyles.th, textAlign: 'right'}}>Registered</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tenants.map(t => (
+                      <tr key={t.id} style={{transition: 'background 0.15s'}}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+                        <td style={saStyles.td}>
+                          <span style={{color: '#64748b'}}>#{t.id}</span>
+                        </td>
+                        <td style={{...saStyles.td, fontWeight: 700, color: '#8b5cf6'}}>{t.name}</td>
+                        <td style={{...saStyles.td, color: '#94a3b8'}}>{t.owner_email}</td>
+                        <td style={saStyles.td}>
+                          <span style={{background: 'rgba(255,255,255,0.04)', padding: '4px 12px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '1px', color: '#94a3b8'}}>
+                            {t.plan}
+                          </span>
+                        </td>
+                        <td style={{...saStyles.td, textAlign: 'center'}}>
+                          {t.is_active ? (
+                            <span style={{display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600}}>
+                              <span style={{width: '6px', height: '6px', borderRadius: '50%', background: '#10b981'}}></span> Active
+                            </span>
+                          ) : (
+                            <span style={{display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600}}>
+                              <span style={{width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444'}}></span> Inactive
+                            </span>
+                          )}
+                        </td>
+                        <td style={{...saStyles.td, textAlign: 'right', color: '#64748b'}}>
+                          {new Date(t.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── ADD FOOD COURT MODAL ── */}
+      {showAddModal && (
+        <div style={saStyles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setShowAddModal(false); }}>
+          <div style={saStyles.modal}>
+            <div style={saStyles.modalHeader}>
+              <h2 style={saStyles.modalTitle}>Register New Food Court</h2>
+              <button style={saStyles.closeBtn} onClick={() => setShowAddModal(false)}>&times;</button>
+            </div>
+            <div style={saStyles.modalBody}>
+              <form onSubmit={handleAddTenant}>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Food Court Name</label>
+                  <input style={saStyles.formInput} type="text" required value={formParams.name}
+                    onChange={e => setFormParams({...formParams, name: e.target.value})}
+                    placeholder="e.g. City Center Mall Food Court"
+                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+                </div>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Owner Name</label>
+                  <input style={saStyles.formInput} type="text" required value={formParams.owner_name}
+                    onChange={e => setFormParams({...formParams, owner_name: e.target.value})}
+                    placeholder="e.g. John Doe"
+                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+                </div>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Owner Email</label>
+                  <input style={saStyles.formInput} type="email" required value={formParams.email}
+                    onChange={e => setFormParams({...formParams, email: e.target.value})}
+                    placeholder="owner@example.com"
+                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+                </div>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Owner Password</label>
+                  <input style={saStyles.formInput} type="password" required value={formParams.password}
+                    onChange={e => setFormParams({...formParams, password: e.target.value})}
+                    placeholder="Set initial password"
+                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+                </div>
+                <div style={saStyles.modalActions}>
+                  <button type="button" style={saStyles.cancelBtn} onClick={() => setShowAddModal(false)}>Cancel</button>
+                  <button type="submit" style={saStyles.submitBtn(adding)} disabled={adding}>
+                    {adding ? 'Creating...' : 'Create Food Court'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- LOGIN SCREEN COMPONENT ---
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState('');
@@ -103,8 +416,7 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-
-const getCategoryEmoji = (category) => {
+const getCategoryEmoji =   (category) => {
   switch (category) {
     case 'Breakfast': return '🥞';
     case 'Lunch': return '🍲';
@@ -119,7 +431,7 @@ const getCategoryEmoji = (category) => {
 // ==========================================
 // QR ORDERING MANAGEMENT PANEL COMPONENT
 // ==========================================
-function QRManagementPanel() {
+function QRManagementPanel({ user }) {
   const [tableCount, setTableCount] = useState(10);
   const [baseUrl, setBaseUrl] = useState('');
   const [lanIp, setLanIp] = useState('');
@@ -132,13 +444,13 @@ function QRManagementPanel() {
     fetch('http://localhost:5000/api/server-info')
       .then(r => r.json())
       .then(info => {
-        const url = `http://${info.lan_ip}:${info.port}/menu`;
+        const url = `http://${info.lan_ip}:${info.port}/menu?tenant=${user.tenant_id}`;
         setLanIp(info.lan_ip);
         setBaseUrl(url);
       })
       .catch(() => {
         // Fallback: use current origin
-        setBaseUrl(window.location.origin + '/menu');
+        setBaseUrl(window.location.origin + '/menu?tenant=' + user.tenant_id);
       });
     fetchQrOrders();
 
@@ -157,7 +469,15 @@ function QRManagementPanel() {
     const QRCode = (await import('qrcode')).default;
     const images = [];
     for (let i = 1; i <= tableCount; i++) {
-      const url = `${baseUrl}?table=${i}`;
+      // Parse baseUrl to cleanly append table without breaking query params
+      let url;
+      try {
+        const u = new URL(baseUrl);
+        u.searchParams.set('table', i);
+        url = u.toString();
+      } catch (e) {
+        url = `${baseUrl}&table=${i}`;
+      }
       try {
         const dataUrl = await QRCode.toDataURL(url, { width: 200, margin: 2 });
         images.push({ table: i, url, dataUrl });
@@ -203,7 +523,7 @@ function QRManagementPanel() {
           <div>
             <strong style={{ color: '#34d399' }}>Your PC's Wi-Fi IP: {lanIp}</strong>
             <div style={{ color: '#a7f3d0', fontSize: '0.85rem', marginTop: '0.2rem' }}>
-              Mobile URL: <code style={{ background: 'rgba(0,0,0,0.3)', padding: '0.1rem 0.4rem', borderRadius: '3px' }}>{baseUrl}?table=1</code>
+              Mobile URL: <code style={{ background: 'rgba(0,0,0,0.3)', padding: '0.1rem 0.4rem', borderRadius: '3px' }}>{baseUrl.includes('?') ? `${baseUrl}&table=1` : `${baseUrl}?table=1`}</code>
               &nbsp;— Make sure your <strong>phone and PC are on the same Wi-Fi network</strong>.
             </div>
           </div>
@@ -375,7 +695,10 @@ function App() {
 
   // Multi-vendor States
   const [vendors, setVendors] = useState([]);
-  const [selectedVendorId, setSelectedVendorId] = useState('all');
+  const [selectedVendorId, setSelectedVendorId] = useState(() => {
+    const savedUser = JSON.parse(localStorage.getItem('user') || 'null');
+    return savedUser?.vendor_id ? String(savedUser.vendor_id) : 'null';
+  });
   const [settlements, setSettlements] = useState([]);
   const [vendorPerformance, setVendorPerformance] = useState([]);
   const [formVendor, setFormVendor] = useState({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00' });
@@ -385,6 +708,70 @@ function App() {
   const [perfMetric, setPerfMetric] = useState('revenue');
   const [commonExpensesList, setCommonExpensesList] = useState([]);
   const [commonExpenseForm, setCommonExpenseForm] = useState({ category: 'Electricity', description: '', amount: '', expense_date: new Date().toLocaleDateString('en-CA') });
+
+  // Central Order Settlements States (Task 5)
+  const [centralPending, setCentralPending] = useState([]);
+  const [centralLedgerVendor, setCentralLedgerVendor] = useState(null); // selected stall for side-panel
+  const [centralLedgerItems, setCentralLedgerItems] = useState([]);
+  const [centralSelectedItems, setCentralSelectedItems] = useState([]);
+  const [centralHistory, setCentralHistory] = useState([]);
+  const [centralSettling, setCentralSettling] = useState(false);
+
+  // Stock Transfer / Borrowing States (Task 7)
+  const [stockTransfers, setStockTransfers] = useState([]);
+  const [transferStatusFilter, setTransferStatusFilter] = useState('All');
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [formTransfer, setFormTransfer] = useState({
+    material_id: '', quantity: '', from_vendor_id: '', to_vendor_id: ''
+  });
+
+  const fetchCentralPending = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/vendors/central-settlements/pending`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setCentralPending(await res.json());
+    } catch (e) { console.error('Failed to fetch central pending', e); }
+  };
+
+  const fetchCentralLedger = async (vendor) => {
+    setCentralLedgerVendor(vendor);
+    setCentralSelectedItems([]);
+    try {
+      const res = await fetch(`${API_BASE}/vendors/central-settlements/pending/${vendor.id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setCentralLedgerItems(await res.json());
+    } catch (e) { console.error('Failed to fetch central ledger', e); }
+  };
+
+  const fetchCentralHistory = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/vendors/central-settlements/history`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setCentralHistory(await res.json());
+    } catch (e) { console.error('Failed to fetch central history', e); }
+  };
+
+  const handleCentralSettle = async () => {
+    if (centralSelectedItems.length === 0 || !centralLedgerVendor) return;
+    const selectedRows = centralLedgerItems.filter(i => centralSelectedItems.includes(i.order_item_id));
+    const amount = selectedRows.reduce((s, r) => s + parseFloat(r.total_price), 0);
+    if (!window.confirm(`Settle ₹${amount.toFixed(2)} to ${centralLedgerVendor.name}?`)) return;
+    setCentralSettling(true);
+    try {
+      const res = await fetch(`${API_BASE}/vendors/central-settlements/settle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ vendorId: centralLedgerVendor.id, orderItemIds: centralSelectedItems, amount })
+      });
+      if (res.ok) {
+        showToast(`₹${amount.toFixed(2)} settled to ${centralLedgerVendor.name}`, 'success');
+        setCentralSelectedItems([]);
+        fetchCentralPending();
+        fetchCentralLedger(centralLedgerVendor);
+        fetchCentralHistory();
+      } else {
+        showToast('Settlement failed', 'error');
+      }
+    } catch (e) { showToast('Network error', 'error'); }
+    finally { setCentralSettling(false); }
+  };
 
   const fetchCommonExpenses = async () => {
     try {
@@ -476,7 +863,10 @@ function App() {
   const [comboModal, setComboModal] = useState({ show: false, comboId: null, comboName: '', childItems: [] });
   const [suppliers, setSuppliers] = useState([]);
   const [supplierModal, setSupplierModal] = useState({ show: false, mode: 'add', data: null });
+  const [supplierViewModal, setSupplierViewModal] = useState({ show: false, data: null });
+  const [supplierPayModal, setSupplierPayModal] = useState({ show: false, supplier: null, pendingBills: [], selectedBillIds: [] });
   const [supplierHistoryModal, setSupplierHistoryModal] = useState({ show: false, supplier: null, history: [], loading: false });
+
   const [formSupplier, setFormSupplier] = useState({ name: '', contact_person: '', phone: '', email: '', address: '', payment_terms: '', items_supplied: '', delivery_schedule: '' });
   const [tempSupplierItem, setTempSupplierItem] = useState('');
   const [showSupplierItemSuggestions, setShowSupplierItemSuggestions] = useState(false);
@@ -502,7 +892,10 @@ function App() {
     if (user) {
       if (user.role === 'Cook' && !['kds'].includes(activeTab)) {
         setActiveTab('kds');
-      } else if (user.role === 'Cashier' && !['pos', 'menu', 'orders', 'wallet'].includes(activeTab)) {
+      } else if (user.role === 'Cashier' && !['pos', 'menu', 'orders'].includes(activeTab)) {
+        setActiveTab('pos');
+      } else if (user.vendor_id && ['wallet', 'crm', 'reports', 'vendors', 'hr'].includes(activeTab)) {
+        // Stall managers cannot access central-admin-only modules
         setActiveTab('pos');
       }
     }
@@ -521,6 +914,7 @@ function App() {
     localStorage.setItem('user', JSON.stringify(userData));
     setToken(authToken);
     setUser(userData);
+    setSelectedVendorId(userData.vendor_id ? String(userData.vendor_id) : 'null');
     if (userData.role === 'Cook') setActiveTab('kds');
     else if (userData.role === 'Vendor') setActiveTab('inventory');
     else setActiveTab('dashboard');
@@ -629,7 +1023,7 @@ function App() {
   // HR Form Bindings
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [formStaff, setFormStaff] = useState({
-    id: '', name: '', phone: '', email: '', role: 'Stall Staff',
+    id: '', name: '', phone: '', email: '', password: '', role: 'Stall Staff',
     pay_type: 'monthly', daily_rate: '0', monthly_salary: '0',
     pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '',
     exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false
@@ -694,6 +1088,7 @@ function App() {
     fetchCombos();
     fetchMaterials();
     fetchSuppliers();
+    fetchStockTransfers();
     fetchRecipes();
     fetchLogs();
     fetchOrders();
@@ -718,13 +1113,6 @@ function App() {
   useEffect(() => {
     if (!token) return;
     loadAllData();
-  }, [token]);
-
-  // Update filtered metrics and queues when selectedVendorId changes
-  useEffect(() => {
-    if (!token) return;
-    fetchDashboard();
-    fetchKdsOrders();
     if (kdsShowHistory) {
       fetchKdsHistory();
     }
@@ -872,7 +1260,8 @@ function App() {
 
   const fetchMaterials = async () => {
     try {
-      const res = await fetch(`${API_BASE}/raw-materials`);
+      const q = selectedVendorId !== 'all' ? `?vendor_id=${selectedVendorId}` : '?vendor_id=all';
+      const res = await fetch(`${API_BASE}/raw-materials${q}`);
       if (res.ok) {
         const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Fetch failed');
@@ -886,9 +1275,27 @@ function App() {
     }
   };
 
+  const fetchStockTransfers = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/stock-transfers`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setStockTransfers(data);
+      } else {
+        setStockTransfers([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch stock transfers:', err);
+      setStockTransfers([]);
+    }
+  };
+
   const fetchSuppliers = async () => {
     try {
-      const res = await fetch(`${API_BASE}/suppliers`);
+      const q = selectedVendorId !== 'all' ? `?vendor_id=${selectedVendorId}` : '?vendor_id=all';
+      const res = await fetch(`${API_BASE}/suppliers${q}`);
       if (res.ok) {
         const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Fetch failed');
@@ -938,7 +1345,8 @@ function App() {
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch(`${API_BASE}/stock-logs`);
+      const q = selectedVendorId !== 'all' ? `?vendor_id=${selectedVendorId}` : '?vendor_id=all';
+      const res = await fetch(`${API_BASE}/stock-logs${q}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Fetch failed');
       setLogs(data);
@@ -949,7 +1357,9 @@ function App() {
 
   const fetchOrders = async () => {
     try {
-      const res = await fetch(`${API_BASE}/orders`);
+      // Stall Managers (vendor_id set) only see orders containing their items
+      const q = user && user.vendor_id ? `?vendor_id=${user.vendor_id}` : '';
+      const res = await fetch(`${API_BASE}/orders${q}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Fetch failed');
       setPastOrders(data);
@@ -1426,10 +1836,14 @@ function App() {
   const handleSaveMaterial = async (e) => {
     e.preventDefault();
     try {
+      const payload = { 
+        ...formMaterial, 
+        vendor_id: selectedVendorId === 'all' || selectedVendorId === 'null' ? null : selectedVendorId 
+      };
       const res = await fetch(`${API_BASE}/raw-materials`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formMaterial)
+        body: JSON.stringify(payload)
       });
       if (res.ok) {
         showToast('Raw ingredient added to ledger successfully!', 'success');
@@ -1489,7 +1903,8 @@ function App() {
             name: formStockAction._newName.trim(),
             unit: formStockAction._newUnit,
             stock_level: 0,
-            min_stock: parseFloat(formStockAction._newMinStock) || 0
+            min_stock: parseFloat(formStockAction._newMinStock) || 0,
+            vendor_id: selectedVendorId === 'all' || selectedVendorId === 'null' ? null : selectedVendorId
           })
         });
         if (!createRes.ok) {
@@ -1622,6 +2037,78 @@ function App() {
         items: prev.items.filter((_, i) => i !== index)
       };
     });
+  };
+
+  const handleSaveTransfer = async (e) => {
+    e.preventDefault();
+    if (!formTransfer.material_id || !formTransfer.quantity) {
+      showToast('Please fill all required fields.', 'error');
+      return;
+    }
+    // Central admin must select a destination stall
+    if (!user?.vendor_id && !formTransfer.to_vendor_id) {
+      showToast('Please select a destination stall.', 'error');
+      return;
+    }
+
+    try {
+      const payload = { ...formTransfer, quantity: parseFloat(formTransfer.quantity) };
+      
+      if (user?.vendor_id) {
+        // Stall manager: requesting stock TO themselves
+        payload.to_vendor_id = user.vendor_id;
+        // from_vendor_id: '' means Central Storage (null), else another stall's ID
+        payload.from_vendor_id = payload.from_vendor_id ? parseInt(payload.from_vendor_id) : null;
+      } else {
+        // Central admin: from_vendor_id '' means Central Storage (null)
+        payload.from_vendor_id = payload.from_vendor_id ? parseInt(payload.from_vendor_id) : null;
+        payload.to_vendor_id = parseInt(payload.to_vendor_id);
+      }
+
+      const res = await fetch(`${API_BASE}/stock-transfers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to request transfer');
+
+      showToast('Transfer request submitted', 'success');
+      setShowTransferModal(false);
+      setFormTransfer({ material_id: '', quantity: '', from_vendor_id: '', to_vendor_id: '' });
+      fetchStockTransfers();
+      fetchMaterials();
+      fetchLogs();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  const handleUpdateTransferStatus = async (id, status) => {
+    try {
+      const res = await fetch(`${API_BASE}/stock-transfers/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update status');
+
+      showToast(`Transfer marked as ${status}`, 'success');
+      fetchStockTransfers();
+      fetchMaterials();
+      fetchLogs();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
   };
 
   const handleSavePurchaseEntry = async (e) => {
@@ -2011,6 +2498,7 @@ function App() {
         name: formStaff.name,
         phone: formStaff.phone || null,
         email: formStaff.email || null,
+        password: formStaff.password || null,
         role: formStaff.role,
         pay_type: formStaff.pay_type,
         daily_rate: parseFloat(formStaff.daily_rate || 0),
@@ -2039,7 +2527,7 @@ function App() {
         showToast(formStaff.id ? 'Staff updated successfully' : 'Staff registered successfully', 'success');
         setShowStaffForm(false);
         setFormStaff({
-          id: '', name: '', phone: '', email: '', role: 'Stall Staff',
+          id: '', name: '', phone: '', email: '', password: '', role: 'Stall Staff',
           pay_type: 'monthly', daily_rate: '0', monthly_salary: '0',
           pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '',
           exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false
@@ -2877,7 +3365,9 @@ function App() {
       is_upsold: posIsUpsold ? 1 : 0,
       customer_staff_id: discountType === 'StaffMeal' ? selectedStaffId : null,
       // Loyalty redemption: only deduct points if the discount was actually applied (amount > 0)
-      loyalty_redeem_points: (discountType === 'Loyalty' && discountAmount > 0) ? parseInt(loyaltyRedeemPoints || 0) : 0
+      loyalty_redeem_points: (discountType === 'Loyalty' && discountAmount > 0) ? parseInt(loyaltyRedeemPoints || 0) : 0,
+      // Wallet settlement tracking: send vendor_id so wallet debits are attributed to the correct stall
+      vendor_id: user?.vendor_id || (selectedVendorId !== 'all' ? parseInt(selectedVendorId) : null) || null
     };
 
     try {
@@ -2933,7 +3423,7 @@ function App() {
     const matchActive = item.is_active === 1;
     const matchSearch = item.name.toLowerCase().includes(posSearch.toLowerCase());
     const matchCategory = posCategory === 'All' || item.category === posCategory || (posCategory === 'Specials' && item.is_special);
-    const matchVendor = selectedVendorId === 'all' || item.vendor_id === parseInt(selectedVendorId);
+    const matchVendor = selectedVendorId === 'all' || selectedVendorId === 'null' || item.vendor_id === parseInt(selectedVendorId);
     
     // Time-based filtering
     let matchTime = true;
@@ -2967,17 +3457,19 @@ function App() {
     const matchSearch = item.name.toLowerCase().includes(menuSearch.toLowerCase()) || 
                         (item.description && item.description.toLowerCase().includes(menuSearch.toLowerCase()));
     const matchCategory = menuCategoryFilter === 'All' || item.category === menuCategoryFilter;
-    const matchVendor = selectedVendorId === 'all' || item.vendor_id === parseInt(selectedVendorId);
+    const matchVendor = selectedVendorId === 'all' || selectedVendorId === 'null' || item.vendor_id === parseInt(selectedVendorId);
     return matchSearch && matchCategory && matchVendor;
   });
 
   const filteredMaterials = materials.filter(mat => {
-    return mat.name.toLowerCase().includes(materialSearch.toLowerCase());
+    const matchSearch = mat.name.toLowerCase().includes(materialSearch.toLowerCase());
+    const matchVendor = selectedVendorId === 'all' || (selectedVendorId === 'null' ? mat.vendor_id == null : mat.vendor_id === parseInt(selectedVendorId));
+    return matchSearch && matchVendor;
   });
 
   const filteredRecipeMenuItems = items.filter(item => {
     const matchSearch = item.name.toLowerCase().includes(recipeSearch.toLowerCase());
-    const matchVendor = selectedVendorId === 'all' || item.vendor_id === parseInt(selectedVendorId);
+    const matchVendor = selectedVendorId === 'all' || selectedVendorId === 'null' || item.vendor_id === parseInt(selectedVendorId);
     return matchSearch && matchVendor;
   });
 
@@ -2985,6 +3477,11 @@ function App() {
   // ── Auth Guard ─────────────────────────────────────
   if (!token || !user) {
     return <LoginScreen onLogin={handleLogin} />;
+  }
+
+  // Route Super Admin to specific dashboard
+  if (user.role === 'Super Admin') {
+    return <SuperAdminDashboard user={user} onLogout={handleLogout} />;
   }
 
   return (
@@ -3091,7 +3588,7 @@ function App() {
             <span>Kitchen Display</span>
           </div>
           )}
-          {['Owner', 'Manager'].includes(user.role) && (
+          {['Owner', 'Manager'].includes(user.role) && !user.vendor_id && (
           <div
             className={`menu-item ${activeTab === 'qr' ? 'active' : ''}`}
             onClick={() => setActiveTab('qr')}
@@ -3141,7 +3638,7 @@ function App() {
               <span>HR & Payroll</span>
             </div>
           )}
-          {selectedVendorId === 'all' && ['Owner', 'Manager'].includes(user.role) && (
+          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && (
             <div
               className={`menu-item ${activeTab === 'reports' ? 'active' : ''}`}
               onClick={() => setActiveTab('reports')}
@@ -3152,7 +3649,7 @@ function App() {
               <span>MIS Reports</span>
             </div>
           )}
-          {selectedVendorId === 'all' && ['Owner', 'Manager'].includes(user.role) && (
+          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && (
             <div
               className={`menu-item ${activeTab === 'crm' ? 'active' : ''}`}
               onClick={() => setActiveTab('crm')}
@@ -3163,7 +3660,7 @@ function App() {
               <span>CRM & Alerts</span>
             </div>
           )}
-          {selectedVendorId === 'all' && ['Owner', 'Manager', 'Cashier'].includes(user.role) && (
+          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && (
             <div
               className={`menu-item ${activeTab === 'wallet' ? 'active' : ''}`}
               onClick={() => setActiveTab('wallet')}
@@ -3218,23 +3715,26 @@ function App() {
             </p>
           </div>
           <div class="top-bar-right">
-            <div class="vendor-filter-context" style={{ marginRight: '15px' }}>
-              <select 
-                value={selectedVendorId} 
-                onChange={(e) => {
-                  setSelectedVendorId(e.target.value);
-                  if (e.target.value !== 'all' && (activeTab === 'vendors' || activeTab === 'hr')) {
-                    setActiveTab('dashboard');
-                  }
-                }}
-                className="vendor-select-dropdown"
-              >
-                <option value="all">🏢 Central Admin (Full View)</option>
-                {vendors.map(v => (
-                  <option key={v.id} value={v.id}>🏪 Stall: {v.name} ({v.stall_number})</option>
-                ))}
-              </select>
-            </div>
+            {!user?.vendor_id && (
+              <div class="vendor-filter-context" style={{ marginRight: '15px' }}>
+                <select 
+                  value={selectedVendorId} 
+                  onChange={(e) => {
+                    setSelectedVendorId(e.target.value);
+                    if (e.target.value !== 'all' && e.target.value !== 'null' && (activeTab === 'vendors' || activeTab === 'hr')) {
+                      setActiveTab('dashboard');
+                    }
+                  }}
+                  className="vendor-select-dropdown"
+                >
+                  <option value="null">🏢 Central Store (Admin Only)</option>
+                  <option value="all">🌍 Global Overview (All Stalls)</option>
+                  {vendors.map(v => (
+                    <option key={v.id} value={v.id}>🏪 Stall: {v.name} ({v.stall_number})</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div class="session-timer">
               <span>{liveTime}</span>
             </div>
@@ -4139,6 +4639,7 @@ function App() {
               <div className="sub-tab-bar" style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
                 <button className={`btn ${inventorySubTab === 'materials' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setInventorySubTab('materials')}>Raw Materials</button>
                 <button className={`btn ${inventorySubTab === 'suppliers' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setInventorySubTab('suppliers')}>Suppliers</button>
+                <button className={`btn ${inventorySubTab === 'transfers' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setInventorySubTab('transfers')}>Transfers</button>
               </div>
 
               {inventorySubTab === 'materials' && (
@@ -4240,7 +4741,7 @@ function App() {
                   <div className="view-header-bar">
                     <h3>Supplier Directory</h3>
                     <button className="btn btn-primary" onClick={() => {
-                      setFormSupplier({ name: '', contact_person: '', phone: '', email: '', address: '', payment_terms: '', items_supplied: '', delivery_schedule: '' });
+                      setFormSupplier({ name: '', contact_person: '', phone: '', email: '', address: '', gst_no: '', payment_terms: '', items_supplied: '', delivery_schedule: '' });
                       setSupplierModal({ show: true, mode: 'add', data: null });
                       setTempSupplierItem('');
                       setShowSupplierItemSuggestions(false);
@@ -4251,10 +4752,10 @@ function App() {
                       <thead>
                         <tr>
                           <th>Supplier Name</th>
-                          <th>Contact</th>
+                          <th>Contact Person</th>
                           <th>Phone</th>
                           <th>Email</th>
-                          <th>Items Supplied</th>
+                          <th>Category</th>
                           <th>Outstanding</th>
                           <th>Action</th>
                         </tr>
@@ -4269,24 +4770,74 @@ function App() {
                             <td>{s.items_supplied}</td>
                             <td className={s.outstanding_balance > 0 ? 'text-danger' : 'text-success'}>₹{parseFloat(s.outstanding_balance || 0).toFixed(2)}</td>
                             <td>
-                              <button className="btn btn-outline-primary btn-small" onClick={() => handleOpenSupplierHistory(s)}>History</button>
-                              <button className="btn btn-outline-secondary btn-small" style={{marginLeft: '5px'}} onClick={() => {
-                                setFormSupplier(s);
-                                setSupplierModal({ show: true, mode: 'edit', data: s });
-                                setTempSupplierItem('');
-                                setShowSupplierItemSuggestions(false);
-                              }}>Edit</button>
-                              <button className="btn btn-danger-small" style={{marginLeft: '5px'}} onClick={async () => {
-                                if(!window.confirm('Delete supplier?')) return;
-                                try {
-                                  const res = await fetch(`${API_BASE}/suppliers/${s.id}`, { method: 'DELETE' });
-                                  if(res.ok) { showToast('Deleted', 'success'); fetchSuppliers(); }
-                                } catch(e) { showToast('Error', 'error'); }
-                              }}>Delete</button>
+                              <button className="btn btn-outline-primary btn-small" onClick={() => setSupplierViewModal({ show: true, data: s })}>View</button>
                             </td>
                           </tr>
                         ))}
                         {suppliers.length === 0 && <tr><td colSpan="7" className="empty-state">No suppliers found.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {inventorySubTab === 'transfers' && (
+                <div>
+                  <div className="view-header-bar">
+                    <h3>Stock Borrowing / Transfers</h3>
+                    <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
+                      <select className="form-control" style={{width: 'auto', display: 'inline-block'}} value={transferStatusFilter} onChange={e => setTransferStatusFilter(e.target.value)}>
+                        <option value="All">All Status</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Rejected">Rejected</option>
+                      </select>
+                      <button className="btn btn-primary" onClick={() => {
+                        setFormTransfer({ material_id: '', quantity: '', from_vendor_id: '', to_vendor_id: '' });
+                        setShowTransferModal(true);
+                      }}>Request / Transfer Stock</button>
+                    </div>
+                  </div>
+                  
+                  <div className="table-container">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Material</th>
+                          <th>Qty</th>
+                          <th>From</th>
+                          <th>To</th>
+                          <th>Status</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stockTransfers.filter(t => transferStatusFilter === 'All' || t.status === transferStatusFilter).map(t => (
+                          <tr key={t.id}>
+                            <td>{new Date(t.created_at).toLocaleString()}</td>
+                            <td>{t.material_name}</td>
+                            <td>{t.quantity} {t.unit}</td>
+                            <td>{t.from_vendor_name || 'Central'}</td>
+                            <td>{t.to_vendor_name || 'Central'}</td>
+                            <td>
+                              <span className={`badge badge-${(t.status === 'Pending' || t.status === 'Requested') ? 'warning' : t.status === 'Completed' ? 'success' : 'danger'}`}>
+                                {t.status}
+                              </span>
+                            </td>
+                            <td>
+                              {(t.status === 'Pending' || t.status === 'Requested') && (!user?.vendor_id || user.vendor_id === t.from_vendor_id) && (
+                                <>
+                                  <button className="btn btn-success-small" onClick={() => handleUpdateTransferStatus(t.id, 'Completed')}>Approve</button>
+                                  <button className="btn btn-danger-small" style={{marginLeft: '5px'}} onClick={() => handleUpdateTransferStatus(t.id, 'Rejected')}>Reject</button>
+                                </>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                        {stockTransfers.length === 0 && (
+                          <tr><td colSpan="7" className="empty-state">No stock transfers found.</td></tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -4664,7 +5215,7 @@ function App() {
                QR ORDERING MANAGEMENT PANEL
                ========================================== */}
           {activeTab === 'qr' && (
-            <QRManagementPanel />
+            <QRManagementPanel user={user} />
           )}
 
           {/* ==========================================
@@ -4698,7 +5249,14 @@ function App() {
                           <td>
                             <ul style={{margin: 0, paddingLeft: '1.2rem', fontSize: '0.9rem', color: 'var(--text-light)'}}>
                               {order.items.map((it, i) => (
-                                <li key={i}>{it.name} <span className="text-muted">(x{it.quantity})</span></li>
+                                <li key={i}>
+                                  {it.name} <span className="text-muted">(x{it.quantity})</span>
+                                  {!user.vendor_id && it.vendor_name && (
+                                    <span style={{ marginLeft: '6px', fontSize: '0.7rem', padding: '2px 6px', background: '#374151', borderRadius: '4px', color: '#9ca3af' }}>
+                                      🏪 {it.vendor_name}
+                                    </span>
+                                  )}
+                                </li>
                               ))}
                             </ul>
                           </td>
@@ -5025,7 +5583,7 @@ function App() {
             <div className="vendor-panel">
               {/* Sub-tab Navigation */}
               <div className="vendor-sub-tabs">
-                {[['profiles', '🏪 Vendor Profiles'], ['settlements', '💰 Cost Splitting & Settlements'], ['performance', '📊 Performance Analytics'], ['expenses', '🧾 Common Expenses']].map(([key, label]) => (
+                {[['profiles', '🏪 Vendor Profiles'], ['settlements', '💰 Cost Splitting & Settlements'], ['performance', '📊 Performance Analytics'], ['expenses', '🧾 Common Expenses'], ['central', '🏦 Central Order Settlements']].map(([key, label]) => (
                   <button
                     key={key}
                     className={`vendor-sub-tab ${vendorSubTab === key ? 'active' : ''}`}
@@ -5034,6 +5592,7 @@ function App() {
                       if (key === 'settlements') { fetchSettlements(); }
                       if (key === 'performance') { fetchVendorPerformance(); }
                       if (key === 'expenses') { fetchCommonExpenses(); }
+                      if (key === 'central') { fetchCentralPending(); fetchCentralHistory(); setCentralLedgerVendor(null); }
                     }}
                   >
                     {label}
@@ -5221,7 +5780,7 @@ function App() {
                               <th>Period</th>
                               <th>Gross Sales</th>
                               <th>Commission</th>
-                              <th>Area Cost</th>
+                              <th>Share of Cost</th>
                               <th>Net Payout</th>
                               <th>Status</th>
                               <th>Action</th>
@@ -5440,6 +5999,171 @@ function App() {
                   </div>
                 </div>
               )}
+
+              {/* ============ SUB-TAB: CENTRAL ORDER SETTLEMENTS ============ */}
+              {vendorSubTab === 'central' && (
+                <div className="central-settlements-section">
+                  <div style={{ display: 'grid', gridTemplateColumns: centralLedgerVendor ? '1fr 1.5fr' : '1fr', gap: '24px' }}>
+
+                    {/* Left: Pending Payouts Summary */}
+                    <div className="panel-card">
+                      <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <h3>🏦 Pending Central Payouts</h3>
+                          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>Orders placed via QR / Central POS not yet settled to stalls.</p>
+                        </div>
+                        <button className="btn btn-outline-primary" onClick={fetchCentralPending}>↻ Refresh</button>
+                      </div>
+                      <div className="table-container" style={{ padding: '0 20px 20px 20px' }}>
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>Stall</th>
+                              <th>Stall #</th>
+                              <th>Commission %</th>
+                              <th>Pending Amount</th>
+                              <th>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {centralPending.filter(v => parseFloat(v.pending_amount) > 0).length === 0 ? (
+                              <tr><td colSpan="5" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>✅ All caught up! No pending payouts.</td></tr>
+                            ) : (
+                              centralPending.filter(v => parseFloat(v.pending_amount) > 0).map(v => (
+                                <tr key={v.id} style={{ cursor: 'pointer', background: centralLedgerVendor?.id === v.id ? 'var(--bg-hover, rgba(99,102,241,0.08))' : undefined }} onClick={() => fetchCentralLedger(v)}>
+                                  <td><strong>{v.name}</strong></td>
+                                  <td>{v.stall_number || '-'}</td>
+                                  <td>{Number(v.commission_rate).toFixed(1)}%</td>
+                                  <td><strong style={{ color: 'var(--accent-warning, #f59e0b)', fontSize: '1.05em' }}>₹{Number(v.pending_amount).toFixed(2)}</strong></td>
+                                  <td>
+                                    <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); fetchCentralLedger(v); }}>View Items</button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                        {centralPending.length > 0 && (
+                          <div style={{ marginTop: '12px', padding: '12px 16px', background: 'var(--bg-card, #1e1e2e)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--text-muted)' }}>Total Pending Across All Stalls</span>
+                            <strong style={{ color: 'var(--accent-warning, #f59e0b)', fontSize: '1.1em' }}>
+                              ₹{centralPending.reduce((s, v) => s + parseFloat(v.pending_amount || 0), 0).toFixed(2)}
+                            </strong>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right: Itemized Ledger Side-Panel */}
+                    {centralLedgerVendor && (
+                      <div className="panel-card">
+                        <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <h3>📋 {centralLedgerVendor.name} — Pending Items</h3>
+                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>Select items to settle. These are central QR/POS orders attributed to this stall.</p>
+                          </div>
+                          <button className="btn-icon" onClick={() => setCentralLedgerVendor(null)} title="Close">✕</button>
+                        </div>
+                        <div className="table-container" style={{ padding: '0 20px 10px 20px', maxHeight: '400px', overflowY: 'auto' }}>
+                          <table className="data-table">
+                            <thead>
+                              <tr>
+                                <th style={{ width: '36px' }}>
+                                  <input type="checkbox" checked={centralSelectedItems.length === centralLedgerItems.length && centralLedgerItems.length > 0}
+                                    onChange={(e) => {
+                                      setCentralSelectedItems(e.target.checked ? centralLedgerItems.map(i => i.order_item_id) : []);
+                                    }} />
+                                </th>
+                                <th>Order #</th>
+                                <th>Date</th>
+                                <th>Source</th>
+                                <th>Item</th>
+                                <th>Qty</th>
+                                <th>Price</th>
+                                <th>Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {centralLedgerItems.length === 0 ? (
+                                <tr><td colSpan="8" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>No pending items for this stall.</td></tr>
+                              ) : (
+                                centralLedgerItems.map(item => (
+                                  <tr key={item.order_item_id}>
+                                    <td>
+                                      <input type="checkbox" checked={centralSelectedItems.includes(item.order_item_id)}
+                                        onChange={(e) => {
+                                          setCentralSelectedItems(prev => e.target.checked ? [...prev, item.order_item_id] : prev.filter(id => id !== item.order_item_id));
+                                        }} />
+                                    </td>
+                                    <td>#{item.token_number || item.order_id}</td>
+                                    <td>{new Date(item.order_date).toLocaleDateString()}</td>
+                                    <td><span className="badge" style={{ background: item.order_source === 'QR' ? 'var(--accent-primary, #6366f1)' : 'var(--accent-info, #06b6d4)', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75em' }}>{item.order_source}</span></td>
+                                    <td>{item.item_name}</td>
+                                    <td>{item.quantity}</td>
+                                    <td>₹{Number(item.price).toFixed(2)}</td>
+                                    <td><strong>₹{Number(item.total_price).toFixed(2)}</strong></td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        {centralLedgerItems.length > 0 && (
+                          <div style={{ padding: '12px 20px 20px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-color, #333)' }}>
+                            <div>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>{centralSelectedItems.length} of {centralLedgerItems.length} items selected</span>
+                              <br />
+                              <strong style={{ fontSize: '1.15em', color: 'var(--accent-success, #22c55e)' }}>
+                                Selected Total: ₹{centralLedgerItems.filter(i => centralSelectedItems.includes(i.order_item_id)).reduce((s, r) => s + parseFloat(r.total_price), 0).toFixed(2)}
+                              </strong>
+                            </div>
+                            <button className="btn btn-primary" disabled={centralSelectedItems.length === 0 || centralSettling} onClick={handleCentralSettle}
+                              style={{ padding: '10px 28px', fontSize: '1em' }}>
+                              {centralSettling ? '⏳ Processing...' : `💸 Settle ₹${centralLedgerItems.filter(i => centralSelectedItems.includes(i.order_item_id)).reduce((s, r) => s + parseFloat(r.total_price), 0).toFixed(2)}`}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Settlement History */}
+                  <div className="panel-card" style={{ marginTop: '24px' }}>
+                    <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3>📜 Settlement History</h3>
+                      <button className="btn btn-outline-primary" onClick={fetchCentralHistory}>↻ Refresh</button>
+                    </div>
+                    <div className="table-container" style={{ padding: '0 20px 20px 20px' }}>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>ID</th>
+                            <th>Vendor</th>
+                            <th>Stall #</th>
+                            <th>Amount</th>
+                            <th>Settled At</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {centralHistory.length === 0 ? (
+                            <tr><td colSpan="5" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>No settlements yet.</td></tr>
+                          ) : (
+                            centralHistory.map(h => (
+                              <tr key={h.id}>
+                                <td>#{h.id}</td>
+                                <td><strong>{h.vendor_name}</strong></td>
+                                <td>{h.stall_number || '-'}</td>
+                                <td><strong style={{ color: 'var(--accent-success, #22c55e)' }}>₹{Number(h.amount).toFixed(2)}</strong></td>
+                                <td>{new Date(h.settled_at).toLocaleString()}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -5509,6 +6233,10 @@ function App() {
                                 <input type="email" placeholder="e.g. rahul@example.com" value={formStaff.email} onChange={e => setFormStaff({ ...formStaff, email: e.target.value })} />
                               </div>
                               <div className="hr-form-group">
+                                <label>Password (for Login)</label>
+                                <input type="text" placeholder="Leave blank to keep unchanged" value={formStaff.password || ''} onChange={e => setFormStaff({ ...formStaff, password: e.target.value })} />
+                              </div>
+                              <div className="hr-form-group">
                                 <label>Role *</label>
                                 <select value={formStaff.role} onChange={e => setFormStaff({ ...formStaff, role: e.target.value })}>
                                   <option value="Manager">Manager</option>
@@ -5522,6 +6250,7 @@ function App() {
                                 <select value={formStaff.pay_type} onChange={e => setFormStaff({ ...formStaff, pay_type: e.target.value })}>
                                   <option value="monthly">Monthly Salary</option>
                                   <option value="daily">Daily Wage</option>
+                                  <option value="nopay">No Pay</option>
                                 </select>
                               </div>
                               {formStaff.pay_type === 'monthly' ? (
@@ -5529,12 +6258,12 @@ function App() {
                                   <label>Monthly Salary (₹)</label>
                                   <input type="number" step="0.01" placeholder="e.g. 15000" value={formStaff.monthly_salary} onChange={e => setFormStaff({ ...formStaff, monthly_salary: e.target.value })} />
                                 </div>
-                              ) : (
+                              ) : formStaff.pay_type === 'daily' ? (
                                 <div className="hr-form-group">
                                   <label>Daily Rate (₹)</label>
                                   <input type="number" step="0.01" placeholder="e.g. 500" value={formStaff.daily_rate} onChange={e => setFormStaff({ ...formStaff, daily_rate: e.target.value })} />
                                 </div>
-                              )}
+                              ) : null}
                               <div className="hr-form-group">
                                 <label>TDS Percentage (%)</label>
                                 <input type="number" step="0.1" placeholder="e.g. 1.0" value={formStaff.tds_percentage} onChange={e => setFormStaff({ ...formStaff, tds_percentage: e.target.value })} />
@@ -7618,9 +8347,13 @@ function App() {
               try {
                 const method = supplierModal.mode === 'edit' ? 'PUT' : 'POST';
                 const url = supplierModal.mode === 'edit' ? `${API_BASE}/suppliers/${supplierModal.data.id}` : `${API_BASE}/suppliers`;
+                const payload = {
+                  ...formSupplier,
+                  vendor_id: selectedVendorId === 'all' || selectedVendorId === 'null' ? null : selectedVendorId
+                };
                 const res = await fetch(url, {
                   method, headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(formSupplier)
+                  body: JSON.stringify(payload)
                 });
                 if (!res.ok) throw new Error('Failed to save supplier');
                 showToast(`Supplier ${supplierModal.mode === 'edit' ? 'updated' : 'added'}`, 'success');
@@ -7640,132 +8373,32 @@ function App() {
               </div>
               <div className="form-row">
                 <div className="form-group col"><label>Email</label><input type="email" value={formSupplier.email} onChange={(e) => setFormSupplier({...formSupplier, email: e.target.value})} /></div>
+                <div className="form-group col"><label>GST No</label><input type="text" value={formSupplier.gst_no} onChange={(e) => setFormSupplier({...formSupplier, gst_no: e.target.value})} /></div>
+              </div>
+              <div className="form-row">
+                <div className="form-group col"><label>Address</label><input type="text" value={formSupplier.address} onChange={(e) => setFormSupplier({...formSupplier, address: e.target.value})} /></div>
                 <div className="form-group col"><label>Payment Terms</label><input type="text" placeholder="e.g. Net 30" value={formSupplier.payment_terms} onChange={(e) => setFormSupplier({...formSupplier, payment_terms: e.target.value})} /></div>
               </div>
-              <div className="form-group"><label>Address</label><input type="text" value={formSupplier.address} onChange={(e) => setFormSupplier({...formSupplier, address: e.target.value})} /></div>
-              <div className="form-group">
-                <label>Items Supplied</label>
-                
-                {/* Chip container for multiple items */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
-                  {formSupplier.items_supplied ? formSupplier.items_supplied.split(',').map(s => s.trim()).filter(Boolean).map((item, tagIdx) => (
-                    <span key={tagIdx} className="supplier-item-chip" style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid var(--border-light)',
-                      color: 'var(--text-light)',
-                      padding: '4px 10px',
-                      borderRadius: 'var(--radius-sm)',
-                      fontSize: '0.8rem',
-                      fontWeight: '500',
-                      gap: '6px'
-                    }}>
-                      {item}
-                      <button 
-                        type="button" 
-                        onClick={() => {
-                          const current = formSupplier.items_supplied ? formSupplier.items_supplied.split(',').map(s => s.trim()).filter(Boolean) : [];
-                          const updated = current.filter(x => x !== item).join(', ');
-                          setFormSupplier(prev => ({ ...prev, items_supplied: updated }));
-                        }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--text-muted)',
-                          cursor: 'pointer',
-                          padding: 0,
-                          fontSize: '14px',
-                          lineHeight: 1,
-                          display: 'flex',
-                          alignItems: 'center'
-                        }}
-                        onMouseOver={(e) => e.target.style.color = '#ef4444'}
-                        onMouseOut={(e) => e.target.style.color = 'var(--text-muted)'}
-                      >
-                        &times;
-                      </button>
-                    </span>
-                  )) : (
-                    <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: '4px' }}>No items linked yet. Add below:</span>
-                  )}
+              <div className="form-row">
+                <div className="form-group col">
+                  <label>Category (Items Supplied)</label>
+                  <input 
+                    type="text" 
+                    className="form-control"
+                    placeholder="e.g. Dairy, Spices, Meat" 
+                    value={formSupplier.items_supplied} 
+                    onChange={(e) => setFormSupplier({...formSupplier, items_supplied: e.target.value})} 
+                  />
                 </div>
-
-                {/* Autocomplete Input with existing raw materials suggestions */}
-                <div className="autocomplete-wrapper">
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input 
-                      type="text" 
-                      placeholder="Type material name (e.g. Rice) and press Enter or Add"
-                      value={tempSupplierItem}
-                      onChange={(e) => {
-                        setTempSupplierItem(e.target.value);
-                        setShowSupplierItemSuggestions(true);
-                      }}
-                      onFocus={() => setShowSupplierItemSuggestions(true)}
-                      onBlur={() => setTimeout(() => setShowSupplierItemSuggestions(false), 200)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          if (tempSupplierItem.trim()) {
-                            const current = formSupplier.items_supplied ? formSupplier.items_supplied.split(',').map(s => s.trim()).filter(Boolean) : [];
-                            const newItem = tempSupplierItem.trim();
-                            if (!current.includes(newItem)) {
-                              const updated = [...current, newItem].join(', ');
-                              setFormSupplier(prev => ({ ...prev, items_supplied: updated }));
-                            }
-                            setTempSupplierItem('');
-                            setShowSupplierItemSuggestions(false);
-                          }
-                        }
-                      }}
-                    />
-                    <button 
-                      type="button"
-                      className="btn btn-outline-primary btn-small"
-                      onClick={() => {
-                        if (tempSupplierItem.trim()) {
-                          const current = formSupplier.items_supplied ? formSupplier.items_supplied.split(',').map(s => s.trim()).filter(Boolean) : [];
-                          const newItem = tempSupplierItem.trim();
-                          if (!current.includes(newItem)) {
-                            const updated = [...current, newItem].join(', ');
-                            setFormSupplier(prev => ({ ...prev, items_supplied: updated }));
-                          }
-                          setTempSupplierItem('');
-                          setShowSupplierItemSuggestions(false);
-                        }
-                      }}
-                    >
-                      Add
-                    </button>
-                  </div>
-
-                  {/* Suggestions List */}
-                  {showSupplierItemSuggestions && tempSupplierItem.trim() && (
-                    <ul className="suggestions-list" style={{ width: '100%' }}>
-                      {materials.filter(m => 
-                        m.name.toLowerCase().includes(tempSupplierItem.toLowerCase()) && 
-                        !(formSupplier.items_supplied ? formSupplier.items_supplied.split(',').map(s => s.trim()).filter(Boolean) : []).includes(m.name)
-                      ).slice(0, 5).map((m, idx) => (
-                        <li 
-                          key={idx} 
-                          className="suggestion-item"
-                          onClick={() => {
-                            const current = formSupplier.items_supplied ? formSupplier.items_supplied.split(',').map(s => s.trim()).filter(Boolean) : [];
-                            if (!current.includes(m.name)) {
-                              const updated = [...current, m.name].join(', ');
-                              setFormSupplier(prev => ({ ...prev, items_supplied: updated }));
-                            }
-                            setTempSupplierItem('');
-                            setShowSupplierItemSuggestions(false);
-                          }}
-                        >
-                          <span className="suggestion-name">{m.name}</span>
-                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>({m.unit})</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                <div className="form-group col">
+                  <label>Delivery Schedule</label>
+                  <input 
+                    type="text" 
+                    className="form-control"
+                    placeholder="e.g. Every Monday, On Demand" 
+                    value={formSupplier.delivery_schedule} 
+                    onChange={(e) => setFormSupplier({...formSupplier, delivery_schedule: e.target.value})} 
+                  />
                 </div>
               </div>
               <div className="modal-footer">
@@ -7773,6 +8406,170 @@ function App() {
                 <button type="submit" className="btn btn-primary">Save Supplier</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {supplierViewModal.show && (
+        <div className="modal-overlay active">
+          <div className="modal-card">
+            <div className="modal-header">
+              <h3>Supplier Details</h3>
+              <button className="close-btn" onClick={() => setSupplierViewModal({ show: false, data: null })}>&times;</button>
+            </div>
+            <div className="modal-body" style={{ padding: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                <div><strong>Name:</strong> {supplierViewModal.data.name}</div>
+                <div><strong>Contact Person:</strong> {supplierViewModal.data.contact_person || '-'}</div>
+                <div><strong>Phone:</strong> {supplierViewModal.data.phone || '-'}</div>
+                <div><strong>Email:</strong> {supplierViewModal.data.email || '-'}</div>
+                <div><strong>GST No:</strong> {supplierViewModal.data.gst_no || '-'}</div>
+                <div><strong>Payment Terms:</strong> {supplierViewModal.data.payment_terms || '-'}</div>
+                <div style={{ gridColumn: 'span 2' }}><strong>Address:</strong> {supplierViewModal.data.address || '-'}</div>
+                <div style={{ gridColumn: 'span 2' }}><strong>Category:</strong> {supplierViewModal.data.items_supplied || '-'}</div>
+                <div style={{ gridColumn: 'span 2' }}><strong>Delivery Schedule:</strong> {supplierViewModal.data.delivery_schedule || '-'}</div>
+              </div>
+            </div>
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <button className="btn btn-outline-secondary" onClick={() => {
+                  setSupplierViewModal({ show: false, data: null });
+                  setFormSupplier(supplierViewModal.data);
+                  setSupplierModal({ show: true, mode: 'edit', data: supplierViewModal.data });
+                  setTempSupplierItem('');
+                  setShowSupplierItemSuggestions(false);
+                }}>Edit ✏️</button>
+                {parseFloat(supplierViewModal.data.outstanding_balance || 0) > 0 && (
+                  <button className="btn btn-success" style={{marginLeft: '10px'}} onClick={async () => {
+                    try {
+                      setSupplierViewModal({ show: false, data: null });
+                      const res = await fetch(`${API_BASE}/suppliers/${supplierViewModal.data.id}/pending-bills`);
+                      const bills = await res.json();
+                      setSupplierPayModal({ show: true, supplier: supplierViewModal.data, pendingBills: bills, selectedBillIds: [] });
+                    } catch (e) {
+                      showToast('Failed to load pending bills', 'error');
+                    }
+                  }}>Settle Bill 💰</button>
+                )}
+                <button className="btn btn-outline-primary" style={{marginLeft: '10px'}} onClick={() => {
+                   setSupplierViewModal({ show: false, data: null });
+                   handleOpenSupplierHistory(supplierViewModal.data);
+                }}>History 🕒</button>
+                <button className="btn btn-danger" style={{marginLeft: '10px'}} onClick={async () => {
+                  if(!window.confirm('Delete supplier?')) return;
+                  try {
+                    const res = await fetch(`${API_BASE}/suppliers/${supplierViewModal.data.id}`, { method: 'DELETE' });
+                    if(res.ok) { 
+                      showToast('Deleted', 'success'); 
+                      setSupplierViewModal({ show: false, data: null });
+                      fetchSuppliers(); 
+                    }
+                  } catch(e) { showToast('Error', 'error'); }
+                }}>Delete 🗑️</button>
+              </div>
+              <button type="button" className="btn btn-outline-primary" onClick={() => setSupplierViewModal({ show: false, data: null })}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {supplierPayModal.show && (
+        <div className="modal-overlay active">
+          <div className="modal-card" style={{ maxWidth: '800px', width: '90%' }}>
+            <div className="modal-header">
+              <h3>Settle Bill - {supplierPayModal.supplier.name}</h3>
+              <button className="close-btn" onClick={() => setSupplierPayModal({ show: false, supplier: null, pendingBills: [], selectedBillIds: [] })}>&times;</button>
+            </div>
+            <div className="modal-body" style={{ padding: '20px' }}>
+              {supplierPayModal.pendingBills.length > 0 ? (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '40px' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={supplierPayModal.selectedBillIds.length === supplierPayModal.pendingBills.length && supplierPayModal.pendingBills.length > 0}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSupplierPayModal(prev => ({ ...prev, selectedBillIds: prev.pendingBills.map(b => b.id) }));
+                            } else {
+                              setSupplierPayModal(prev => ({ ...prev, selectedBillIds: [] }));
+                            }
+                          }}
+                        />
+                      </th>
+                      <th>Date</th>
+                      <th>Material</th>
+                      <th>Qty</th>
+                      <th>Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {supplierPayModal.pendingBills.map(bill => (
+                      <tr key={bill.id}>
+                        <td>
+                          <input 
+                            type="checkbox" 
+                            checked={supplierPayModal.selectedBillIds.includes(bill.id)}
+                            onChange={(e) => {
+                              setSupplierPayModal(prev => {
+                                const newSelection = e.target.checked 
+                                  ? [...prev.selectedBillIds, bill.id]
+                                  : prev.selectedBillIds.filter(id => id !== bill.id);
+                                return { ...prev, selectedBillIds: newSelection };
+                              });
+                            }}
+                          />
+                        </td>
+                        <td>{new Date(bill.logged_at).toLocaleDateString()}</td>
+                        <td>{bill.material_name}</td>
+                        <td>{bill.change_qty} {bill.unit}</td>
+                        <td>₹{parseFloat(bill.recorded_cost || 0).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="empty-state">No pending bills found for this supplier.</div>
+              )}
+            </div>
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: '1.2rem', fontWeight: '600' }}>
+                Total Selected: ₹{
+                  supplierPayModal.pendingBills
+                    .filter(b => supplierPayModal.selectedBillIds.includes(b.id))
+                    .reduce((sum, b) => sum + parseFloat(b.recorded_cost || 0), 0)
+                    .toFixed(2)
+                }
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button type="button" className="btn btn-outline-primary" onClick={() => setSupplierPayModal({ show: false, supplier: null, pendingBills: [], selectedBillIds: [] })}>Cancel</button>
+                <button 
+                  type="button" 
+                  className="btn btn-success" 
+                  disabled={supplierPayModal.selectedBillIds.length === 0}
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`${API_BASE}/suppliers/${supplierPayModal.supplier.id}/pay`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ log_ids: supplierPayModal.selectedBillIds })
+                      });
+                      if (res.ok) {
+                        showToast('Bills settled successfully', 'success');
+                        setSupplierPayModal({ show: false, supplier: null, pendingBills: [], selectedBillIds: [] });
+                        fetchSuppliers(); // Refresh list to update outstanding balance
+                      } else {
+                        showToast('Payment failed', 'error');
+                      }
+                    } catch (e) {
+                      showToast('Network error', 'error');
+                    }
+                  }}
+                >
+                  Confirm Payment
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -8585,6 +9382,62 @@ function App() {
       <div className={`toast-wrapper ${toast.show ? 'active' : ''} ${toast.type === 'error' ? 'error' : 'success'}`}>
         <span>{toast.message}</span>
       </div>
+
+      {showTransferModal && (
+        <div className="modal-overlay active">
+          <div className="modal-card">
+            <div className="modal-header">
+              <h3>{user?.vendor_id ? "Request Stock from Central/Stall" : "Direct Stock Transfer"}</h3>
+              <button className="close-btn" onClick={() => setShowTransferModal(false)}>&times;</button>
+            </div>
+            <form onSubmit={handleSaveTransfer} className="modal-body">
+              <div className="form-group">
+                <label>Material</label>
+                <select className="form-control" required value={formTransfer.material_id} onChange={e => setFormTransfer({...formTransfer, material_id: e.target.value})}>
+                  <option value="">Select Material...</option>
+                  {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Quantity</label>
+                <input type="number" step="0.001" min="0.001" className="form-control" required value={formTransfer.quantity} onChange={e => setFormTransfer({...formTransfer, quantity: e.target.value})} />
+              </div>
+              {user?.vendor_id ? (
+                /* Stall manager requesting from central or another stall */
+                <div className="form-group">
+                  <label>Request From</label>
+                  <select className="form-control" value={formTransfer.from_vendor_id} onChange={e => setFormTransfer({...formTransfer, from_vendor_id: e.target.value})}>
+                    <option value="">Central Storage</option>
+                    {vendors.filter(v => v.id !== user.vendor_id).map(v => <option key={v.id} value={v.id}>{v.name} (Stall #{v.id})</option>)}
+                  </select>
+                </div>
+              ) : (
+                /* Central admin doing direct transfer */
+                <>
+                  <div className="form-group">
+                    <label>From (Source)</label>
+                    <select className="form-control" value={formTransfer.from_vendor_id} onChange={e => setFormTransfer({...formTransfer, from_vendor_id: e.target.value})}>
+                      <option value="">Central Storage</option>
+                      {vendors.map(v => <option key={v.id} value={v.id}>{v.name} (Stall #{v.id})</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>To (Destination Stall)</label>
+                    <select className="form-control" required value={formTransfer.to_vendor_id} onChange={e => setFormTransfer({...formTransfer, to_vendor_id: e.target.value})}>
+                      <option value="">Select Destination...</option>
+                      {vendors.filter(v => String(v.id) !== String(formTransfer.from_vendor_id)).map(v => <option key={v.id} value={v.id}>{v.name} (Stall #{v.id})</option>)}
+                    </select>
+                  </div>
+                </>
+              )}
+              <div className="modal-actions" style={{display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px'}}>
+                <button type="button" className="btn btn-outline-primary" onClick={() => setShowTransferModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">{user?.vendor_id ? "Submit Request" : "Transfer Stock"}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {supplierHistoryModal.show && (
         <div className="modal-overlay active">

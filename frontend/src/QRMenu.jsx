@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import QRCode from 'qrcode';
 
 /* ─── API base: uses same origin so LAN IP works on mobile ─── */
 const QR_API_BASE = window.location.origin;
@@ -23,6 +22,7 @@ export default function QRMenu() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [tableNumber, setTableNumber]   = useState('');
+  const [tenantId, setTenantId]         = useState('');
   const [orderStatus, setOrderStatus]   = useState(null);
   const [loading, setLoading]           = useState(false);
   const [fetchError, setFetchError]     = useState(false);
@@ -45,23 +45,32 @@ export default function QRMenu() {
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     if (p.has('table')) setTableNumber(p.get('table'));
-    fetchItems();
+    if (p.has('tenant')) setTenantId(p.get('tenant'));
   }, []);
+  
+  // We need to delay fetch until tenantId is set (if provided)
+  useEffect(() => {
+    fetchItems();
+  }, [tenantId]);
 
   /* ── UPI QR on checkout step ── */
   useEffect(() => {
     if (step === 3 && qrCanvasRef.current) {
       const url = `upi://pay?pa=canteen@upi&pn=CampusCanteen&am=${cartTotal.toFixed(2)}&tn=FoodOrder&cu=INR`;
-      QRCode.toCanvas(qrCanvasRef.current, url, { width: 220, margin: 2, color: { dark: '#1a202c', light: '#ffffff' } }, () => {});
+      import('qrcode').then(m => {
+        const QRCode = m.default || m;
+        QRCode.toCanvas(qrCanvasRef.current, url, { width: 220, margin: 2, color: { dark: '#1a202c', light: '#ffffff' } }, () => {});
+      }).catch(e => console.error("Failed to load QRCode module", e));
     }
   }, [step, cartTotal]);
 
   /* ── Data ── */
   const fetchItems = async () => {
     try {
+      const headers = tenantId ? { 'x-tenant-id': tenantId } : {};
       const [rItems, rCombos] = await Promise.all([
-        fetch(`${QR_API_BASE}/api/items`),
-        fetch(`${QR_API_BASE}/api/combos`)
+        fetch(`${QR_API_BASE}/api/items`, { headers }),
+        fetch(`${QR_API_BASE}/api/combos`, { headers })
       ]);
       const d = await rItems.json();
       const combosData = await rCombos.json();
@@ -78,7 +87,8 @@ export default function QRMenu() {
       setLiveStatus('Pending');
       const checkStatus = async () => {
         try {
-          const res = await fetch(`${QR_API_BASE}/api/orders/${orderStatus.id}/status`);
+          const headers = tenantId ? { 'x-tenant-id': tenantId } : {};
+          const res = await fetch(`${QR_API_BASE}/api/orders/${orderStatus.id}/status`, { headers });
           if (res.ok) {
             const data = await res.json();
             setLiveStatus(data.status);
@@ -142,8 +152,10 @@ export default function QRMenu() {
           customer_phone: customerPhone,
           pickup_slot: pickupSlot === 'Immediate' ? null : pickupSlot
         };
+        const headers = { 'Content-Type': 'application/json' };
+        if (tenantId) headers['x-tenant-id'] = tenantId;
         const r = await fetch(`${QR_API_BASE}/api/orders`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers,
           body: JSON.stringify(payload)
         });
         const d = await r.json();
@@ -158,9 +170,11 @@ export default function QRMenu() {
   /* ── Feedback ── */
   const submitFeedback = async () => {
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (tenantId) headers['x-tenant-id'] = tenantId;
       await fetch(`${QR_API_BASE}/api/feedback`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           order_id: orderStatus?.id || null,
           customer_name: feedbackName || customerName || 'Walk-in Customer',
