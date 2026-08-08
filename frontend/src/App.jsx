@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import CrmNotifications from './CrmNotifications';
 import WalletManagement from './WalletManagement';
+import StallInsights from './StallInsights';
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -1329,11 +1330,11 @@ function App() {
 
   const fetchRecipes = async () => {
     try {
-      const res = await fetch(`${API_BASE}/recipes`);
+      const q = selectedVendorId !== 'all' ? `?vendor_id=${selectedVendorId}` : '?vendor_id=all';
+      const res = await fetch(`${API_BASE}/recipes${q}`);
       if (res.ok) {
         const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Fetch failed');
-      setRecipes(data);
+        setRecipes(data);
       } else {
         setRecipes([]);
       }
@@ -1357,8 +1358,15 @@ function App() {
 
   const fetchOrders = async () => {
     try {
-      // Stall Managers (vendor_id set) only see orders containing their items
-      const q = user && user.vendor_id ? `?vendor_id=${user.vendor_id}` : '';
+      // Use selectedVendorId if available (for Central Admin filtering), else user's vendor_id
+      let vid = '';
+      if (selectedVendorId && selectedVendorId !== 'all' && selectedVendorId !== 'null') {
+        vid = selectedVendorId;
+      } else if (user && user.vendor_id) {
+        vid = user.vendor_id;
+      }
+      
+      const q = vid ? `?vendor_id=${vid}` : '';
       const res = await fetch(`${API_BASE}/orders${q}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Fetch failed');
@@ -3469,7 +3477,7 @@ function App() {
 
   const filteredRecipeMenuItems = items.filter(item => {
     const matchSearch = item.name.toLowerCase().includes(recipeSearch.toLowerCase());
-    const matchVendor = selectedVendorId === 'all' || selectedVendorId === 'null' || item.vendor_id === parseInt(selectedVendorId);
+    const matchVendor = selectedVendorId === 'all' || (selectedVendorId === 'null' ? item.vendor_id == null : item.vendor_id === parseInt(selectedVendorId));
     return matchSearch && matchVendor;
   });
 
@@ -3612,7 +3620,20 @@ function App() {
             <span>Past Orders</span>
           </div>
         )}
-          {selectedVendorId === 'all' && ['Owner', 'Manager'].includes(user.role) && (
+          {user.vendor_id && (
+            <div
+              className={`menu-item ${activeTab === 'stall-insights' ? 'active' : ''}`}
+              onClick={() => setActiveTab('stall-insights')}
+            >
+              <svg className="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+              </svg>
+              <span>Stall Insights</span>
+            </div>
+          )}
+          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && (
             <div
               className={`menu-item ${activeTab === 'vendors' ? 'active' : ''}`}
               onClick={() => setActiveTab('vendors')}
@@ -3626,7 +3647,7 @@ function App() {
               <span>Multi-Vendor</span>
             </div>
           )}
-          {selectedVendorId === 'all' && ['Owner', 'Manager'].includes(user.role) && (
+          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && (
             <div
               className={`menu-item ${activeTab === 'hr' ? 'active' : ''}`}
               onClick={() => setActiveTab('hr')}
@@ -3706,6 +3727,7 @@ function App() {
               {activeTab === 'logs' && 'Audit trail for all inventory changes'}
               {activeTab === 'kds' && 'Real-time kitchen order board with live tracking'}
               {activeTab === 'orders' && 'Historical sales transactions and itemized orders'}
+              {activeTab === 'stall-insights' && 'View your orders, expenses, and performance metrics'}
               {activeTab === 'vendors' && 'Manage registered stalls, split shared costs and view payout settlements'}
               {activeTab === 'hr' && 'Manage staff directory, define shifts, schedule roster, track attendance & leaves, calculate payroll and meals'}
                             {activeTab === 'reports' && 'Advanced analytics, daily sales, vendor settlements, and P&L ledger'}
@@ -5221,6 +5243,12 @@ function App() {
           {/* ==========================================
                2.7 PAST ORDERS PANEL
                ========================================== */}
+          {activeTab === 'stall-insights' && (
+            <div className="view-panel active">
+              <StallInsights user={user} />
+            </div>
+          )}
+
           {activeTab === 'orders' && (
             <div className="view-panel active">
               <div className="view-header-bar">
@@ -5745,9 +5773,10 @@ function App() {
                           setToast({ show: true, message: 'Please fill all fields', type: 'error' }); return;
                         }
                         try {
+                          const payload = { startDate: costSplit.startDate, endDate: costSplit.endDate, totalCommonAreaCost: parseFloat(costSplit.totalCost), splitMethod: costSplit.method };
                           const res = await fetch(`${API_BASE}/vendors/settlements/calculate`, {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ startDate: costSplit.startDate, endDate: costSplit.endDate, totalCommonAreaCost: parseFloat(costSplit.totalCost), splitMethod: costSplit.method })
+                            body: JSON.stringify(payload)
                           });
                           const data = await res.json();
                           if (res.ok) {
@@ -5781,7 +5810,7 @@ function App() {
                               <th>Gross Sales</th>
                               <th>Commission</th>
                               <th>Share of Cost</th>
-                              <th>Net Payout</th>
+                              <th>Dues to Admin</th>
                               <th>Status</th>
                               <th>Action</th>
                             </tr>
@@ -5795,7 +5824,7 @@ function App() {
                                 <td className="amount-col amount-positive">₹{parseFloat(s.gross_sales).toFixed(2)}</td>
                                 <td className="amount-col amount-negative">−₹{parseFloat(s.commission_amount).toFixed(2)}</td>
                                 <td className="amount-col amount-negative">−₹{parseFloat(s.common_area_cost).toFixed(2)}</td>
-                                <td className="amount-col" style={{ color: parseFloat(s.net_payout) >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)', fontWeight: 700 }}>₹{parseFloat(s.net_payout).toFixed(2)}</td>
+                                <td className="amount-col amount-negative" style={{ fontWeight: 700 }}>₹{parseFloat(s.dues_to_admin).toFixed(2)}</td>
                                 <td>
                                   <span className={`settle-status-badge ${s.status.toLowerCase()}`}>{s.status}</span>
                                 </td>
@@ -6003,9 +6032,7 @@ function App() {
               {/* ============ SUB-TAB: CENTRAL ORDER SETTLEMENTS ============ */}
               {vendorSubTab === 'central' && (
                 <div className="central-settlements-section">
-                  <div style={{ display: 'grid', gridTemplateColumns: centralLedgerVendor ? '1fr 1.5fr' : '1fr', gap: '24px' }}>
-
-                    {/* Left: Pending Payouts Summary */}
+                    {/* Pending Payouts Summary — Full Width */}
                     <div className="panel-card">
                       <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
@@ -6054,78 +6081,79 @@ function App() {
                       </div>
                     </div>
 
-                    {/* Right: Itemized Ledger Side-Panel */}
+                    {/* Itemized Ledger Modal */}
                     {centralLedgerVendor && (
-                      <div className="panel-card">
-                        <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div>
-                            <h3>📋 {centralLedgerVendor.name} — Pending Items</h3>
-                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>Select items to settle. These are central QR/POS orders attributed to this stall.</p>
-                          </div>
-                          <button className="btn-icon" onClick={() => setCentralLedgerVendor(null)} title="Close">✕</button>
-                        </div>
-                        <div className="table-container" style={{ padding: '0 20px 10px 20px', maxHeight: '400px', overflowY: 'auto' }}>
-                          <table className="data-table">
-                            <thead>
-                              <tr>
-                                <th style={{ width: '36px' }}>
-                                  <input type="checkbox" checked={centralSelectedItems.length === centralLedgerItems.length && centralLedgerItems.length > 0}
-                                    onChange={(e) => {
-                                      setCentralSelectedItems(e.target.checked ? centralLedgerItems.map(i => i.order_item_id) : []);
-                                    }} />
-                                </th>
-                                <th>Order #</th>
-                                <th>Date</th>
-                                <th>Source</th>
-                                <th>Item</th>
-                                <th>Qty</th>
-                                <th>Price</th>
-                                <th>Total</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {centralLedgerItems.length === 0 ? (
-                                <tr><td colSpan="8" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>No pending items for this stall.</td></tr>
-                              ) : (
-                                centralLedgerItems.map(item => (
-                                  <tr key={item.order_item_id}>
-                                    <td>
-                                      <input type="checkbox" checked={centralSelectedItems.includes(item.order_item_id)}
-                                        onChange={(e) => {
-                                          setCentralSelectedItems(prev => e.target.checked ? [...prev, item.order_item_id] : prev.filter(id => id !== item.order_item_id));
-                                        }} />
-                                    </td>
-                                    <td>#{item.token_number || item.order_id}</td>
-                                    <td>{new Date(item.order_date).toLocaleDateString()}</td>
-                                    <td><span className="badge" style={{ background: item.order_source === 'QR' ? 'var(--accent-primary, #6366f1)' : 'var(--accent-info, #06b6d4)', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75em' }}>{item.order_source}</span></td>
-                                    <td>{item.item_name}</td>
-                                    <td>{item.quantity}</td>
-                                    <td>₹{Number(item.price).toFixed(2)}</td>
-                                    <td><strong>₹{Number(item.total_price).toFixed(2)}</strong></td>
-                                  </tr>
-                                ))
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                        {centralLedgerItems.length > 0 && (
-                          <div style={{ padding: '12px 20px 20px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-color, #333)' }}>
+                      <div className="modal-overlay active" onClick={e => { if (e.target === e.currentTarget) setCentralLedgerVendor(null); }}>
+                        <div className="modal-content" style={{ maxWidth: '900px', width: '95%', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+                          <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderBottom: '1px solid var(--border-color, #333)' }}>
                             <div>
-                              <span style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>{centralSelectedItems.length} of {centralLedgerItems.length} items selected</span>
-                              <br />
-                              <strong style={{ fontSize: '1.15em', color: 'var(--accent-success, #22c55e)' }}>
-                                Selected Total: ₹{centralLedgerItems.filter(i => centralSelectedItems.includes(i.order_item_id)).reduce((s, r) => s + parseFloat(r.total_price), 0).toFixed(2)}
-                              </strong>
+                              <h3 style={{ margin: 0 }}>📋 {centralLedgerVendor.name} — Pending Items</h3>
+                              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>Select items to settle. These are central QR/POS orders attributed to this stall.</p>
                             </div>
-                            <button className="btn btn-primary" disabled={centralSelectedItems.length === 0 || centralSettling} onClick={handleCentralSettle}
-                              style={{ padding: '10px 28px', fontSize: '1em' }}>
-                              {centralSettling ? '⏳ Processing...' : `💸 Settle ₹${centralLedgerItems.filter(i => centralSelectedItems.includes(i.order_item_id)).reduce((s, r) => s + parseFloat(r.total_price), 0).toFixed(2)}`}
-                            </button>
+                            <button className="btn-icon" onClick={() => setCentralLedgerVendor(null)} title="Close" style={{ fontSize: '1.3em', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>✕</button>
                           </div>
-                        )}
+                          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+                            <table className="data-table">
+                              <thead>
+                                <tr>
+                                  <th style={{ width: '36px' }}>
+                                    <input type="checkbox" checked={centralSelectedItems.length === centralLedgerItems.length && centralLedgerItems.length > 0}
+                                      onChange={(e) => {
+                                        setCentralSelectedItems(e.target.checked ? centralLedgerItems.map(i => i.order_item_id) : []);
+                                      }} />
+                                  </th>
+                                  <th>Order #</th>
+                                  <th>Date</th>
+                                  <th>Source</th>
+                                  <th>Item</th>
+                                  <th>Qty</th>
+                                  <th>Price</th>
+                                  <th>Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {centralLedgerItems.length === 0 ? (
+                                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>No pending items for this stall.</td></tr>
+                                ) : (
+                                  centralLedgerItems.map(item => (
+                                    <tr key={item.order_item_id}>
+                                      <td>
+                                        <input type="checkbox" checked={centralSelectedItems.includes(item.order_item_id)}
+                                          onChange={(e) => {
+                                            setCentralSelectedItems(prev => e.target.checked ? [...prev, item.order_item_id] : prev.filter(id => id !== item.order_item_id));
+                                          }} />
+                                      </td>
+                                      <td>#{item.token_number || item.order_id}</td>
+                                      <td>{new Date(item.order_date).toLocaleDateString()}</td>
+                                      <td><span className="badge" style={{ background: item.order_source === 'QR' ? 'var(--accent-primary, #6366f1)' : 'var(--accent-info, #06b6d4)', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75em' }}>{item.order_source}</span></td>
+                                      <td>{item.item_name}</td>
+                                      <td>{item.quantity}</td>
+                                      <td>₹{Number(item.price).toFixed(2)}</td>
+                                      <td><strong>₹{Number(item.total_price).toFixed(2)}</strong></td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                          {centralLedgerItems.length > 0 && (
+                            <div style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-color, #333)' }}>
+                              <div>
+                                <span style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>{centralSelectedItems.length} of {centralLedgerItems.length} items selected</span>
+                                <br />
+                                <strong style={{ fontSize: '1.15em', color: 'var(--accent-success, #22c55e)' }}>
+                                  Selected Total: ₹{centralLedgerItems.filter(i => centralSelectedItems.includes(i.order_item_id)).reduce((s, r) => s + parseFloat(r.total_price), 0).toFixed(2)}
+                                </strong>
+                              </div>
+                              <button className="btn btn-primary" disabled={centralSelectedItems.length === 0 || centralSettling} onClick={handleCentralSettle}
+                                style={{ padding: '10px 28px', fontSize: '1em' }}>
+                                {centralSettling ? '⏳ Processing...' : `💸 Settle ₹${centralLedgerItems.filter(i => centralSelectedItems.includes(i.order_item_id)).reduce((s, r) => s + parseFloat(r.total_price), 0).toFixed(2)}`}
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
-                  </div>
 
                   {/* Settlement History */}
                   <div className="panel-card" style={{ marginTop: '24px' }}>
@@ -8381,7 +8409,7 @@ function App() {
               </div>
               <div className="form-row">
                 <div className="form-group col">
-                  <label>Category (Items Supplied)</label>
+                  <label>Category</label>
                   <input 
                     type="text" 
                     className="form-control"

@@ -380,7 +380,10 @@ app.get('/api/dashboard', async (req, res) => {
 
     let salesResult, lowStockResult, topSellingResult, categoryCount, pendingCount;
 
-    if (vendor_id) {
+    let isCentral = (vendor_id === 'null');
+    let isSpecificStall = (vendor_id && vendor_id !== 'all' && vendor_id !== 'null');
+
+    if (isSpecificStall) {
       const vId = parseInt(vendor_id);
       
       // Today's Sales & Orders for Vendor
@@ -407,7 +410,7 @@ app.get('/api/dashboard', async (req, res) => {
          WHERE o.order_date BETWEEN ? AND ? 
            AND o.status IN ('Pending', 'Preparing', 'Ready')
            AND i.vendor_id = ?`,
-        [startStr, endStr, vId]
+         [startStr, endStr, vId]
       );
       pendingCount = pending[0].count;
 
@@ -418,7 +421,7 @@ app.get('/api/dashboard', async (req, res) => {
          JOIN recipes r ON rm.id = r.material_id
          JOIN items i ON r.item_id = i.id
          WHERE i.vendor_id = ? AND rm.stock_level <= rm.min_stock`,
-        [vId]
+         [vId]
       );
       lowStockResult = lowStock;
 
@@ -432,7 +435,7 @@ app.get('/api/dashboard', async (req, res) => {
          GROUP BY oi.item_id
          ORDER BY total_qty DESC
          LIMIT 5`,
-        [vId]
+         [vId]
       );
       topSellingResult = topSelling;
 
@@ -440,6 +443,61 @@ app.get('/api/dashboard', async (req, res) => {
       const [catCount] = await pool.query(
         `SELECT category, COUNT(id) as count FROM items WHERE vendor_id = ? GROUP BY category`,
         [vId]
+      );
+      categoryCount = catCount;
+    } else if (isCentral) {
+      // Today's Sales & Orders for Central Store (vendor_id is NULL)
+      const [sales] = await pool.query(
+        `SELECT COUNT(DISTINCT o.id) as total_orders, 
+                IFNULL(SUM(oi.quantity * oi.price), 0) as total_revenue, 
+                IFNULL(SUM(oi.quantity * oi.price * (i.gst_rate / 100)), 0) as total_gst 
+         FROM orders o
+         JOIN order_items oi ON o.id = oi.order_id
+         JOIN items i ON oi.item_id = i.id
+         WHERE o.order_date BETWEEN ? AND ? 
+           AND o.status != 'Cancelled'
+           AND i.vendor_id IS NULL`,
+         [startStr, endStr]
+      );
+      salesResult = sales;
+
+      // Today's active pending orders for Central Store
+      const [pending] = await pool.query(
+        `SELECT COUNT(DISTINCT o.id) as count 
+         FROM orders o
+         JOIN order_items oi ON o.id = oi.order_id
+         JOIN items i ON oi.item_id = i.id
+         WHERE o.order_date BETWEEN ? AND ? 
+           AND o.status IN ('Pending', 'Preparing', 'Ready')
+           AND i.vendor_id IS NULL`,
+         [startStr, endStr]
+      );
+      pendingCount = pending[0].count;
+
+      // Low stock count & list for Central Store raw materials (where vendor_id IS NULL)
+      const [lowStock] = await pool.query(
+        `SELECT DISTINCT rm.id, rm.name, rm.stock_level, rm.min_stock, rm.unit 
+         FROM raw_materials rm
+         WHERE rm.vendor_id IS NULL AND rm.stock_level <= rm.min_stock`
+      );
+      lowStockResult = lowStock;
+
+      // Top Selling Items for Central Store
+      const [topSelling] = await pool.query(
+        `SELECT i.name, SUM(oi.quantity) as total_qty, SUM(oi.quantity * oi.price) as total_sales
+         FROM order_items oi
+         JOIN items i ON oi.item_id = i.id
+         JOIN orders o ON oi.order_id = o.id
+         WHERE o.status != 'Cancelled' AND i.vendor_id IS NULL
+         GROUP BY oi.item_id
+         ORDER BY total_qty DESC
+         LIMIT 5`
+      );
+      topSellingResult = topSelling;
+
+      // Category distribution for Central Store
+      const [catCount] = await pool.query(
+        `SELECT category, COUNT(id) as count FROM items WHERE vendor_id IS NULL GROUP BY category`
       );
       categoryCount = catCount;
     } else {
@@ -1166,10 +1224,24 @@ app.get('/api/recipes', async (req, res) => {
       WHERE i.is_deleted = 0
     `;
     let params = [];
-    if (req.user && req.user.vendor_id) {
+    const vendorParam = req.query.vendor_id;
+    if (vendorParam && vendorParam !== 'all') {
+      if (vendorParam === 'null') {
+        // Central Admin's own recipes (items with no vendor)
+        query += ' AND i.vendor_id IS NULL';
+      } else {
+        const vid = parseInt(vendorParam, 10);
+        if (!isNaN(vid)) {
+          query += ' AND i.vendor_id = ?';
+          params.push(vid);
+        }
+      }
+    } else if (!vendorParam && req.user && req.user.vendor_id) {
+      // Stall manager fallback — filter by token vendor_id
       query += ' AND i.vendor_id = ?';
       params.push(req.user.vendor_id);
     }
+    // vendor_id=all → no filter, return all recipes
     query += ' ORDER BY i.name';
     
     const [rows] = await pool.query(query, params);
@@ -1867,7 +1939,9 @@ app.get('/api/kds/orders', async (req, res) => {
     let ordersQuery = '';
     let ordersParams = [];
 
-    if (vendor_id) {
+    const isSpecificStall = (vendor_id && vendor_id !== 'all' && vendor_id !== 'null');
+
+    if (isSpecificStall) {
       const vId = parseInt(vendor_id);
       ordersQuery = `
         SELECT DISTINCT o.id, o.token_number, o.order_date, o.status, o.payment_mode, o.total_amount,
@@ -1904,7 +1978,7 @@ app.get('/api/kds/orders', async (req, res) => {
     `;
     let itemsParams = [orderIds];
 
-    if (vendor_id) {
+    if (isSpecificStall) {
       itemsQuery += ` AND i.vendor_id = ?`;
       itemsParams.push(parseInt(vendor_id));
     }
@@ -2056,12 +2130,17 @@ app.put('/api/orders/:id/status', async (req, res) => {
 
 // Get completed orders from last 2 hours (KDS History for disputes)
 app.get('/api/kds/history', async (req, res) => {
-  const { vendor_id } = req.query;
+  let vendor_id = req.query.vendor_id;
+  if (req.user && req.user.vendor_id) {
+    vendor_id = req.user.vendor_id;
+  }
   try {
     let ordersQuery = '';
     let ordersParams = [];
 
-    if (vendor_id) {
+    const isSpecificStall = (vendor_id && vendor_id !== 'all' && vendor_id !== 'null');
+
+    if (isSpecificStall) {
       const vId = parseInt(vendor_id);
       ordersQuery = `
         SELECT DISTINCT o.id, o.token_number, o.order_date, o.status, o.payment_mode, o.total_amount,
@@ -2098,7 +2177,7 @@ app.get('/api/kds/history', async (req, res) => {
     `;
     let itemsParams = [orderIds];
 
-    if (vendor_id) {
+    if (isSpecificStall) {
       itemsQuery += ` AND i.vendor_id = ?`;
       itemsParams.push(parseInt(vendor_id));
     }
@@ -2181,12 +2260,28 @@ app.get('/api/orders', async (req, res) => {
     });
 
     // If filtering by vendor_id, only include items from that vendor in each order
-    const result = orders.map(order => ({
-      ...order,
-      items: vendor_id
+    const result = orders.map(order => {
+      const filteredItems = vendor_id
         ? (itemsByOrder[order.id] || []).filter(it => String(it.vendor_id) === String(vendor_id))
-        : (itemsByOrder[order.id] || [])
-    }));
+        : (itemsByOrder[order.id] || []);
+
+      let vendorTotal = parseFloat(order.total_amount);
+      let vendorGst = parseFloat(order.gst_amount || 0);
+
+      if (vendor_id && filteredItems.length > 0) {
+        vendorTotal = filteredItems.reduce((sum, item) => sum + (parseFloat(item.price) * parseInt(item.quantity)), 0);
+        // Approximate GST for this vendor's portion
+        const ratio = parseFloat(order.total_amount) > 0 ? (vendorTotal / parseFloat(order.total_amount)) : 0;
+        vendorGst = (parseFloat(order.gst_amount || 0) * ratio);
+      }
+
+      return {
+        ...order,
+        total_amount: vendor_id ? vendorTotal : order.total_amount,
+        gst_amount: vendor_id ? vendorGst : order.gst_amount,
+        items: filteredItems
+      };
+    });
 
     res.json(result);
   } catch (error) {
@@ -2317,6 +2412,106 @@ app.get('/api/vendors/performance', async (req, res) => {
   }
 });
 
+// Stall-specific performance with optional date range filter
+app.get('/api/vendors/performance/my-stats', async (req, res) => {
+  const vendorId = req.user.vendor_id;
+  if (!vendorId) {
+    return res.status(400).json({ error: 'This endpoint is for stall managers only.' });
+  }
+
+  const { startDate, endDate } = req.query;
+  const hasDateFilter = startDate && endDate;
+
+  try {
+    // Summary KPIs — filtered by date range if provided
+    const summaryDateClause = hasDateFilter
+      ? `AND DATE(o.order_date) BETWEEN '${startDate}' AND '${endDate}'`
+      : '';
+
+    const [summary] = await pool.query(`
+      SELECT
+        v.id, v.name, v.stall_number,
+        COUNT(DISTINCT o.id) as footfall,
+        IFNULL(SUM(IF(o.id IS NOT NULL, oi.quantity * oi.price, 0)), 0) as total_sales,
+        IFNULL(SUM(IF(o.id IS NOT NULL, oi.quantity * oi.price, 0)) / NULLIF(COUNT(DISTINCT o.id), 0), 0) as aov,
+        COUNT(DISTINCT i.id) as total_menu_items
+      FROM vendors v
+      LEFT JOIN items i ON v.id = i.vendor_id
+      LEFT JOIN order_items oi ON i.id = oi.item_id
+      LEFT JOIN orders o ON oi.order_id = o.id AND o.status != 'Cancelled' ${summaryDateClause}
+      WHERE v.id = ?
+      GROUP BY v.id
+    `, [vendorId]);
+
+    // Daily breakdown for the last 30 days if no date filter
+    const trendDateClause = hasDateFilter 
+      ? `AND DATE(o.order_date) BETWEEN '${startDate}' AND '${endDate}'`
+      : `AND o.order_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`;
+
+    const [dailyRows] = await pool.query(`
+      SELECT
+        DATE(o.order_date) as date,
+        COUNT(DISTINCT o.id) as orders,
+        IFNULL(SUM(oi.quantity * oi.price), 0) as revenue
+      FROM orders o
+      JOIN order_items oi ON o.id = oi.order_id
+      JOIN items i ON oi.item_id = i.id
+      WHERE i.vendor_id = ? AND o.status != 'Cancelled' ${trendDateClause}
+      GROUP BY DATE(o.order_date)
+      ORDER BY date ASC
+    `, [vendorId]);
+
+    // Top Items
+    const [topItems] = await pool.query(`
+      SELECT 
+        i.name, 
+        SUM(oi.quantity) as qty_sold 
+      FROM order_items oi
+      JOIN items i ON oi.item_id = i.id
+      JOIN orders o ON oi.order_id = o.id
+      WHERE i.vendor_id = ? AND o.status != 'Cancelled' ${trendDateClause}
+      GROUP BY i.id, i.name
+      ORDER BY qty_sold DESC
+      LIMIT 5
+    `, [vendorId]);
+
+    // Source Breakdown
+    const [sourceBreakdown] = await pool.query(`
+      SELECT 
+        IFNULL(o.order_source, 'POS') as source, 
+        COUNT(DISTINCT o.id) as count 
+      FROM orders o
+      JOIN order_items oi ON o.id = oi.order_id
+      JOIN items i ON oi.item_id = i.id
+      WHERE i.vendor_id = ? AND o.status != 'Cancelled' ${trendDateClause}
+      GROUP BY source
+    `, [vendorId]);
+
+    res.json({
+      summary: summary[0] || { footfall: 0, total_sales: 0, aov: 0, total_menu_items: 0, name: 'My Stall' },
+      dailyTrend: dailyRows.map(d => ({
+        date: d.date,
+        orders: parseInt(d.orders),
+        revenue: parseFloat(d.revenue)
+      })),
+      topItems: topItems.map(t => ({
+        name: t.name,
+        qty_sold: parseInt(t.qty_sold)
+      })),
+      sourceBreakdown: sourceBreakdown.map(s => ({
+        source: s.source,
+        count: parseInt(s.count)
+      })),
+      dateFiltered: hasDateFilter,
+      startDate: startDate || null,
+      endDate: endDate || null
+    });
+  } catch (error) {
+    console.error('Error fetching my stall stats:', error);
+    res.status(500).json({ error: 'Failed to fetch stall performance stats' });
+  }
+});
+
 // Calculate settlements & split common area costs
 app.post('/api/vendors/settlements/calculate', async (req, res) => {
   const { startDate, endDate, totalCommonAreaCost, totalCost: totalCostAlt, splitMethod } = req.body;
@@ -2330,6 +2525,15 @@ app.post('/api/vendors/settlements/calculate', async (req, res) => {
   const totalCost = parseFloat(cost);
 
   try {
+    // 0. Check for overlaps — strict block (no overwrite allowed)
+    const [overlaps] = await pool.query(`
+      SELECT id, start_date, end_date, status FROM vendor_settlements 
+      WHERE start_date <= ? AND end_date >= ?
+    `, [endDate, startDate]);
+
+    if (overlaps.length > 0) {
+      return res.status(400).json({ error: "Overlapping occurred and blocked." });
+    }
     // 1. Get gross sales & info for all vendors in this period
     const [vendorsSales] = await pool.query(`
       SELECT 
@@ -2366,9 +2570,10 @@ app.post('/api/vendors/settlements/calculate', async (req, res) => {
 
       const gross = parseFloat(v.gross_sales);
       const commission = gross * (parseFloat(v.commission_rate || 10.00) / 100);
-      const netPayout = gross - commission - allocatedCost;
+      const duesToAdmin = commission + allocatedCost;
 
       // 2. Insert into vendor_settlements
+      const netPayout = gross - duesToAdmin;
       const [insertResult] = await pool.query(`
         INSERT INTO vendor_settlements (vendor_id, start_date, end_date, gross_sales, commission_amount, common_area_cost, net_payout, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')
@@ -2383,7 +2588,7 @@ app.post('/api/vendors/settlements/calculate', async (req, res) => {
         gross_sales: gross,
         commission_amount: commission,
         common_area_cost: allocatedCost,
-        net_payout: netPayout,
+        dues_to_admin: duesToAdmin,
         status: 'Pending'
       });
     }
@@ -2399,7 +2604,8 @@ app.post('/api/vendors/settlements/calculate', async (req, res) => {
 app.get('/api/vendors/settlements', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT s.*, v.name as vendor_name, v.stall_number 
+      SELECT s.*, v.name as vendor_name, v.stall_number, 
+             (s.commission_amount + s.common_area_cost) AS dues_to_admin
       FROM vendor_settlements s
       JOIN vendors v ON s.vendor_id = v.id
       ORDER BY s.created_at DESC
@@ -2421,6 +2627,28 @@ app.put('/api/vendors/settlements/:id/settle', async (req, res) => {
     res.json({ success: true, message: 'Settlement status updated to Settled' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update settlement' });
+  }
+});
+
+// Get settlement dues for the logged-in stall manager
+app.get('/api/vendors/settlements/my-dues', async (req, res) => {
+  const vendorId = req.user && req.user.vendor_id;
+  if (!vendorId) {
+    return res.status(403).json({ error: 'Only stall managers can access this endpoint.' });
+  }
+  try {
+    const [rows] = await pool.query(`
+      SELECT s.id, s.start_date, s.end_date, s.gross_sales, s.commission_amount,
+             s.common_area_cost, s.net_payout, s.status, s.settled_at, s.created_at,
+             (s.commission_amount + s.common_area_cost) AS dues_to_admin
+      FROM vendor_settlements s
+      WHERE s.vendor_id = ?
+      ORDER BY s.start_date DESC
+    `, [vendorId]);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching stall dues:', error);
+    res.status(500).json({ error: 'Failed to fetch settlement dues' });
   }
 });
 
