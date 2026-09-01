@@ -33,6 +33,7 @@ export default function QRMenu() {
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [feedbackComment, setFeedbackComment] = useState('');
   const [feedbackName, setFeedbackName] = useState('');
+  const [feedbackPhone, setFeedbackPhone] = useState('');
   const qrCanvasRef                     = useRef(null);
   const pollIntervalRef                 = useRef(null);
 
@@ -169,6 +170,11 @@ export default function QRMenu() {
 
   /* ── Feedback ── */
   const submitFeedback = async () => {
+    if (!feedbackName.trim()) return alert('Please enter your Name.');
+    if (!feedbackPhone.trim()) return alert('Please enter your Phone Number.');
+    if (!feedbackComment.trim()) return alert('Please enter your comments.');
+    if (!feedbackRating || feedbackRating < 1 || feedbackRating > 5) return alert('Please provide a valid rating.');
+
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (tenantId) headers['x-tenant-id'] = tenantId;
@@ -178,6 +184,7 @@ export default function QRMenu() {
         body: JSON.stringify({
           order_id: orderStatus?.id || null,
           customer_name: feedbackName || customerName || 'Walk-in Customer',
+          customer_phone: feedbackPhone || customerPhone || null,
           rating: feedbackRating,
           comments: feedbackComment,
           feedback_date: new Date().toLocaleDateString('en-CA')
@@ -187,6 +194,7 @@ export default function QRMenu() {
       setFeedbackRating(5);
       setFeedbackComment('');
       setFeedbackName('');
+      setFeedbackPhone('');
       alert('Thank you for your feedback!');
     } catch (e) {
       console.error(e);
@@ -561,9 +569,16 @@ export default function QRMenu() {
             <h3 style={{ margin: '0 0 16px 0', color: DARK, fontSize: 18 }}>How was the experience?</h3>
             <input
               type="text"
-              placeholder="Your Name (Optional)"
+              placeholder="Your Name *"
               value={feedbackName}
               onChange={e => setFeedbackName(e.target.value)}
+              style={{ width: '100%', padding: 12, borderRadius: 10, border: `1px solid ${BORDER}`, marginBottom: 12, fontFamily: FONT, fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+            />
+            <input
+              type="tel"
+              placeholder="Phone Number *"
+              value={feedbackPhone}
+              onChange={e => setFeedbackPhone(e.target.value)}
               style={{ width: '100%', padding: 12, borderRadius: 10, border: `1px solid ${BORDER}`, marginBottom: 12, fontFamily: FONT, fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
             />
             <div style={{ display: 'flex', justifyContent: 'center', gap: 10, fontSize: 36, marginBottom: 16 }}>
@@ -574,13 +589,13 @@ export default function QRMenu() {
               ))}
             </div>
             <textarea
-              placeholder="Any comments? (optional)"
+              placeholder="Any comments? *"
               value={feedbackComment}
               onChange={e => setFeedbackComment(e.target.value)}
               style={{ width: '100%', minHeight: 80, padding: 12, borderRadius: 10, border: `1px solid ${BORDER}`, marginBottom: 16, fontFamily: FONT, fontSize: 14, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
             />
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setShowFeedback(false)} style={{ flex: 1, padding: 12, borderRadius: 10, border: `1px solid ${BORDER}`, background: '#f8fafc', color: DARK, fontWeight: 600, cursor: 'pointer' }}>Skip</button>
+              <button onClick={() => setShowFeedback(false)} style={{ flex: 1, padding: 12, borderRadius: 10, border: `1px solid ${BORDER}`, background: '#f8fafc', color: DARK, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
               <button onClick={submitFeedback} style={{ flex: 1, padding: 12, borderRadius: 10, border: 'none', background: ORANGE, color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Submit</button>
             </div>
           </div>

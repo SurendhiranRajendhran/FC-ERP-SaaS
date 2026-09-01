@@ -39,6 +39,23 @@ function SuperAdminDashboard({ user, onLogout }) {
   const [formParams, setFormParams] = useState({ name: '', owner_name: '', email: '', password: '' });
   const [adding, setAdding] = useState(false);
 
+  // Edit Tenant State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingTenantId, setEditingTenantId] = useState(null);
+  const [editFormParams, setEditFormParams] = useState({ name: '', owner_name: '', email: '', password: '', is_active: true });
+  
+  // Integrations State
+  const [showIntegrations, setShowIntegrations] = useState(false);
+  const [integrationTenant, setIntegrationTenant] = useState(null);
+  const [integrationForm, setIntegrationForm] = useState({});
+  const [savingIntegrations, setSavingIntegrations] = useState(false);
+
+  const [editing, setEditing] = useState(false);
+  const [showAddPassword, setShowAddPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null); // holds the tenant object to delete
+  const [deleting, setDeleting] = useState(false);
+
   useEffect(() => {
     fetchTenants();
   }, []);
@@ -79,6 +96,101 @@ function SuperAdminDashboard({ user, onLogout }) {
       alert(err.message);
     } finally {
       setAdding(false);
+    }
+  };
+
+  const openEditModal = (t) => {
+    setEditingTenantId(t.id);
+    setEditFormParams({
+      name: t.name || '',
+      owner_name: t.owner_name || '',
+      email: t.owner_email || '',
+      password: '', // Leave blank unless changing
+      is_active: t.is_active === 1 || t.is_active === true
+    });
+    setShowEditModal(true);
+  };
+
+  const openIntegrationsModal = async (t) => {
+    setIntegrationTenant(t);
+    setIntegrationForm({});
+    setShowIntegrations(true);
+    try {
+      const res = await originalFetch(`${API_BASE}/superadmin/tenants/${t.id}/integrations`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      setIntegrationForm(data || {});
+    } catch (err) {
+      console.error('Failed to fetch integrations', err);
+    }
+  };
+
+  const handleSaveIntegrations = async (e) => {
+    e.preventDefault();
+    setSavingIntegrations(true);
+    try {
+      const res = await originalFetch(`${API_BASE}/superadmin/tenants/${integrationTenant.id}/integrations`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify(integrationForm)
+      });
+      if (res.ok) {
+        setShowIntegrations(false);
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to save integrations');
+      }
+    } catch (err) {
+      alert('Network error while saving integrations');
+    }
+    setSavingIntegrations(false);
+  };
+
+  const handleEditTenant = async (e) => {
+    e.preventDefault();
+    setEditing(true);
+    try {
+      const res = await originalFetch(`${API_BASE}/tenants/${editingTenantId}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify(editFormParams)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update food court');
+      
+      setShowEditModal(false);
+      setEditingTenantId(null);
+      fetchTenants();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  const handleDeleteTenant = async () => {
+    if (!confirmDelete) return;
+    setDeleting(true);
+    try {
+      const res = await originalFetch(`${API_BASE}/tenants/${confirmDelete.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to remove food court');
+      setConfirmDelete(null);
+      fetchTenants();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -244,6 +356,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                       <th style={saStyles.th}>Plan</th>
                       <th style={{...saStyles.th, textAlign: 'center'}}>Status</th>
                       <th style={{...saStyles.th, textAlign: 'right'}}>Registered</th>
+                      <th style={{...saStyles.th, textAlign: 'center'}}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -274,6 +387,19 @@ function SuperAdminDashboard({ user, onLogout }) {
                         </td>
                         <td style={{...saStyles.td, textAlign: 'right', color: '#64748b'}}>
                           {new Date(t.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </td>
+                        <td style={{...saStyles.td, textAlign: 'center'}}>
+                          <div style={{display: 'flex', gap: '6px', justifyContent: 'center'}}>
+                            <button onClick={() => openIntegrationsModal(t)} style={{background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600}}>
+                              ⚙️ Integrations
+                            </button>
+                            <button onClick={() => openEditModal(t)} style={{background: 'rgba(139,92,246,0.1)', color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600}}>
+                              Edit
+                            </button>
+                            <button onClick={() => setConfirmDelete(t)} style={{background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600}}>
+                              Remove
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -321,11 +447,20 @@ function SuperAdminDashboard({ user, onLogout }) {
                 </div>
                 <div style={saStyles.formGroup}>
                   <label style={saStyles.formLabel}>Owner Password</label>
-                  <input style={saStyles.formInput} type="password" required value={formParams.password}
-                    onChange={e => setFormParams({...formParams, password: e.target.value})}
-                    placeholder="Set initial password"
-                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
-                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+                  <div style={{position: 'relative'}}>
+                    <input style={{...saStyles.formInput, paddingRight: '40px'}} type={showAddPassword ? 'text' : 'password'} required value={formParams.password}
+                      onChange={e => setFormParams({...formParams, password: e.target.value})}
+                      placeholder="Set initial password"
+                      onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                      onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+                    <button type="button" onClick={() => setShowAddPassword(!showAddPassword)} style={{position:'absolute', right:'10px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', padding:'4px', color:'#64748b', display:'flex', alignItems:'center'}}>
+                      {showAddPassword ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <div style={saStyles.modalActions}>
                   <button type="button" style={saStyles.cancelBtn} onClick={() => setShowAddModal(false)}>Cancel</button>
@@ -334,6 +469,185 @@ function SuperAdminDashboard({ user, onLogout }) {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EDIT FOOD COURT MODAL ── */}
+      {showEditModal && (
+        <div style={saStyles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setShowEditModal(false); }}>
+          <div style={saStyles.modal}>
+            <div style={saStyles.modalHeader}>
+              <h2 style={saStyles.modalTitle}>Edit Food Court</h2>
+              <button style={saStyles.closeBtn} onClick={() => setShowEditModal(false)}>&times;</button>
+            </div>
+            <div style={saStyles.modalBody}>
+              <form onSubmit={handleEditTenant}>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Food Court Name</label>
+                  <input style={saStyles.formInput} type="text" required value={editFormParams.name}
+                    onChange={e => setEditFormParams({...editFormParams, name: e.target.value})}
+                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+                </div>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Owner Name</label>
+                  <input style={saStyles.formInput} type="text" required value={editFormParams.owner_name}
+                    onChange={e => setEditFormParams({...editFormParams, owner_name: e.target.value})}
+                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+                </div>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Owner Email</label>
+                  <input style={saStyles.formInput} type="email" required value={editFormParams.email}
+                    onChange={e => setEditFormParams({...editFormParams, email: e.target.value})}
+                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+                </div>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>New Password (Optional)</label>
+                  <div style={{position: 'relative'}}>
+                    <input style={{...saStyles.formInput, paddingRight: '40px'}} type={showEditPassword ? 'text' : 'password'} value={editFormParams.password}
+                      onChange={e => setEditFormParams({...editFormParams, password: e.target.value})}
+                      placeholder="Leave blank to keep unchanged"
+                      onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                      onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+                    <button type="button" onClick={() => setShowEditPassword(!showEditPassword)} style={{position:'absolute', right:'10px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', padding:'4px', color:'#64748b', display:'flex', alignItems:'center'}}>
+                      {showEditPassword ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <div style={saStyles.formGroup}>
+                  <label style={{display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', ...saStyles.formLabel}}>
+                    <input type="checkbox" checked={editFormParams.is_active} 
+                      onChange={e => setEditFormParams({...editFormParams, is_active: e.target.checked})} />
+                    Active Status
+                  </label>
+                </div>
+                <div style={saStyles.modalActions}>
+                  <button type="button" style={saStyles.cancelBtn} onClick={() => setShowEditModal(false)}>Cancel</button>
+                  <button type="submit" style={saStyles.submitBtn(editing)} disabled={editing}>
+                    {editing ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── CONFIRM DELETE MODAL ── */}
+      {showIntegrations && (
+        <div style={saStyles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setShowIntegrations(false); }}>
+          <div style={{...saStyles.modal, maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto'}}>
+            <div style={saStyles.modalHeader}>
+              <h2 style={saStyles.modalTitle}>⚙️ Integrations: {integrationTenant?.name}</h2>
+              <button style={saStyles.closeBtn} onClick={() => setShowIntegrations(false)}>&times;</button>
+            </div>
+            <div style={saStyles.modalBody}>
+              <p style={{color: '#94a3b8', fontSize: '0.9rem', marginBottom: 20}}>Configure Tier 1 infrastructure credentials for this food court.</p>
+              
+              <div style={{marginBottom: 20}}>
+                <h4 style={{color: '#8b5cf6', margin: '0 0 10px'}}>💬 WhatsApp (Gupshup)</h4>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>API Key</label>
+                  <input style={saStyles.formInput} value={integrationForm.gupshup_api_key || ''} onChange={e => setIntegrationForm({...integrationForm, gupshup_api_key: e.target.value})} placeholder="API Key" />
+                </div>
+                <div style={{display: 'flex', gap: 12}}>
+                  <div style={{...saStyles.formGroup, flex: 1}}>
+                    <label style={saStyles.formLabel}>App Name</label>
+                    <input style={saStyles.formInput} value={integrationForm.gupshup_app_name || ''} onChange={e => setIntegrationForm({...integrationForm, gupshup_app_name: e.target.value})} placeholder="App Name" />
+                  </div>
+                  <div style={{...saStyles.formGroup, flex: 1}}>
+                    <label style={saStyles.formLabel}>Sender Phone</label>
+                    <input style={saStyles.formInput} value={integrationForm.gupshup_phone || ''} onChange={e => setIntegrationForm({...integrationForm, gupshup_phone: e.target.value})} placeholder="+91..." />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{marginBottom: 20}}>
+                <h4 style={{color: '#3b82f6', margin: '0 0 10px'}}>📱 SMS (MSG91)</h4>
+                <div style={{display: 'flex', gap: 12}}>
+                  <div style={{...saStyles.formGroup, flex: 2}}>
+                    <label style={saStyles.formLabel}>Auth Key</label>
+                    <input style={saStyles.formInput} value={integrationForm.msg91_auth_key || ''} onChange={e => setIntegrationForm({...integrationForm, msg91_auth_key: e.target.value})} placeholder="Auth Key" />
+                  </div>
+                  <div style={{...saStyles.formGroup, flex: 1}}>
+                    <label style={saStyles.formLabel}>Sender ID</label>
+                    <input style={saStyles.formInput} value={integrationForm.msg91_sender_id || ''} onChange={e => setIntegrationForm({...integrationForm, msg91_sender_id: e.target.value})} placeholder="ERPALR" />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{marginBottom: 20}}>
+                <h4 style={{color: '#ec4899', margin: '0 0 10px'}}>📧 Email (SMTP)</h4>
+                <div style={{display: 'flex', gap: 12}}>
+                  <div style={{...saStyles.formGroup, flex: 2}}>
+                    <label style={saStyles.formLabel}>SMTP Host</label>
+                    <input style={saStyles.formInput} value={integrationForm.smtp_host || ''} onChange={e => setIntegrationForm({...integrationForm, smtp_host: e.target.value})} placeholder="smtp.gmail.com" />
+                  </div>
+                  <div style={{...saStyles.formGroup, flex: 1}}>
+                    <label style={saStyles.formLabel}>Port</label>
+                    <input type="number" style={saStyles.formInput} value={integrationForm.smtp_port || ''} onChange={e => setIntegrationForm({...integrationForm, smtp_port: e.target.value})} placeholder="587" />
+                  </div>
+                </div>
+                <div style={{display: 'flex', gap: 12}}>
+                  <div style={{...saStyles.formGroup, flex: 1}}>
+                    <label style={saStyles.formLabel}>Username</label>
+                    <input style={saStyles.formInput} value={integrationForm.smtp_user || ''} onChange={e => setIntegrationForm({...integrationForm, smtp_user: e.target.value})} placeholder="Email" />
+                  </div>
+                  <div style={{...saStyles.formGroup, flex: 1}}>
+                    <label style={saStyles.formLabel}>Password</label>
+                    <input type="password" style={saStyles.formInput} value={integrationForm.smtp_pass || ''} onChange={e => setIntegrationForm({...integrationForm, smtp_pass: e.target.value})} placeholder="••••••••" />
+                  </div>
+                </div>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>From Name</label>
+                  <input style={saStyles.formInput} value={integrationForm.smtp_from_name || ''} onChange={e => setIntegrationForm({...integrationForm, smtp_from_name: e.target.value})} placeholder="Food Court ERP" />
+                </div>
+              </div>
+
+              <div style={saStyles.modalActions}>
+                <button type="button" style={saStyles.cancelBtn} onClick={() => setShowIntegrations(false)}>Cancel</button>
+                <button type="button" style={saStyles.submitBtn(savingIntegrations)} disabled={savingIntegrations} onClick={handleSaveIntegrations}>
+                  {savingIntegrations ? 'Saving...' : 'Save Integrations'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div style={saStyles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setConfirmDelete(null); }}>
+          <div style={{...saStyles.modal, maxWidth: '400px'}}>
+            <div style={saStyles.modalHeader}>
+              <h2 style={{...saStyles.modalTitle, color: '#ef4444'}}>⚠️ Remove Food Court</h2>
+              <button style={saStyles.closeBtn} onClick={() => setConfirmDelete(null)}>&times;</button>
+            </div>
+            <div style={saStyles.modalBody}>
+              <p style={{color: '#cbd5e1', marginBottom: '8px'}}>
+                You are about to <strong style={{color: '#ef4444'}}>permanently delete</strong>:
+              </p>
+              <div style={{background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', padding: '14px 18px', marginBottom: '18px'}}>
+                <p style={{color: '#f1f5f9', fontWeight: 700, margin: '0 0 4px 0', fontSize: '1rem'}}>{confirmDelete.name}</p>
+                <p style={{color: '#94a3b8', margin: 0, fontSize: '0.85rem'}}>{confirmDelete.owner_email}</p>
+              </div>
+              <p style={{color: '#94a3b8', fontSize: '0.85rem', margin: '0 0 20px 0'}}>
+                This will also remove all staff accounts linked to this food court. This action <strong>cannot be undone</strong>.
+              </p>
+              <div style={saStyles.modalActions}>
+                <button type="button" style={saStyles.cancelBtn} onClick={() => setConfirmDelete(null)}>Cancel</button>
+                <button type="button" disabled={deleting} onClick={handleDeleteTenant}
+                  style={{padding: '10px 24px', background: deleting ? '#7f1d1d' : 'linear-gradient(135deg, #ef4444, #dc2626)', color: '#fff', border: 'none', borderRadius: '8px', cursor: deleting ? 'not-allowed' : 'pointer', fontSize: '0.88rem', fontWeight: 600, opacity: deleting ? 0.7 : 1}}>
+                  {deleting ? 'Removing...' : 'Yes, Remove It'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -348,6 +662,7 @@ function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -400,13 +715,23 @@ function LoginScreen({ onLogin }) {
           </div>
           <div className="form-group">
             <label>Password</label>
-            <input 
-              type="password" 
-              value={password} 
-              onChange={e => setPassword(e.target.value)} 
-              placeholder="••••••••"
-              required 
-            />
+            <div style={{position: 'relative'}}>
+              <input 
+                type={showLoginPassword ? 'text' : 'password'} 
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+                placeholder="••••••••"
+                required
+                style={{paddingRight: '40px'}}
+              />
+              <button type="button" onClick={() => setShowLoginPassword(!showLoginPassword)} style={{position:'absolute', right:'10px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', padding:'4px', color:'#64748b', display:'flex', alignItems:'center'}}>
+                {showLoginPassword ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                )}
+              </button>
+            </div>
           </div>
           <button type="submit" className="login-btn" disabled={loading}>
             {loading ? 'Logging in...' : 'Sign In'}
@@ -784,6 +1109,57 @@ function App() {
     }
   };
 
+  const [walletSettlements, setWalletSettlements] = useState([]);
+  const [walletSettling, setWalletSettling] = useState(false);
+  const [walletLedgerVendor, setWalletLedgerVendor] = useState(null);
+  const [walletLedgerItems, setWalletLedgerItems] = useState([]);
+  const [walletSelectedItems, setWalletSelectedItems] = useState([]);
+
+  const fetchWalletSettlements = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/digital-settlements/summary`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json();
+      if (res.ok) setWalletSettlements(data);
+    } catch (e) { console.error('Failed to fetch wallet settlements', e); }
+  };
+
+  const fetchWalletLedger = async (vendor) => {
+    setWalletLedgerVendor(vendor);
+    setWalletSelectedItems([]);
+    try {
+      const res = await fetch(`${API_BASE}/digital-settlements/pending/${vendor.vendor_id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json();
+      if (res.ok) setWalletLedgerItems(data);
+    } catch (e) { console.error('Failed to fetch wallet ledger', e); }
+  };
+
+  const handleWalletSettle = async () => {
+    if (!walletLedgerVendor || walletSelectedItems.length === 0) return;
+    const selectedRows = walletLedgerItems.filter(i => walletSelectedItems.includes(i.order_item_id));
+    const amount = selectedRows.reduce((s, r) => s + parseFloat(r.total_price), 0);
+    const uniqueModes = [...new Set(selectedRows.map(r => r.payment_mode))];
+    const payment_mode = uniqueModes.length === 1 ? uniqueModes[0] : 'Mixed';
+    if (!window.confirm(`Settle ₹${amount.toFixed(2)} (${payment_mode}) to ${walletLedgerVendor.vendor_name}?`)) return;
+    setWalletSettling(true);
+    try {
+      const res = await fetch(`${API_BASE}/digital-settlements/settle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ vendor_id: walletLedgerVendor.vendor_id, orderItemIds: walletSelectedItems, amount, payment_mode })
+      });
+      if (res.ok) {
+        showToast(`₹${amount.toFixed(2)} settled for ${walletLedgerVendor.vendor_name}`, 'success');
+        setWalletSelectedItems([]);
+        fetchWalletSettlements();
+        fetchWalletLedger(walletLedgerVendor);
+      } else {
+        showToast('Settlement failed', 'error');
+      }
+    } catch (e) { showToast('Network error', 'error'); }
+    finally { setWalletSettling(false); }
+  };
+
+
   const handleCommonExpenseSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -850,6 +1226,7 @@ function App() {
 
   // HR sub-tabs & filter selections
   const [hrSubTab, setHrSubTab] = useState('directory');
+  const [portalSubTab, setPortalSubTab] = useState('attendance');
 
   // MIS Reports & Analytics States
   const [reportsSubTab, setReportsSubTab] = useState('sales');
@@ -860,6 +1237,7 @@ function App() {
   const [creditCustomers, setCreditCustomers] = useState([]);
   const [creditLedger, setCreditLedger] = useState([]);
   const [selectedCreditCustomer, setSelectedCreditCustomer] = useState(null);
+  const [selectedCreditItems, setSelectedCreditItems] = useState([]);
   const [combos, setCombos] = useState([]);
   const [comboModal, setComboModal] = useState({ show: false, comboId: null, comboName: '', childItems: [] });
   const [suppliers, setSuppliers] = useState([]);
@@ -891,12 +1269,14 @@ function App() {
   // Enforce default tab based on role
   useEffect(() => {
     if (user) {
-      if (user.role === 'Cook' && !['kds'].includes(activeTab)) {
+      if (user.role === 'Cook' && !['kds', 'employee-portal'].includes(activeTab)) {
         setActiveTab('kds');
-      } else if (user.role === 'Cashier' && !['pos', 'menu', 'orders'].includes(activeTab)) {
+      } else if (user.role === 'Billing Staff' && !['pos', 'menu', 'orders', 'employee-portal'].includes(activeTab)) {
         setActiveTab('pos');
-      } else if (user.vendor_id && ['wallet', 'crm', 'reports', 'vendors', 'hr'].includes(activeTab)) {
-        // Stall managers cannot access central-admin-only modules
+      } else if (user.role === 'Helper' && !['employee-portal'].includes(activeTab)) {
+        setActiveTab('employee-portal');
+      } else if (user.vendor_id && ['wallet', 'crm', 'vendors'].includes(activeTab)) {
+        // Stall managers cannot access central-admin-only modules (wallet, crm, vendors)
         setActiveTab('pos');
       }
     }
@@ -904,7 +1284,7 @@ function App() {
 
   // Auto-set Cashier / Staff select value if current user is POS staff
   useEffect(() => {
-    if (user && ['Cashier', 'Manager', 'Owner'].includes(user.role)) {
+    if (user && ['Billing Staff', 'Manager', 'Owner'].includes(user.role)) {
       setPosCashierId(String(user.id));
     } else {
       setPosCashierId('');
@@ -917,6 +1297,8 @@ function App() {
     setUser(userData);
     setSelectedVendorId(userData.vendor_id ? String(userData.vendor_id) : 'null');
     if (userData.role === 'Cook') setActiveTab('kds');
+    else if (userData.role === 'Billing Staff') setActiveTab('pos');
+    else if (userData.role === 'Helper') setActiveTab('employee-portal');
     else if (userData.role === 'Vendor') setActiveTab('inventory');
     else setActiveTab('dashboard');
   };
@@ -1021,6 +1403,24 @@ function App() {
     return `${year}-${month}-${day}`;
   });
 
+  const handleRosterWeekBlur = () => {
+    if (actualRosterWeek) {
+      setSelectedRosterWeek(actualRosterWeek);
+    }
+  };
+
+  const getMonday = (dateStr) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    const day = d.getUTCDay();
+    const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
+    d.setUTCDate(diff);
+    return d.toISOString().split('T')[0];
+  };
+
+  const actualRosterWeek = getMonday(selectedRosterWeek);
+
   // HR Form Bindings
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [formStaff, setFormStaff] = useState({
@@ -1101,7 +1501,7 @@ function App() {
     // HR fetchers
     fetchStaff();
     fetchShifts();
-    fetchRoster(selectedRosterWeek);
+    fetchRoster(actualRosterWeek);
     fetchAttendance(selectedAttendanceDate);
     fetchLeaves();
     fetchHolidays();
@@ -1144,8 +1544,8 @@ function App() {
   // HR auto-refetch triggers on filter change
   useEffect(() => {
     if (!token) return;
-    fetchRoster(selectedRosterWeek);
-  }, [token, selectedRosterWeek]);
+    fetchRoster(actualRosterWeek);
+  }, [token, actualRosterWeek]);
 
   useEffect(() => {
     if (!token) return;
@@ -1458,7 +1858,8 @@ function App() {
   const fetchReconciliation = async (date) => {
     try {
       const d = date || reconDate;
-      const res = await fetch(`${API_BASE}/reconciliation/summary?date=${d}`);
+      const vParam = (selectedVendorId && selectedVendorId !== 'all' && selectedVendorId !== 'null') ? `&vendor_id=${selectedVendorId}` : '';
+      const res = await fetch(`${API_BASE}/reconciliation/summary?date=${d}${vParam}`);
       if (res.ok) setReconData(await res.json());
     } catch (err) {
       console.error('Failed to fetch reconciliation:', err);
@@ -1467,7 +1868,7 @@ function App() {
 
   const fetchCreditCustomers = async () => {
     try {
-      const res = await fetch(`${API_BASE}/credits/customers`);
+      const res = await fetch(`${API_BASE}/credits/customers`, { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
       if (res.ok) setCreditCustomers(await res.json());
     } catch (err) {
       console.error('Failed to fetch credit customers:', err);
@@ -1476,7 +1877,7 @@ function App() {
 
   const fetchCreditLedger = async (customerId) => {
     try {
-      const res = await fetch(`${API_BASE}/credits/ledger/${customerId}`);
+      const res = await fetch(`${API_BASE}/credits/ledger/${customerId}`, { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
       if (res.ok) setCreditLedger(await res.json());
     } catch (err) {
       console.error('Failed to fetch credit ledger:', err);
@@ -1613,10 +2014,24 @@ function App() {
 
   const handleKdsStatusUpdate = async (orderId, newStatus) => {
     try {
-      const res = await fetch(`${API_BASE}/orders/${orderId}/status`, {
+      let endpoint = `${API_BASE}/orders/${orderId}/status`;
+      let payload = { status: newStatus };
+
+      if (newStatus === 'Ready') {
+        endpoint = `${API_BASE}/kds/orders/${orderId}/ready`;
+        let targetVendorId;
+        if (user && user.role !== 'Owner' && user.role !== 'Super Admin') {
+          targetVendorId = user.vendor_id ? String(user.vendor_id) : 'null';
+        } else {
+          targetVendorId = (selectedVendorId !== 'all') ? String(selectedVendorId) : 'all';
+        }
+        payload = { vendor_id: targetVendorId };
+      }
+
+      const res = await fetch(endpoint, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify(payload)
       });
       if (res.ok) {
         showToast(`Order status updated to ${newStatus}`, 'success');
@@ -2679,7 +3094,7 @@ function App() {
 
       if (res.ok) {
         showToast('Roster saved successfully', 'success');
-        fetchRoster(selectedRosterWeek);
+        fetchRoster(actualRosterWeek);
       } else {
         showToast('Failed to save roster', 'error');
       }
@@ -2996,7 +3411,8 @@ function App() {
           name: item.name,
           price: parseFloat(item.is_special && item.special_price ? item.special_price : item.price),
           gst_rate: parseFloat(item.gst_rate),
-          quantity: 1
+          quantity: 1,
+          mess_eligible: !!item.mess_eligible
         }];
       }
     });
@@ -3392,7 +3808,7 @@ function App() {
         handleClearDiscount();
         setShowSplitModal(false);
         setPosCustomerId(''); // reset
-        setPosCashierId(''); // reset
+        if (user.role !== 'Billing Staff') setPosCashierId(''); // reset only for Owner/Manager
         setPosIsUpsold(false); // reset
         setRfidScanInput('');
         setRfidCustomerInfo(null);
@@ -3521,7 +3937,7 @@ function App() {
             <span>Dashboard</span>
           </div>
         )}
-          {['Owner', 'Manager', 'Cashier'].includes(user.role) && (<div
+          {['Owner', 'Manager', 'Billing Staff'].includes(user.role) && (<div
             className={`menu-item ${activeTab === 'pos' ? 'active' : ''}`}
             onClick={() => setActiveTab('pos')}
           >
@@ -3534,7 +3950,7 @@ function App() {
             <span>Counter POS</span>
           </div>
           )}
-          {['Owner', 'Manager', 'Cashier'].includes(user.role) && (
+          {['Owner', 'Manager', 'Billing Staff'].includes(user.role) && (
           <div
             className={`menu-item ${activeTab === 'menu' ? 'active' : ''}`}
             onClick={() => setActiveTab('menu')}
@@ -3607,7 +4023,7 @@ function App() {
             <span>QR Ordering</span>
           </div>
         )}
-          {['Owner', 'Manager', 'Cashier'].includes(user.role) && (
+          {['Owner', 'Manager', 'Billing Staff'].includes(user.role) && (
           <div
             className={`menu-item ${activeTab === 'orders' ? 'active' : ''}`}
             onClick={() => setActiveTab('orders')}
@@ -3620,7 +4036,19 @@ function App() {
             <span>Past Orders</span>
           </div>
         )}
-          {user.vendor_id && (
+          {['Billing Staff', 'Cook', 'Helper'].includes(user.role) && (
+          <div
+            className={`menu-item ${activeTab === 'employee-portal' ? 'active' : ''}`}
+            onClick={() => setActiveTab('employee-portal')}
+          >
+            <svg className="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <span>My Portal</span>
+          </div>
+        )}
+          {user.vendor_id && ['Manager', 'Owner'].includes(user.role) && (
             <div
               className={`menu-item ${activeTab === 'stall-insights' ? 'active' : ''}`}
               onClick={() => setActiveTab('stall-insights')}
@@ -3647,7 +4075,7 @@ function App() {
               <span>Multi-Vendor</span>
             </div>
           )}
-          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && (
+          {(['Owner', 'Manager'].includes(user.role)) && (
             <div
               className={`menu-item ${activeTab === 'hr' ? 'active' : ''}`}
               onClick={() => setActiveTab('hr')}
@@ -3659,7 +4087,7 @@ function App() {
               <span>HR & Payroll</span>
             </div>
           )}
-          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && (
+          {['Owner', 'Manager'].includes(user.role) && (
             <div
               className={`menu-item ${activeTab === 'reports' ? 'active' : ''}`}
               onClick={() => setActiveTab('reports')}
@@ -3993,6 +4421,479 @@ function App() {
               </div>
             </div>
           )}
+
+          {/* ==========================================
+               2.1a EMPLOYEE SELF-SERVICE PORTAL
+               ========================================== */}
+          {activeTab === 'employee-portal' && (
+            <div className="view-panel active employee-portal-panel" style={{ padding: '20px', overflowY: 'auto' }}>
+              <div className="view-header" style={{ marginBottom: '15px' }}>
+                <h2>👋 Welcome, {user.name}</h2>
+                <div className="view-actions">
+                  <span className="badge badge-primary">{user.role}</span>
+                </div>
+              </div>
+
+              {/* Portal Sub Tabs Navigation */}
+              <div className="hr-sub-tabs" style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '20px', borderBottom: '1px solid var(--border-light)' }}>
+                {[
+                  ['attendance', '📝 Attendance Logs'],
+                  ['roster', '📅 Roster & Scheduler'],
+                  ['swaps', '🔄 Shift Swaps'],
+                  ['leaves', '✉️ Leave Management'],
+                  ['holidays', '🏖️ Holiday Calendar'],
+                  ['payslips', '💰 Payroll Panel']
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    className={`hr-sub-tab ${portalSubTab === key ? 'active' : ''}`}
+                    onClick={() => {
+                      setPortalSubTab(key);
+                      if (key === 'attendance') fetchAttendance(selectedAttendanceDate);
+                      if (key === 'roster') fetchRoster(actualRosterWeek);
+                      if (key === 'swaps') fetchShiftSwaps();
+                      if (key === 'leaves') fetchLeaves();
+                      if (key === 'holidays') fetchHolidays();
+                      if (key === 'payslips') fetchPayroll(payrollMonth, payrollYear);
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="portal-content">
+                
+                {/* 1. ATTENDANCE LOGS */}
+                {portalSubTab === 'attendance' && (
+                  <div>
+                    <div className="view-header-bar" style={{ marginBottom: '20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <label style={{ fontWeight: 600 }}>Date:</label>
+                        <input type="date" className="attendance-date-input" value={selectedAttendanceDate} onChange={e => setSelectedAttendanceDate(e.target.value)} />
+                        <button className="btn btn-primary" onClick={() => fetchAttendance(selectedAttendanceDate)}>Load</button>
+                      </div>
+                    </div>
+                    
+                    <div className="attendance-layout" style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                      {/* Left: Quick checkin for today */}
+                      {selectedAttendanceDate === new Date().toLocaleDateString('en-CA') && (
+                        <div style={{ flex: 1, minWidth: '400px', background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                          <h4 style={{ margin: '0 0 15px 0' }}>🍳 My Check-in Desk</h4>
+                          <div className="quick-checkin-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {staff.filter(s => s.id === user.id).map(member => {
+                              const rec = attendance.find(a => a.staff_id === member.id);
+                              return (
+                                <div key={member.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                                  <div>
+                                    <strong style={{ display: 'block' }}>{member.name}</strong>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{member.role}</span>
+                                  </div>
+                                  <div>
+                                    {!rec ? (
+                                      <button className="btn btn-success btn-small" onClick={() => {
+                                        const todayStr = new Date().toLocaleDateString('en-CA');
+                                        const rosterEntry = roster.find(r => r.staff_id === member.id && r.roster_date.split('T')[0] === todayStr);
+                                        const shiftId = rosterEntry && rosterEntry.status !== 'Off' ? rosterEntry.shift_id : null;
+                                        handleCheckIn(member.id, shiftId, 'Self check-in');
+                                      }}>▶ Check In</button>
+                                    ) : !rec.check_out && rec.status !== 'Absent' ? (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>In: {new Date(rec.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                        <button className="btn btn-outline-danger btn-small" onClick={() => handleCheckOut(rec.id)}>■ Check Out</button>
+                                      </div>
+                                    ) : (
+                                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: rec.status === 'Absent' ? 'var(--accent-danger)' : 'var(--accent-success)' }}>
+                                        {rec.status === 'Absent' ? ' Absent' : '✓ Completed'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Right: Attendance history table */}
+                      <div style={{ flex: 2, minWidth: '600px' }}>
+                        <h4 style={{ margin: '0 0 15px 0' }}>📋 My Attendance Ledger</h4>
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>Shift</th>
+                              <th>Check In</th>
+                              <th>Check Out</th>
+                              <th>Status</th>
+                              <th>Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {attendance.filter(a => a.staff_id === user.id).map(a => (
+                              <tr key={a.id}>
+                                <td>{a.shift_name || '—'}</td>
+                                <td>{a.check_in ? new Date(a.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                                <td>{a.check_out ? new Date(a.check_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                                <td>
+                                  <span className={`badge ${a.status === 'Present' ? 'badge-success' : a.status === 'Absent' ? 'badge-danger' : 'badge-warning'}`}>
+                                    {a.status}
+                                  </span>
+                                </td>
+                                <td>{a.notes || '—'}</td>
+                              </tr>
+                            ))}
+                            {attendance.filter(a => a.staff_id === user.id).length === 0 && (
+                              <tr><td colSpan="5" className="empty-state">No attendance records found for this date.</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. ROSTER & SCHEDULER */}
+                {portalSubTab === 'roster' && (
+                  <div>
+                    <div className="view-header-bar" style={{ flexWrap: 'wrap', gap: '15px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <label style={{ fontWeight: 600 }}>Roster Week starting (Monday):</label>
+                        <input type="date" value={selectedRosterWeek} onChange={e => setSelectedRosterWeek(e.target.value)} onBlur={handleRosterWeekBlur} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                        <button className="btn btn-primary" onClick={() => fetchRoster(actualRosterWeek)}>Load</button>
+                      </div>
+                    </div>
+                    <div className="table-container" style={{ marginTop: '20px' }}>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Staff Member</th>
+                            <th>Role</th>
+                            {Array.from({ length: 7 }, (_, i) => {
+                              let start = new Date(actualRosterWeek);
+                              if (isNaN(start.getTime())) start = new Date();
+                              start.setDate(start.getDate() + i);
+                              const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                              return (
+                                <th key={i}>
+                                  {dayNames[i]}<br />
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>
+                                    {start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                  </span>
+                                </th>
+                              );
+                            })}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {staff.filter(s => s.is_active === 1 && s.exclude_from_roster !== 1 && s.role !== 'Owner').map(member => (
+                            <tr key={member.id} style={{ backgroundColor: member.id === user.id ? 'rgba(var(--accent-primary-rgb), 0.05)' : 'transparent' }}>
+                              <td>
+                                <strong>{member.name}</strong>
+                                {member.id === user.id && <span className="badge badge-primary" style={{ marginLeft: '8px', fontSize: '0.65rem' }}>You</span>}
+                              </td>
+                              <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{member.role}</span></td>
+                              {Array.from({ length: 7 }, (_, i) => {
+                                let d = new Date(actualRosterWeek);
+                                if (isNaN(d.getTime())) d = new Date();
+                                d.setDate(d.getDate() + i);
+                                const dateStr = d.toISOString().split('T')[0];
+                                const isHoliday = holidays.some(h => h.holiday_date === dateStr);
+                                const approvedLeave = leaves.find(l => l.staff_id === member.id && l.status === 'Approved' && l.start_date <= dateStr && l.end_date >= dateStr);
+                                const cellEntry = roster.find(r => r.staff_id === member.id && r.roster_date.split('T')[0] === dateStr);
+                                
+                                return (
+                                  <td key={i} style={{ 
+                                    backgroundColor: approvedLeave ? 'rgba(var(--accent-warning-rgb), 0.05)' : isHoliday ? 'rgba(var(--accent-success-rgb), 0.05)' : 'transparent',
+                                    padding: '8px'
+                                  }}>
+                                    {approvedLeave ? (
+                                      <div style={{ fontSize: '0.8rem', color: 'var(--accent-warning)', fontWeight: 600 }}>🌴 On Leave</div>
+                                    ) : (
+                                      <div style={{ fontSize: '0.85rem' }}>
+                                        {cellEntry && cellEntry.status !== 'Off' ? (
+                                          <span style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>{cellEntry.shift_name}</span>
+                                        ) : (
+                                          <span style={{ color: 'var(--text-muted)' }}>Off</span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. SHIFT SWAPS */}
+                {portalSubTab === 'swaps' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                      <button className="btn btn-primary" onClick={() => { setFormSwap({ requester_id: String(user.id), target_id: '', swap_date: '', reason: '' }); setShowSwapForm(true); }}>
+                        ➕ New Shift Swap Request
+                      </button>
+                    </div>
+
+                    {showSwapForm && (
+                      <div className="hr-form-card" style={{ marginBottom: '20px' }}>
+                        <h4>🔄 Request Shift Swap</h4>
+                        <form onSubmit={handleSaveSwapRequest}>
+                          <div className="hr-form-grid">
+                            <div className="hr-form-group">
+                              <label>Swap With (Colleague) *</label>
+                              <select required value={formSwap.target_id} onChange={e => setFormSwap({ ...formSwap, target_id: e.target.value })}>
+                                <option value="">-- Choose Colleague --</option>
+                                {staff.filter(s => s.is_active === 1 && s.id !== user.id && s.role !== 'Owner' && s.role !== 'Manager' && (user.vendor_id ? s.vendor_id === user.vendor_id : !s.vendor_id)).map(s => (
+                                  <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="hr-form-group">
+                              <label>Date of Shift *</label>
+                              <input type="date" required value={formSwap.swap_date} onChange={e => setFormSwap({ ...formSwap, swap_date: e.target.value })} />
+                            </div>
+                            <div className="hr-form-group" style={{ gridColumn: '1 / -1' }}>
+                              <label>Reason (Optional)</label>
+                              <input type="text" placeholder="Reason for swapping" value={formSwap.reason} onChange={e => setFormSwap({ ...formSwap, reason: e.target.value })} />
+                            </div>
+                          </div>
+                          <div className="hr-form-actions" style={{ marginTop: '15px' }}>
+                            <button type="button" className="btn btn-outline-primary" onClick={() => setShowSwapForm(false)}>Cancel</button>
+                            <button type="submit" className="btn btn-success">Submit Request</button>
+                          </div>
+                        </form>
+                      </div>
+                    )}
+
+                    <div className="table-container">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Swap Date</th>
+                            <th>Requested By</th>
+                            <th>Requested To</th>
+                            <th>Reason</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {shiftSwaps.filter(sw => sw.requester_id === user.id).length > 0 ? (
+                            shiftSwaps.filter(sw => sw.requester_id === user.id).map(sw => (
+                              <tr key={sw.id}>
+                                <td>{new Date(sw.swap_date).toLocaleDateString()}</td>
+                                <td><strong>You</strong></td>
+                                <td>{sw.target_name}</td>
+                                <td>{sw.reason}</td>
+                                <td>
+                                  <span className={`badge ${sw.status === 'Approved' ? 'badge-success' : sw.status === 'Rejected' ? 'badge-danger' : 'badge-warning'}`}>
+                                    {sw.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr><td colSpan="5" className="empty-state">You have not made any shift swap requests.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. LEAVE MANAGEMENT */}
+                {portalSubTab === 'leaves' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                      <button className="btn btn-primary" onClick={() => { setFormLeave({ staff_id: user.id, leave_type: 'Casual', start_date: '', end_date: '', reason: '' }); setShowLeaveForm(true); }}>
+                        ➕ Apply for Leave
+                      </button>
+                    </div>
+
+                    {showLeaveForm && formLeave.staff_id === user.id && (
+                      <div className="hr-form-card" style={{ maxWidth: '600px', marginBottom: '20px' }}>
+                        <h4>✉️ File Leave Application</h4>
+                        <form onSubmit={handleApplyLeave}>
+                          <div className="hr-form-grid">
+                            <div className="hr-form-group">
+                              <label>Leave Type *</label>
+                              <select value={formLeave.leave_type} onChange={e => setFormLeave({ ...formLeave, leave_type: e.target.value })}>
+                                <option value="Casual">Casual Leave</option>
+                                <option value="Sick">Sick Leave</option>
+                                <option value="Earned">Earned Leave</option>
+                              </select>
+                            </div>
+                            <div className="hr-form-group">
+                              <label>Start Date *</label>
+                              <input type="date" required value={formLeave.start_date} onChange={e => setFormLeave({ ...formLeave, start_date: e.target.value })} />
+                            </div>
+                            <div className="hr-form-group">
+                              <label>End Date *</label>
+                              <input type="date" required value={formLeave.end_date} onChange={e => setFormLeave({ ...formLeave, end_date: e.target.value })} />
+                            </div>
+                          </div>
+                          <div className="hr-form-group" style={{ marginTop: '10px' }}>
+                            <label>Reason / Purpose *</label>
+                            <input type="text" required placeholder="e.g. Medical recovery, family occasion" value={formLeave.reason} onChange={e => setFormLeave({ ...formLeave, reason: e.target.value })} />
+                          </div>
+                          <div className="hr-form-actions" style={{ marginTop: '15px' }}>
+                            <button type="button" className="btn btn-outline-primary" onClick={() => setShowLeaveForm(false)}>Cancel</button>
+                            <button type="submit" className="btn btn-success">File Leave</button>
+                          </div>
+                        </form>
+                      </div>
+                    )}
+
+                    <div className="table-container">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Leave Type</th>
+                            <th>Start Date</th>
+                            <th>End Date</th>
+                            <th>Reason</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {leaves.filter(l => l.staff_id === user.id).length > 0 ? (
+                            leaves.filter(l => l.staff_id === user.id).map(l => (
+                              <tr key={l.id}>
+                                <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{l.leave_type}</span></td>
+                                <td>{new Date(l.start_date).toLocaleDateString()}</td>
+                                <td>{new Date(l.end_date).toLocaleDateString()}</td>
+                                <td>{l.reason}</td>
+                                <td>
+                                  <span className={`badge badge-${l.status === 'Approved' ? 'success' : l.status === 'Rejected' ? 'danger' : 'warning'}`}>
+                                    {l.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr><td colSpan="5" className="empty-state">No leave requests found.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* 5. HOLIDAY CALENDAR */}
+                {portalSubTab === 'holidays' && (
+                  <div>
+                    <div className="holiday-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '15px', marginTop: '20px' }}>
+                      {holidays.length > 0 ? holidays.map(h => (
+                        <div key={h.id} className="holiday-card" style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '10px', borderLeft: `4px solid ${h.type === 'National' ? 'var(--accent-danger)' : h.type === 'Regional' ? 'var(--accent-warning)' : 'var(--accent-success)'}` }}>
+                          <h4 style={{ margin: '0 0 5px 0' }}>{h.name}</h4>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '8px' }}>
+                            {new Date(h.holiday_date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                          </div>
+                          <span className="badge badge-outline" style={{ fontSize: '0.75rem' }}>{h.type} Holiday</span>
+                        </div>
+                      )) : (
+                        <div className="empty-state" style={{ gridColumn: '1 / -1' }}>No upcoming holidays configured.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 6. PAYROLL PANEL */}
+                {portalSubTab === 'payslips' && (
+                  <div>
+                    <div className="view-header-bar" style={{ flexWrap: 'wrap', gap: '15px', marginBottom: '20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div className="hr-form-group" style={{ width: '120px', marginBottom: '0' }}>
+                          <select value={payrollMonth} onChange={e => setPayrollMonth(parseInt(e.target.value))}>
+                            {Array.from({ length: 12 }, (_, i) => (
+                              <option key={i + 1} value={i + 1}>{new Date(2026, i).toLocaleString(undefined, { month: 'long' })}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="hr-form-group" style={{ width: '100px', marginBottom: '0' }}>
+                          <select value={payrollYear} onChange={e => setPayrollYear(parseInt(e.target.value))}>
+                            {[2025, 2026, 2027].map(y => (
+                              <option key={y} value={y}>{y}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <button className="btn btn-primary" onClick={() => fetchPayroll(payrollMonth, payrollYear)}>Load Payslip</button>
+                      </div>
+                    </div>
+
+                    {payroll.filter(p => p.staff_id === user.id).map(p => (
+                      <div key={p.id} className="payslip-card" style={{ maxWidth: '600px', margin: '0 auto', background: 'var(--bg-app)', padding: '25px', borderRadius: '12px', border: '1px solid var(--border-light)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-light)', paddingBottom: '15px', marginBottom: '15px' }}>
+                          <div>
+                            <h3 style={{ margin: '0 0 5px 0' }}>Payslip</h3>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                              {new Date(payrollYear, payrollMonth - 1).toLocaleString(undefined, { month: 'long', year: 'numeric' })}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>{user.name}</div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{user.role}</div>
+                            <div style={{ marginTop: '5px' }}>
+                              <span className={`badge ${p.status === 'Finalized' ? 'badge-success' : 'badge-warning'}`}>
+                                {p.status === 'Finalized' ? 'Paid' : 'Draft'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px' }}>
+                          <tbody>
+                            <tr>
+                              <td style={{ padding: '8px 0', color: 'var(--text-main)' }}>Gross Basic Salary</td>
+                              <td style={{ padding: '8px 0', textAlign: 'right', fontWeight: 600 }}>₹{parseFloat(p.gross_salary).toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td style={{ padding: '8px 0', color: 'var(--text-main)' }}>Duty Days</td>
+                              <td style={{ padding: '8px 0', textAlign: 'right' }}>{p.days_present} / {p.working_days}</td>
+                            </tr>
+                            <tr>
+                              <td style={{ padding: '8px 0', color: 'var(--accent-danger)' }}>(-) PF Deduction (12%)</td>
+                              <td style={{ padding: '8px 0', textAlign: 'right', color: 'var(--accent-danger)' }}>-₹{parseFloat(p.pf_deduction).toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td style={{ padding: '8px 0', color: 'var(--accent-danger)' }}>(-) ESI Deduction (0.75%)</td>
+                              <td style={{ padding: '8px 0', textAlign: 'right', color: 'var(--accent-danger)' }}>-₹{parseFloat(p.esi_deduction).toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td style={{ padding: '8px 0', color: 'var(--accent-danger)' }}>(-) TDS</td>
+                              <td style={{ padding: '8px 0', textAlign: 'right', color: 'var(--accent-danger)' }}>-₹{parseFloat(p.tds_deduction).toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td style={{ padding: '8px 0', color: 'var(--accent-danger)' }}>(-) Meals Cost</td>
+                              <td style={{ padding: '8px 0', textAlign: 'right', color: 'var(--accent-danger)' }}>-₹{parseFloat(p.meal_deduction).toFixed(2)}</td>
+                            </tr>
+                            <tr style={{ borderTop: '2px dashed var(--border-light)' }}>
+                              <td style={{ padding: '15px 0 5px 0', fontSize: '1.2rem', fontWeight: 700 }}>Net Pay</td>
+                              <td style={{ padding: '15px 0 5px 0', textAlign: 'right', fontSize: '1.2rem', fontWeight: 700, color: 'var(--accent-success)' }}>
+                                ₹{parseFloat(p.net_salary).toFixed(2)}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+
+                        {p.status === 'Finalized' && (
+                          <button className="btn btn-outline-primary" style={{ width: '100%' }} onClick={() => window.print()}>
+                            🖨️ Print Payslip
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {payroll.filter(p => p.staff_id === user.id).length === 0 && (
+                      <div className="empty-state" style={{ marginTop: '40px' }}>No payslip generated for {new Date(payrollYear, payrollMonth - 1).toLocaleString(undefined, { month: 'long' })} {payrollYear}.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
 
           {/* ==========================================
                2.2 COUNTER POS PANEL
@@ -4387,33 +5288,52 @@ function App() {
                     <div className="pos-metadata-section" style={{ marginTop: '12px', padding: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
                       <div className="hr-form-group" style={{ marginBottom: '8px' }}>
                         <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Loyalty Customer</label>
-                        <select 
-                          className="input-field input-xs" 
-                          value={posCustomerId}
-                          onChange={(e) => setPosCustomerId(e.target.value)}
-                          style={{ width: '100%', padding: '4px 8px', height: '28px', fontSize: '11px' }}
-                        >
-                          <option value="">-- Guest Order (No Loyalty) --</option>
-                          {customers.map(c => (
-                            <option key={c.id} value={c.id}>{c.name} ({c.phone} - {c.loyalty_points} pts)</option>
-                          ))}
-                        </select>
+                        <div style={{ position: 'relative', height: '28px' }}>
+                          <select 
+                            className="input-field input-xs" 
+                            value={posCustomerId}
+                            onChange={(e) => { setPosCustomerId(e.target.value); e.target.blur(); }}
+                            onFocus={(e) => e.target.size = 5}
+                            onBlur={(e) => e.target.size = 1}
+                            style={{ width: '100%', padding: '4px 8px', fontSize: '11px', position: 'absolute', top: 0, left: 0, zIndex: 50, background: '#111827', border: '1px solid var(--border-color)', borderRadius: '4px' }}
+                          >
+                            <option value="">-- Guest Order (No Loyalty) --</option>
+                            {customers.map(c => (
+                              <option key={c.id} value={c.id}>{c.name} ({c.phone} - {c.loyalty_points} pts)</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <div className="hr-form-group" style={{ flex: 1, marginBottom: 0 }}>
                           <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Cashier / Staff *</label>
-                          <select 
-                            required
-                            className="input-field input-xs" 
-                            value={posCashierId}
-                            onChange={(e) => setPosCashierId(e.target.value)}
-                            style={{ width: '100%', padding: '4px 8px', height: '28px', fontSize: '11px' }}
-                          >
-                            <option value="">-- Select Cashier --</option>
-                            {staff.filter(s => s.role === 'Billing Staff' || s.role === 'Cashier' || s.role === 'Manager' || s.role === 'Owner').map(s => (
-                              <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
-                            ))}
-                          </select>
+                          {user.role === 'Billing Staff' ? (
+                            <div 
+                              style={{ width: '100%', padding: '4px 8px', height: '28px', fontSize: '11px', display: 'flex', alignItems: 'center', background: 'var(--bg-sidebar)', border: '1px solid var(--border-light)', borderRadius: '6px', color: 'var(--text-main)', fontWeight: 600 }}
+                            >
+                              🔒 {user.name}
+                            </div>
+                          ) : (
+                            <select 
+                              required
+                              className="input-field input-xs" 
+                              value={posCashierId}
+                              onChange={(e) => setPosCashierId(e.target.value)}
+                              style={{ width: '100%', padding: '4px 8px', height: '28px', fontSize: '11px' }}
+                            >
+                              <option value="">-- Select Cashier --</option>
+                              {staff.filter(s => {
+                                const isCashierRole = s.role === 'Billing Staff' || s.role === 'Manager' || s.role === 'Owner';
+                                if (user.vendor_id) {
+                                  return isCashierRole;
+                                } else {
+                                  return isCashierRole && !s.vendor_id;
+                                }
+                              }).map(s => (
+                                <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                              ))}
+                            </select>
+                          )}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '14px' }}>
                           <input 
@@ -5273,6 +6193,13 @@ function App() {
                           <td><strong>{order.token_number}</strong></td>
                           <td style={{fontSize: '0.85rem', color: 'var(--text-muted)'}}>
                             {new Date(order.order_date).toLocaleString()}
+                            {user.vendor_id && order.order_source === 'POS' && order.billing_staff_vendor_id === null && (
+                              <div style={{ marginTop: '4px' }}>
+                                <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#3b82f6', borderRadius: '4px', color: '#fff', fontWeight: 'bold' }}>
+                                  🖥️ On Central POS
+                                </span>
+                              </div>
+                            )}
                           </td>
                           <td>
                             <ul style={{margin: 0, paddingLeft: '1.2rem', fontSize: '0.9rem', color: 'var(--text-light)'}}>
@@ -5524,7 +6451,7 @@ function App() {
                                     ▶ Start
                                   </button>
                                 )}
-                                {order.status === 'Preparing' && (
+                                {['Preparing', 'Partially Ready', 'Pending'].includes(order.status) && (
                                   <button
                                     className="kds-action-btn ready"
                                     onClick={() => handleKdsStatusUpdate(order.id, 'Ready')}
@@ -5611,7 +6538,7 @@ function App() {
             <div className="vendor-panel">
               {/* Sub-tab Navigation */}
               <div className="vendor-sub-tabs">
-                {[['profiles', '🏪 Vendor Profiles'], ['settlements', '💰 Cost Splitting & Settlements'], ['performance', '📊 Performance Analytics'], ['expenses', '🧾 Common Expenses'], ['central', '🏦 Central Order Settlements']].map(([key, label]) => (
+                {[['profiles', '🏪 Vendor Profiles'], ['settlements', '💰 Cost Splitting & Settlements'], ['performance', '📊 Performance Analytics'], ['expenses', '🧾 Common Expenses'], ['central', '🏦 Central Order Settlements'], ['wallet', '💳 Wallet Settlements']].map(([key, label]) => (
                   <button
                     key={key}
                     className={`vendor-sub-tab ${vendorSubTab === key ? 'active' : ''}`}
@@ -5621,6 +6548,7 @@ function App() {
                       if (key === 'performance') { fetchVendorPerformance(); }
                       if (key === 'expenses') { fetchCommonExpenses(); }
                       if (key === 'central') { fetchCentralPending(); fetchCentralHistory(); setCentralLedgerVendor(null); }
+                      if (key === 'wallet') { fetchWalletSettlements(); }
                     }}
                   >
                     {label}
@@ -6103,35 +7031,55 @@ function App() {
                                       }} />
                                   </th>
                                   <th>Order #</th>
-                                  <th>Date</th>
+                                  <th>Date & Time</th>
                                   <th>Source</th>
-                                  <th>Item</th>
-                                  <th>Qty</th>
-                                  <th>Price</th>
+                                  <th>Items</th>
                                   <th>Total</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {centralLedgerItems.length === 0 ? (
-                                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>No pending items for this stall.</td></tr>
+                                  <tr><td colSpan="6" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>No pending items for this stall.</td></tr>
                                 ) : (
-                                  centralLedgerItems.map(item => (
-                                    <tr key={item.order_item_id}>
-                                      <td>
-                                        <input type="checkbox" checked={centralSelectedItems.includes(item.order_item_id)}
-                                          onChange={(e) => {
-                                            setCentralSelectedItems(prev => e.target.checked ? [...prev, item.order_item_id] : prev.filter(id => id !== item.order_item_id));
-                                          }} />
-                                      </td>
-                                      <td>#{item.token_number || item.order_id}</td>
-                                      <td>{new Date(item.order_date).toLocaleDateString()}</td>
-                                      <td><span className="badge" style={{ background: item.order_source === 'QR' ? 'var(--accent-primary, #6366f1)' : 'var(--accent-info, #06b6d4)', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75em' }}>{item.order_source}</span></td>
-                                      <td>{item.item_name}</td>
-                                      <td>{item.quantity}</td>
-                                      <td>₹{Number(item.price).toFixed(2)}</td>
-                                      <td><strong>₹{Number(item.total_price).toFixed(2)}</strong></td>
-                                    </tr>
-                                  ))
+                                  (() => {
+                                    // Group items by order
+                                    const grouped = centralLedgerItems.reduce((acc, item) => {
+                                      if (!acc[item.order_id]) {
+                                        acc[item.order_id] = {
+                                          order_id: item.order_id,
+                                          token_number: item.token_number,
+                                          order_date: item.order_date,
+                                          order_source: item.order_source,
+                                          items: [],
+                                          total_price: 0,
+                                          orderItemIds: []
+                                        };
+                                      }
+                                      acc[item.order_id].items.push(`${item.item_name} (x${item.quantity})`);
+                                      acc[item.order_id].total_price += parseFloat(item.total_price);
+                                      acc[item.order_id].orderItemIds.push(item.order_item_id);
+                                      return acc;
+                                    }, {});
+                                    
+                                    return Object.values(grouped).sort((a,b) => new Date(b.order_date) - new Date(a.order_date)).map(order => (
+                                      <tr key={order.order_id}>
+                                        <td>
+                                          <input type="checkbox" checked={order.orderItemIds.every(id => centralSelectedItems.includes(id))}
+                                            onChange={(e) => {
+                                              setCentralSelectedItems(prev => e.target.checked 
+                                                ? [...new Set([...prev, ...order.orderItemIds])] 
+                                                : prev.filter(id => !order.orderItemIds.includes(id))
+                                              );
+                                            }} />
+                                        </td>
+                                        <td>#{order.token_number || order.order_id}</td>
+                                        <td style={{ fontSize: '0.85em' }}>{new Date(order.order_date).toLocaleString()}</td>
+                                        <td><span className="badge" style={{ background: order.order_source === 'QR' ? 'var(--accent-primary, #6366f1)' : 'var(--accent-info, #06b6d4)', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75em' }}>{order.order_source}</span></td>
+                                        <td style={{ fontSize: '0.85em', maxWidth: '200px', whiteSpace: 'normal' }}>{order.items.join(', ')}</td>
+                                        <td><strong>₹{Number(order.total_price).toFixed(2)}</strong></td>
+                                      </tr>
+                                    ));
+                                  })()
                                 )}
                               </tbody>
                             </table>
@@ -6192,6 +7140,161 @@ function App() {
                   </div>
                 </div>
               )}
+
+              {/* ============ SUB-TAB: WALLET SETTLEMENTS ============ */}
+              {vendorSubTab === 'wallet' && (
+                <div className="wallet-settlements-section">
+                    {/* Pending Payouts Summary */}
+                    <div className="panel-card">
+                      <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <h3>💳 Digital Wallet & Credit Settlements</h3>
+                          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>Pending payouts to stalls for Credit, RFID, and Mess Plan transactions.</p>
+                        </div>
+                        <button className="btn btn-outline-primary" onClick={() => { fetchWalletSettlements(); setWalletLedgerVendor(null); }}>↻ Refresh</button>
+                      </div>
+                      <div className="table-container" style={{ padding: '0 20px 20px 20px' }}>
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>Stall</th>
+                              <th>Stall #</th>
+                              <th>Pending Amount</th>
+                              <th>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(() => {
+                              // Group walletSettlements by vendor_id
+                              const grouped = {};
+                              walletSettlements.filter(ws => parseFloat(ws.pending_settlement) > 0).forEach(ws => {
+                                if (!grouped[ws.vendor_id]) {
+                                  grouped[ws.vendor_id] = { vendor_id: ws.vendor_id, vendor_name: ws.vendor_name, stall_number: ws.stall_number, pending_amount: 0 };
+                                }
+                                grouped[ws.vendor_id].pending_amount += parseFloat(ws.pending_settlement);
+                              });
+                              const vendors = Object.values(grouped);
+                              if (vendors.length === 0) {
+                                return <tr><td colSpan="4" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>✅ All caught up! No pending digital payouts.</td></tr>;
+                              }
+                              return vendors.map(v => (
+                                <tr key={v.vendor_id} style={{ cursor: 'pointer', background: walletLedgerVendor?.vendor_id === v.vendor_id ? 'var(--bg-hover, rgba(99,102,241,0.08))' : undefined }} onClick={() => fetchWalletLedger(v)}>
+                                  <td><strong>{v.vendor_name}</strong></td>
+                                  <td>{v.stall_number || '-'}</td>
+                                  <td><strong style={{ color: 'var(--accent-warning, #f59e0b)', fontSize: '1.05em' }}>₹{v.pending_amount.toFixed(2)}</strong></td>
+                                  <td>
+                                    <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); fetchWalletLedger(v); }}>View Items</button>
+                                  </td>
+                                </tr>
+                              ));
+                            })()}
+                          </tbody>
+                        </table>
+                        {walletSettlements.filter(ws => parseFloat(ws.pending_settlement) > 0).length > 0 && (
+                          <div style={{ marginTop: '12px', padding: '12px 16px', background: 'var(--bg-card, #1e1e2e)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--text-muted)' }}>Total Pending Across All Stalls</span>
+                            <strong style={{ color: 'var(--accent-warning, #f59e0b)', fontSize: '1.1em' }}>
+                              ₹{walletSettlements.reduce((s, ws) => s + parseFloat(ws.pending_settlement || 0), 0).toFixed(2)}
+                            </strong>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Itemized Ledger View */}
+                    {walletLedgerVendor && (
+                      <div className="panel-card" style={{ marginTop: '24px' }}>
+                        <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <h3>📋 Unsettled Items — <span style={{ color: 'var(--accent-primary, #6366f1)' }}>{walletLedgerVendor.vendor_name}</span></h3>
+                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>{walletLedgerItems.length} item(s) pending settlement</p>
+                          </div>
+                          <button className="btn btn-outline-primary" onClick={() => setWalletLedgerVendor(null)}>← Back</button>
+                        </div>
+                        <div className="table-container" style={{ padding: '0 20px 20px 20px' }}>
+                          <table className="data-table">
+                            <thead>
+                              <tr>
+                                <th style={{ width: '40px' }}>
+                                  <input type="checkbox" checked={walletLedgerItems.length > 0 && walletSelectedItems.length === walletLedgerItems.length}
+                                    onChange={(e) => setWalletSelectedItems(e.target.checked ? walletLedgerItems.map(i => i.order_item_id) : [])} />
+                                </th>
+                                <th>Token #</th>
+                                <th>Date & Time</th>
+                                <th>Source</th>
+                                <th>Payment Mode</th>
+                                <th>Items</th>
+                                <th>Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {walletLedgerItems.length === 0 ? (
+                                <tr><td colSpan="7" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>No pending items for this stall.</td></tr>
+                              ) : (
+                                (() => {
+                                  // Group items by order
+                                  const grouped = walletLedgerItems.reduce((acc, item) => {
+                                    if (!acc[item.order_id]) {
+                                      acc[item.order_id] = {
+                                        order_id: item.order_id,
+                                        token_number: item.token_number,
+                                        order_date: item.order_date,
+                                        order_source: item.order_source,
+                                        payment_mode: item.payment_mode,
+                                        items: [],
+                                        total_price: 0,
+                                        orderItemIds: []
+                                      };
+                                    }
+                                    acc[item.order_id].items.push(`${item.item_name} (x${item.quantity})`);
+                                    acc[item.order_id].total_price += parseFloat(item.total_price);
+                                    acc[item.order_id].orderItemIds.push(item.order_item_id);
+                                    return acc;
+                                  }, {});
+                                  
+                                  return Object.values(grouped).sort((a,b) => new Date(b.order_date) - new Date(a.order_date)).map(order => (
+                                    <tr key={order.order_id}>
+                                      <td>
+                                        <input type="checkbox" checked={order.orderItemIds.every(id => walletSelectedItems.includes(id))}
+                                          onChange={(e) => {
+                                            setWalletSelectedItems(prev => e.target.checked 
+                                              ? [...new Set([...prev, ...order.orderItemIds])] 
+                                              : prev.filter(id => !order.orderItemIds.includes(id))
+                                            );
+                                          }} />
+                                      </td>
+                                      <td>#{order.token_number || order.order_id}</td>
+                                      <td style={{ fontSize: '0.85em' }}>{new Date(order.order_date).toLocaleString()}</td>
+                                      <td><span className="badge" style={{ background: order.order_source === 'QR' ? 'var(--accent-primary, #6366f1)' : 'var(--accent-info, #06b6d4)', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75em' }}>{order.order_source}</span></td>
+                                      <td><span className="badge" style={{ background: order.payment_mode === 'Credit' ? '#f59e0b' : order.payment_mode === 'RFID Wallet' ? '#3b82f6' : '#10b981', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75em' }}>{order.payment_mode}</span></td>
+                                      <td style={{ fontSize: '0.85em', maxWidth: '200px', whiteSpace: 'normal' }}>{order.items.join(', ')}</td>
+                                      <td><strong style={{ color: 'var(--text-light)' }}>₹{order.total_price.toFixed(2)}</strong></td>
+                                    </tr>
+                                  ));
+                                })()
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        {walletLedgerItems.length > 0 && (
+                          <div style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-color, #333)' }}>
+                            <div>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>{walletSelectedItems.length} of {walletLedgerItems.length} items selected</span>
+                              <br />
+                              <strong style={{ fontSize: '1.15em', color: 'var(--accent-success, #22c55e)' }}>
+                                Selected Total: ₹{walletLedgerItems.filter(i => walletSelectedItems.includes(i.order_item_id)).reduce((s, r) => s + parseFloat(r.total_price), 0).toFixed(2)}
+                              </strong>
+                            </div>
+                            <button className="btn btn-primary" disabled={walletSelectedItems.length === 0 || walletSettling} onClick={handleWalletSettle}
+                              style={{ padding: '10px 28px', fontSize: '1em' }}>
+                              {walletSettling ? '⏳ Processing...' : `💸 Settle ₹${walletLedgerItems.filter(i => walletSelectedItems.includes(i.order_item_id)).reduce((s, r) => s + parseFloat(r.total_price), 0).toFixed(2)}`}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                </div>
+              )}
             </div>
           )}
 
@@ -6221,7 +7324,7 @@ function App() {
                       if (key === 'directory') fetchStaff();
                       if (key === 'shifts') fetchShifts();
                       if (key === 'swaps') fetchShiftSwaps();
-                      if (key === 'roster') fetchRoster(selectedRosterWeek);
+                      if (key === 'roster') fetchRoster(actualRosterWeek);
                       if (key === 'attendance') fetchAttendance(selectedAttendanceDate);
                       if (key === 'leaves') fetchLeaves();
                       if (key === 'holidays') fetchHolidays();
@@ -6267,10 +7370,10 @@ function App() {
                               <div className="hr-form-group">
                                 <label>Role *</label>
                                 <select value={formStaff.role} onChange={e => setFormStaff({ ...formStaff, role: e.target.value })}>
-                                  <option value="Manager">Manager</option>
+                                  {!user.vendor_id && <option value="Manager">Manager (Stall Manager)</option>}
                                   <option value="Cook">Cook</option>
-                                  <option value="Cashier">Cashier</option>
-                                  <option value="Staff">General Staff</option>
+                                  <option value="Billing Staff">Cashier</option>
+                                  <option value="Helper">General Staff</option>
                                 </select>
                               </div>
                               <div className="hr-form-group">
@@ -6300,15 +7403,25 @@ function App() {
                                 <label>Bank Account</label>
                                 <input type="text" placeholder="Account Number & IFSC" value={formStaff.bank_account} onChange={e => setFormStaff({ ...formStaff, bank_account: e.target.value })} />
                               </div>
-                              <div className="hr-form-group">
-                                <label>Linked Stall / Vendor</label>
-                                <select value={formStaff.vendor_id} onChange={e => setFormStaff({ ...formStaff, vendor_id: e.target.value })}>
-                                  <option value="">🏢 Central Canteen (Main)</option>
-                                  {vendors.map(v => (
-                                    <option key={v.id} value={v.id}>🏪 Stall: {v.name}</option>
-                                  ))}
-                                </select>
-                              </div>
+                              {user.vendor_id ? (
+                                <div className="hr-form-group" style={{ background: 'rgba(139,92,246,0.08)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(139,92,246,0.2)' }}>
+                                  <label style={{ color: '#a78bfa', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>🏪 Creating for Your Stall</label>
+                                  <div style={{ fontSize: '0.88rem', color: '#e2e8f0', marginTop: '4px' }}>
+                                    {vendors.find(v => v.id === user.vendor_id)?.name || `Stall #${user.vendor_id}`}
+                                  </div>
+                                  <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>Staff will be automatically assigned to your stall.</div>
+                                </div>
+                              ) : (
+                                <div className="hr-form-group">
+                                  <label>Linked Stall / Vendor</label>
+                                  <select value={formStaff.vendor_id} onChange={e => setFormStaff({ ...formStaff, vendor_id: e.target.value })}>
+                                    <option value="">🏢 Central Canteen (Main)</option>
+                                    {vendors.map(v => (
+                                      <option key={v.id} value={v.id}>🏪 Stall: {v.name}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
                               {formStaff.id && (
                                 <div className="hr-form-group">
                                   <label>Status</label>
@@ -6357,7 +7470,7 @@ function App() {
 
                   {/* Staff Directory List */}
                   <div className="hr-profiles-grid">
-                    {staff.map(s => {
+                    {staff.filter(s => s.role !== 'Owner').map(s => {
                       const stall = vendors.find(v => v.id === s.vendor_id);
                       return (
                         <div key={s.id} className="hr-profile-card">
@@ -6388,8 +7501,12 @@ function App() {
                             </div>
                           </div>
                           <div className="hr-card-footer">
-                            <button className="hr-btn-edit" onClick={() => handleEditStaff(s)}>✏️ Edit</button>
-                            <button className="hr-btn-delete" onClick={() => handleDeleteStaff(s.id)}>🗑️ Delete</button>
+                            {s.id !== user.id && (
+                              <>
+                                <button className="hr-btn-edit" onClick={() => handleEditStaff(s)}>✏️ Edit</button>
+                                <button className="hr-btn-delete" onClick={() => handleDeleteStaff(s.id)}>🗑️ Delete</button>
+                              </>
+                            )}
                           </div>
                         </div>
                       );
@@ -6472,7 +7589,7 @@ function App() {
                               <label>Requester Staff *</label>
                               <select required value={formSwap.requester_id} onChange={e => setFormSwap({ ...formSwap, requester_id: e.target.value })}>
                                 <option value="">-- Select Requester --</option>
-                                {staff.filter(s => s.is_active === 1).map(s => (
+                                {staff.filter(s => s.is_active === 1 && s.role !== 'Owner' && s.role !== 'Manager').map(s => (
                                   <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
                                 ))}
                               </select>
@@ -6481,7 +7598,7 @@ function App() {
                               <label>Target Staff *</label>
                               <select required value={formSwap.target_id} onChange={e => setFormSwap({ ...formSwap, target_id: e.target.value })}>
                                 <option value="">-- Select Target --</option>
-                                {staff.filter(s => s.is_active === 1 && s.id.toString() !== formSwap.requester_id).map(s => (
+                                {staff.filter(s => s.is_active === 1 && s.role !== 'Owner' && s.role !== 'Manager' && s.id.toString() !== formSwap.requester_id).map(s => (
                                   <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
                                 ))}
                               </select>
@@ -6567,7 +7684,7 @@ function App() {
                   <div className="view-header-bar" style={{ flexWrap: 'wrap', gap: '15px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <label style={{ fontWeight: 600 }}>Roster Week starting (Monday):</label>
-                      <input type="date" value={selectedRosterWeek} onChange={e => setSelectedRosterWeek(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                      <input type="date" value={selectedRosterWeek} onChange={e => setSelectedRosterWeek(e.target.value)} onBlur={handleRosterWeekBlur} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
                     </div>
                     <button className="btn btn-success" onClick={handleSaveRoster}>💾 Save Weekly Roster</button>
                   </div>
@@ -6579,7 +7696,7 @@ function App() {
                           <th>Staff Member</th>
                           <th>Role</th>
                           {Array.from({ length: 7 }, (_, i) => {
-                            let start = new Date(selectedRosterWeek);
+                            let start = new Date(actualRosterWeek);
                             if (isNaN(start.getTime())) start = new Date(); // fallback if input is cleared
                             start.setDate(start.getDate() + i);
                             const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -6595,12 +7712,12 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {staff.filter(s => s.is_active === 1 && s.exclude_from_roster !== 1).map(member => (
+                        {staff.filter(s => s.is_active === 1 && s.exclude_from_roster !== 1 && s.role !== 'Owner').map(member => (
                           <tr key={member.id}>
                             <td><strong>{member.name}</strong></td>
                             <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{member.role}</span></td>
                             {Array.from({ length: 7 }, (_, i) => {
-                              let d = new Date(selectedRosterWeek);
+                              let d = new Date(actualRosterWeek);
                               if (isNaN(d.getTime())) d = new Date(); // fallback if input is cleared
                               d.setDate(d.getDate() + i);
                               const dateStr = d.toISOString().split('T')[0];
@@ -6712,7 +7829,7 @@ function App() {
                             <label>Staff Member *</label>
                             <select required value={formAttendanceManual.staff_id} onChange={e => setFormAttendanceManual({ ...formAttendanceManual, staff_id: e.target.value })}>
                               <option value="">-- Select Staff --</option>
-                              {staff.filter(s => s.is_active === 1 && s.exclude_from_attendance !== 1).map(s => (
+                              {staff.filter(s => s.is_active === 1 && s.exclude_from_attendance !== 1 && s.role !== 'Owner').map(s => (
                                 <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
                               ))}
                             </select>
@@ -6758,7 +7875,7 @@ function App() {
                       <div style={{ flex: 1, minWidth: '400px', background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                         <h4 style={{ margin: '0 0 15px 0' }}>🍳 Today's Quick Check-in Desk</h4>
                         <div className="quick-checkin-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          {staff.filter(s => s.is_active === 1 && s.exclude_from_attendance !== 1).map(member => {
+                          {staff.filter(s => s.is_active === 1 && s.exclude_from_attendance !== 1 && s.role !== 'Owner').map(member => {
                             const rec = attendance.find(a => a.staff_id === member.id);
                             return (
                               <div key={member.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
@@ -6809,7 +7926,7 @@ function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {attendance.filter(a => { const s = staff.find(st => st.id === a.staff_id); return !s || s.exclude_from_attendance !== 1; }).map(a => (
+                          {attendance.filter(a => { const s = staff.find(st => st.id === a.staff_id); return !s || (s.exclude_from_attendance !== 1 && s.role !== 'Owner'); }).map(a => (
                             <tr key={a.id}>
                               <td><strong>{a.staff_name}</strong></td>
                               <td>{a.shift_name || '—'}</td>
@@ -6856,7 +7973,7 @@ function App() {
                             <label>Staff Member *</label>
                             <select required value={formLeave.staff_id} onChange={handleLeaveStaffChange}>
                               <option value="">-- Choose Staff --</option>
-                              {staff.filter(s => s.is_active === 1).map(s => (
+                              {staff.filter(s => s.is_active === 1 && s.role !== 'Owner' && s.role !== 'Manager').map(s => (
                                 <option key={s.id} value={s.id}>{s.name}</option>
                               ))}
                             </select>
@@ -7012,7 +8129,7 @@ function App() {
                       <tbody>
                         {payroll.filter(p => {
                           const s = staff.find(st => st.id === p.staff_id);
-                          return !s || s.exclude_from_payroll !== 1;
+                          return !s || (s.exclude_from_payroll !== 1 && s.role !== 'Owner');
                         }).map(p => (
                           <tr key={p.id}>
                             <td>
@@ -7121,7 +8238,7 @@ function App() {
                   <div className="performance-summary-cards" style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginTop: '20px' }}>
                     <div className="perf-summary-card" style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '12px', flex: '1', minWidth: '200px', border: '1px solid rgba(255,255,255,0.05)' }}>
                       <div className="perf-label" style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Active Staff Directory</div>
-                      <div className="perf-value primary" style={{ fontSize: '2rem', fontWeight: 700, marginTop: '5px' }}>{staff.filter(s => s.is_active === 1).length}</div>
+                      <div className="perf-value primary" style={{ fontSize: '2rem', fontWeight: 700, marginTop: '5px' }}>{staff.filter(s => s.is_active === 1 && s.role !== 'Owner').length}</div>
                     </div>
                     <div className="perf-summary-card" style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '12px', flex: '1', minWidth: '200px', border: '1px solid rgba(255,255,255,0.05)' }}>
                       <div className="perf-label" style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Attendance Rate (Avg)</div>
@@ -7166,7 +8283,7 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {staffPerformance.map(m => {
+                        {staffPerformance.filter(m => m.role !== 'Owner').map(m => {
                           const ordersProcessed = m.orders_processed || 0;
                           const upsoldOrders = m.upsold_orders || 0;
                           const avgPrepTimeSec = m.avg_handling_time || 0;
@@ -7321,8 +8438,12 @@ function App() {
                   <span style={{color: 'var(--text-muted)'}}>to</span>
                   <input type="date" className="header-date-input" value={reportDateRange.endDate} onChange={e => setReportDateRange(prev => ({...prev, endDate: e.target.value}))} />
                   
-                  <button className="btn btn-outline-primary" onClick={() => setShowOverheadModal(true)}>+ Log Expense</button>
-                  <button className="btn btn-outline-primary" onClick={() => setShowCustomerModal(true)}>+ New Customer</button>
+                  {!user.vendor_id && (
+                    <>
+                      <button className="btn btn-outline-primary" onClick={() => setShowOverheadModal(true)}>+ Log Expense</button>
+                      <button className="btn btn-outline-primary" onClick={() => setShowCustomerModal(true)}>+ New Customer</button>
+                    </>
+                  )}
                   <button className="btn btn-primary" onClick={() => window.print()}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{marginRight: 6}}><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6z"/></svg>
                     Export PDF
@@ -7333,13 +8454,16 @@ function App() {
               <div className="sub-tabs">
                 <button className={`sub-tab ${reportsSubTab === 'sales' ? 'active' : ''}`} onClick={() => setReportsSubTab('sales')}>Daily Sales</button>
                 <button className={`sub-tab ${reportsSubTab === 'stock' ? 'active' : ''}`} onClick={() => setReportsSubTab('stock')}>Stock</button>
-                <button className={`sub-tab ${reportsSubTab === 'vendors' ? 'active' : ''}`} onClick={() => setReportsSubTab('vendors')}>Vendors</button>
                 <button className={`sub-tab ${reportsSubTab === 'peak-hours' ? 'active' : ''}`} onClick={() => setReportsSubTab('peak-hours')}>Peak Hours</button>
                 <button className={`sub-tab ${reportsSubTab === 'monthly-pl' ? 'active' : ''}`} onClick={() => setReportsSubTab('monthly-pl')}>Monthly P&L</button>
-                <button className={`sub-tab ${reportsSubTab === 'customer-analytics' ? 'active' : ''}`} onClick={() => setReportsSubTab('customer-analytics')}>Customers</button>
+                {!user.vendor_id && (
+                  <button className={`sub-tab ${reportsSubTab === 'customer-analytics' ? 'active' : ''}`} onClick={() => setReportsSubTab('customer-analytics')}>Customers</button>
+                )}
                 <button className={`sub-tab ${reportsSubTab === 'gst' ? 'active' : ''}`} onClick={() => setReportsSubTab('gst')}>GST Report</button>
                 <button className={`sub-tab ${reportsSubTab === 'reconciliation' ? 'active' : ''}`} onClick={() => { setReportsSubTab('reconciliation'); fetchReconciliation(); }}>Reconciliation</button>
-                <button className={`sub-tab ${reportsSubTab === 'credits' ? 'active' : ''}`} onClick={() => { setReportsSubTab('credits'); fetchCreditCustomers(); }}>Credits</button>
+                {!user.vendor_id && (
+                  <button className={`sub-tab ${reportsSubTab === 'credits' ? 'active' : ''}`} onClick={() => { setReportsSubTab('credits'); fetchCreditCustomers(); }}>Credits</button>
+                )}
               </div>
 
               <div className="reports-content-area">
@@ -7434,40 +8558,6 @@ function App() {
                   </div>
                 )}
 
-                {reportsSubTab === 'vendors' && reportsData.vendors && reportsData.vendors.vendors && (
-                  <div className="panel-card mt-4">
-                    <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <h3>Vendor Performance & Settlement</h3>
-                      <button className="btn btn-outline-primary" onClick={() => {
-                        const csvContent = "data:text/csv;charset=utf-8,Vendor,Total Orders,Gross Revenue,Platform Fee (%),Net Settlement\n" +
-                          reportsData.vendors.vendors.map(e => `${e.name},${e.orderCount},${e.totalSales},${e.feePercentage},${e.netPayable}`).join("\n");
-                        const link = document.createElement("a");
-                        link.setAttribute("href", encodeURI(csvContent));
-                        link.setAttribute("download", `vendors_report.csv`);
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                      }}>Export CSV</button>
-                    </div>
-                    <div className="table-container">
-                      <table className="data-table">
-                        <thead><tr><th>Vendor Name</th><th>Gross Sales</th><th>Admin Commission</th><th>Overheads Share</th><th>Net Payable</th></tr></thead>
-                        <tbody>
-                          {reportsData.vendors.vendors.map((v, idx) => (
-                            <tr key={idx}>
-                              <td>{v.name}</td>
-                              <td>₹{Number(v.revenue || 0).toFixed(2)}</td>
-                              <td>₹{Number(v.commission || 0).toFixed(2)}</td>
-                              <td>₹{Number(v.common_cost_share || 0).toFixed(2)}</td>
-                              <td><strong style={{color: 'var(--accent-success)'}}>₹{Number(v.netPayout || 0).toFixed(2)}</strong></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
                 {reportsSubTab === 'peak-hours' && reportsData.peakHours && (
                   <div className="panel-card mt-4">
                     <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -7542,23 +8632,40 @@ function App() {
                         </tbody>
                       </table>
                     </div>
-
-                    {/* Cash Flow Note Card */}
-                    <div style={{ marginTop: '20px', padding: '15px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', backgroundColor: 'rgba(255, 255, 255, 0.02)', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-                      <h4 style={{ margin: '0 0 8px 0', color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 600 }}>
-                        <span>💰</span> Cash Flow Note: Inventory Purchases
-                      </h4>
-                      <p style={{ margin: '0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-                        During this year, a total of <strong>₹{reportsData.monthlyPl.reduce((sum, pl) => sum + (pl.purchases || 0), 0).toFixed(2)}</strong> was spent on purchasing raw materials (inventory). 
-                        This represents a real cash outflow from your funds, but it is not directly subtracted from your Net Profit. Instead, it increases your inventory value, and is only expensed as <strong>COGS</strong> when those ingredients are actually sold to customers or logged as <strong>Wastage</strong>.
-                      </p>
-                    </div>
                   </div>
                 )}
                 
                 {reportsSubTab === 'customer-analytics' && reportsData.customerAnalytics && (
-                  <div className="dashboard-details-grid mt-4">
-                    <div className="panel-card">
+                  <div className="report-section">
+                    <div className="stats-grid mt-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                      <div className="stats-card">
+                        <div className="stats-info">
+                          <h3>Total Customers</h3>
+                          <span className="stats-value">{reportsData.customerAnalytics.totalCustomers || 0}</span>
+                        </div>
+                      </div>
+                      <div className="stats-card">
+                        <div className="stats-info">
+                          <h3>Repeat Customer Rate</h3>
+                          <span className="stats-value">{Number(reportsData.customerAnalytics.repeatCustomerRate || 0).toFixed(1)}%</span>
+                        </div>
+                      </div>
+                      <div className="stats-card">
+                        <div className="stats-info">
+                          <h3>Average Rating</h3>
+                          <span className="stats-value" style={{ color: '#f59e0b' }}>★ {Number(reportsData.customerAnalytics.averageRating || 0).toFixed(1)} / 5</span>
+                        </div>
+                      </div>
+                      <div className="stats-card">
+                        <div className="stats-info">
+                          <h3>Total Feedbacks</h3>
+                          <span className="stats-value">{reportsData.customerAnalytics.totalFeedbacks || 0}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="dashboard-details-grid">
+                      <div className="panel-card">
                       <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h3>Loyalty Leaderboard</h3>
                         <button className="btn btn-outline-primary btn-small" onClick={() => {
@@ -7607,7 +8714,8 @@ function App() {
                       </div>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
                 {reportsSubTab === 'gst' && reportsData.gst && (
                   <div className="report-section">
@@ -7619,7 +8727,7 @@ function App() {
                         <div className="panel-card-header">
                           <h3>HSN / SAC Summary</h3>
                         </div>
-                        <div className="table-container">
+                        <div className="table-container" style={{ maxHeight: '220px', overflowY: 'auto' }}>
                           <table className="data-table">
                             <thead>
                               <tr>
@@ -7651,7 +8759,7 @@ function App() {
                         <div className="panel-card-header">
                           <h3>Vendor-wise GST Summary</h3>
                         </div>
-                        <div className="table-container">
+                        <div className="table-container" style={{ maxHeight: '220px', overflowY: 'auto' }}>
                           <table className="data-table">
                             <thead>
                               <tr>
@@ -7726,7 +8834,7 @@ function App() {
                             <label>Submitted By (Staff)</label>
                             <select id="recon-staff" defaultValue="" required style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-light)', fontSize: '0.95rem' }}>
                               <option value="" disabled>-- Select Staff --</option>
-                              {staff.filter(s => s.is_active === 1 && ['Owner','Admin','Manager','Cashier'].includes(s.role)).map(s => (
+                              {staff.filter(s => s.is_active === 1 && !s.vendor_id && ['Owner','Admin','Manager','Billing Staff','Cashier'].includes(s.role)).map(s => (
                                 <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
                               ))}
                             </select>
@@ -7845,14 +8953,14 @@ function App() {
                                 {selectedCreditCustomer?.id === cust.id ? (
                                   <button className="btn btn-secondary btn-small" onClick={() => setSelectedCreditCustomer(null)}>Close Ledger</button>
                                 ) : (
-                                  <button className="btn btn-primary btn-small" onClick={() => { setSelectedCreditCustomer(cust); fetchCreditLedger(cust.id); }}>View Ledger</button>
+                                  <button className="btn btn-primary btn-small" onClick={() => { setSelectedCreditCustomer(cust); setSelectedCreditItems([]); fetchCreditLedger(cust.id); }}>View Ledger</button>
                                 )}
                                 {Number(cust.outstanding) > 0 && (
                                   <button className="btn btn-success btn-small" style={{ marginLeft: '8px' }} onClick={() => {
                                     const amt = prompt(`Settle how much for ${cust.name}? Outstanding: ₹${Number(cust.outstanding).toFixed(2)}`);
                                     if (amt && parseFloat(amt) > 0) {
                                       fetch(`${API_BASE}/credits/settle`, {
-                                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
                                         body: JSON.stringify({ customer_id: cust.id, amount: parseFloat(amt), payment_mode: 'Cash', notes: 'Manual settlement' })
                                       }).then(() => { showToast('Settlement recorded', 'success'); fetchCreditCustomers(); }).catch(() => showToast('Settlement failed', 'error'));
                                     }
@@ -7867,35 +8975,78 @@ function App() {
                       </table>
                     </div>
 
-                    {selectedCreditCustomer && (
+                    {selectedCreditCustomer && (() => {
+                      const unsettledCredits = creditLedger.filter(e => e.type === 'Credit' && !e.is_settled);
+                      const selectedTotal = unsettledCredits.filter(e => selectedCreditItems.includes(e.id)).reduce((s, e) => s + Number(e.amount), 0);
+                      return (
                       <div className="panel-card mt-4">
-                        <div className="panel-card-header">
+                        <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <h3>Ledger — {selectedCreditCustomer.name}</h3>
+                          {selectedCreditItems.length > 0 && (
+                            <button className="btn btn-success btn-small" onClick={() => {
+                              if (!window.confirm(`Settle ₹${selectedTotal.toFixed(2)} for ${selectedCreditCustomer.name}? (${selectedCreditItems.length} item(s))`)) return;
+                              fetch(`${API_BASE}/credits/settle-items`, {
+                                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                                body: JSON.stringify({ customer_id: selectedCreditCustomer.id, ledger_ids: selectedCreditItems, payment_mode: 'Cash' })
+                              }).then(r => { if (r.ok) { showToast(`₹${selectedTotal.toFixed(2)} settled successfully!`, 'success'); setSelectedCreditItems([]); fetchCreditLedger(selectedCreditCustomer.id); fetchCreditCustomers(); } else { showToast('Settlement failed', 'error'); } }).catch(() => showToast('Settlement failed', 'error'));
+                            }}>💰 Pay Selected ({selectedCreditItems.length}) — ₹{selectedTotal.toFixed(2)}</button>
+                          )}
                         </div>
-                        <div className="table-container">
+                        <div className="table-container" style={{ maxHeight: '350px', overflowY: 'auto' }}>
                           <table className="data-table">
-                            <thead>
+                            <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                               <tr>
+                                <th style={{ width: '40px' }}>
+                                  {unsettledCredits.length > 0 && (
+                                    <input type="checkbox"
+                                      checked={unsettledCredits.length > 0 && unsettledCredits.every(e => selectedCreditItems.includes(e.id))}
+                                      onChange={e => {
+                                        if (e.target.checked) setSelectedCreditItems(unsettledCredits.map(c => c.id));
+                                        else setSelectedCreditItems([]);
+                                      }}
+                                    />
+                                  )}
+                                </th>
                                 <th>Date</th>
                                 <th>Type</th>
                                 <th>Amount</th>
+                                <th>Order</th>
+                                <th>Status</th>
                                 <th>Notes</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {creditLedger.map((entry, idx) => (
-                                <tr key={idx}>
+                              {creditLedger.map((entry, idx) => {
+                                const isUnsettledCredit = entry.type === 'Credit' && !entry.is_settled;
+                                const isChecked = selectedCreditItems.includes(entry.id);
+                                return (
+                                <tr key={idx} style={{ background: isChecked ? 'rgba(16,185,129,0.08)' : 'transparent' }}>
+                                  <td>
+                                    {isUnsettledCredit ? (
+                                      <input type="checkbox" checked={isChecked} onChange={e => {
+                                        if (e.target.checked) setSelectedCreditItems(prev => [...prev, entry.id]);
+                                        else setSelectedCreditItems(prev => prev.filter(id => id !== entry.id));
+                                      }} />
+                                    ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                                  </td>
                                   <td style={{ fontSize: '0.85rem' }}>{entry.created_at}</td>
                                   <td><span className={`badge ${entry.type === 'Credit' ? 'badge-danger' : 'badge-success'}`}>{entry.type}</span></td>
                                   <td>₹{Number(entry.amount).toFixed(2)}</td>
+                                  <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{entry.order_id ? `#${entry.order_id}` : '—'}</td>
+                                  <td>
+                                    {entry.type === 'Payment' ? <span className="badge badge-success">Paid</span>
+                                      : entry.is_settled ? <span className="badge badge-success">Settled</span>
+                                      : <span className="badge badge-warning" style={{ background: '#f59e0b22', color: '#f59e0b' }}>Pending</span>}
+                                  </td>
                                   <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{entry.notes || '-'}</td>
                                 </tr>
-                              ))}
+                              );
+                              })}
                             </tbody>
                           </table>
                         </div>
                       </div>
-                    )}
+                    );})()}
                   </div>
                 )}
               </div>
@@ -7907,7 +9058,7 @@ function App() {
           )}
           
           {activeTab === 'wallet' && (
-            <WalletManagement userRole={user?.role} />
+            <WalletManagement userRole={user?.role} refreshCustomers={fetchCustomers} />
           )}
         </div>
       
@@ -9003,7 +10154,7 @@ function App() {
                       
                       const newSplits = [];
                       for (let i = 0; i < count; i++) {
-                        const modes = ['Cash', 'UPI', 'Card', 'Meal Card'];
+                        const modes = ['Cash', 'UPI', 'Card'];
                         newSplits.push({
                           mode: modes[i % modes.length],
                           amount: i === count - 1 ? (total - (equalShare * (count - 1))).toFixed(2) : equalShare
@@ -9060,7 +10211,6 @@ function App() {
                         <option value="Cash">Cash</option>
                         <option value="UPI">UPI Scan</option>
                         <option value="Card">Card Swipe</option>
-                        <option value="Meal Card">Meal Card</option>
                       </select>
                     </div>
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>

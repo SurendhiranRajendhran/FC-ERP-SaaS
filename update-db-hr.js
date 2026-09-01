@@ -48,7 +48,9 @@ async function migrate() {
         name VARCHAR(100) NOT NULL,
         start_time TIME NOT NULL,
         end_time TIME NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        vendor_id INT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE
       ) ENGINE=InnoDB;
     `);
     console.log('✅ shifts table created.');

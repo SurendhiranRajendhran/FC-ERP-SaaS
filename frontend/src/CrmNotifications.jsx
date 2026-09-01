@@ -224,7 +224,7 @@ function LoyaltyTab() {
                   <span style={{ background: '#f59e0b22', color: '#f59e0b', padding: '3px 10px', borderRadius: 12, fontWeight: 700 }}>⭐ {c.loyalty_points || 0}</span>
                 </td>
                 <td style={{ padding: '12px 16px', color: '#10b981' }}>₹{fmt(c.total_spent)}</td>
-                <td style={{ padding: '12px 16px', color: '#9ca3af' }}>{c.last_visit || '—'}</td>
+                <td style={{ padding: '12px 16px', color: '#9ca3af' }}>{c.last_visit ? new Date(c.last_visit).toLocaleDateString('en-IN') : '-'}</td>
                 <td style={{ padding: '12px 16px' }}>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button onClick={() => openEdit(c)} style={{ padding: '4px 10px', background: '#f59e0b22', color: '#f59e0b', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>Edit</button>
@@ -306,8 +306,13 @@ function LoyaltyTab() {
                   <div style={{ color: '#f9fafb', fontWeight: 600 }}>{t.note}</div>
                   <div style={{ color: '#6b7280', fontSize: 11 }}>{new Date(t.created_at).toLocaleString('en-IN')}</div>
                 </div>
-                <div style={{ fontWeight: 800, color: t.type === 'earn' ? '#10b981' : '#ef4444' }}>
-                  {t.type === 'earn' ? '+' : ''}{t.points} pts
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontWeight: 800, color: t.type === 'earn' ? '#10b981' : '#ef4444' }}>
+                    {t.type === 'earn' ? '+' : ''}{t.points} pts
+                  </div>
+                  {t.order_cost != null && (
+                    <div style={{ color: '#9ca3af', fontSize: 11 }}>Order: ₹{Number(t.order_cost).toFixed(2)}</div>
+                  )}
                 </div>
               </div>
             ))}
@@ -385,7 +390,7 @@ function BroadcastsTab() {
     setRecipients({ show: true, data, campaignName: name });
   };
 
-  const segments = [{ v: 'all', l: 'All Customers' }, { v: 'high_value', l: 'High Value (₹500+)' }, { v: 'inactive', l: 'Inactive (30+ days)' }, { v: 'loyalty', l: 'Loyalty Members' }];
+  const segments = [{ v: 'all', l: 'All Registered Customers' }, { v: 'high_value', l: 'VIP / High Value (Spent ₹500+)' }, { v: 'inactive', l: 'At-Risk / Inactive (No visits in 30 days)' }, { v: 'loyalty', l: 'Customers with Unspent Points' }];
   const channels = [{ v: 'whatsapp', l: '💬 WhatsApp' }, { v: 'sms', l: '📱 SMS' }, { v: 'email', l: '📧 Email' }];
 
   return (
@@ -549,30 +554,32 @@ function FeedbackTab() {
       </div>
 
       <div style={{ background: '#1f2937', borderRadius: 12, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: '#111827' }}>
-              {['Date','Customer','Order','Overall','Food','Service','Speed','Comment','Alerted'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 12px', color: '#6b7280', fontWeight: 600, fontSize: 11 }}>{h}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: '#6b7280' }}>Loading...</td></tr>
-              : feedback.map(f => (
-              <tr key={f.id} style={{ borderBottom: '1px solid #374151', background: f.rating <= 2 ? '#ef444408' : 'transparent' }}>
-                <td style={{ padding: '10px 12px', color: '#9ca3af', whiteSpace: 'nowrap' }}>{new Date(f.created_at).toLocaleDateString('en-IN')}</td>
-                <td style={{ padding: '10px 12px', color: '#f9fafb' }}>{f.customer_name || '—'}</td>
-                <td style={{ padding: '10px 12px', color: '#6b7280' }}>#{f.order_id || '—'}</td>
-                <td style={{ padding: '10px 12px' }}><span style={{ fontWeight: 800, color: ratingColor(f.rating) }}>{'★'.repeat(f.rating)}{'☆'.repeat(5-f.rating)}</span></td>
-                <td style={{ padding: '10px 12px', color: ratingColor(f.food_rating || f.rating) }}>{f.food_rating || f.rating}/5</td>
-                <td style={{ padding: '10px 12px', color: ratingColor(f.service_rating || f.rating) }}>{f.service_rating || f.rating}/5</td>
-                <td style={{ padding: '10px 12px', color: ratingColor(f.speed_rating || f.rating) }}>{f.speed_rating || f.rating}/5</td>
-                <td style={{ padding: '10px 12px', color: '#9ca3af', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.comments || '—'}</td>
-                <td style={{ padding: '10px 12px' }}>{f.is_negative_alerted ? <span style={{ color: '#ef4444', fontSize: 11 }}>✅ Alerted</span> : <span style={{ color: '#6b7280', fontSize: 11 }}>—</span>}</td>
+        <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+              <tr style={{ background: '#111827' }}>
+                {['Date','Customer','Order','Overall','Food','Service','Speed','Comment','Alerted'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 12px', color: '#6b7280', fontWeight: 600, fontSize: 11 }}>{h}</th>)}
               </tr>
-            ))}
-            {!loading && feedback.length === 0 && <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: '#6b7280' }}>No feedback found</td></tr>}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading ? <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: '#6b7280' }}>Loading...</td></tr>
+                : feedback.map(f => (
+                <tr key={f.id} style={{ borderBottom: '1px solid #374151', background: f.rating <= 2 ? '#ef444408' : 'transparent' }}>
+                  <td style={{ padding: '10px 12px', color: '#9ca3af', whiteSpace: 'nowrap' }}>{new Date(f.created_at).toLocaleDateString('en-IN')}</td>
+                  <td style={{ padding: '10px 12px', color: '#f9fafb' }}>{f.customer_name || '—'}</td>
+                  <td style={{ padding: '10px 12px', color: '#6b7280' }}>#{f.order_id || '—'}</td>
+                  <td style={{ padding: '10px 12px' }}><span style={{ fontWeight: 800, color: ratingColor(f.rating) }}>{'★'.repeat(f.rating)}{'☆'.repeat(5-f.rating)}</span></td>
+                  <td style={{ padding: '10px 12px', color: ratingColor(f.food_rating || f.rating) }}>{f.food_rating || f.rating}/5</td>
+                  <td style={{ padding: '10px 12px', color: ratingColor(f.service_rating || f.rating) }}>{f.service_rating || f.rating}/5</td>
+                  <td style={{ padding: '10px 12px', color: ratingColor(f.speed_rating || f.rating) }}>{f.speed_rating || f.rating}/5</td>
+                  <td style={{ padding: '10px 12px', color: '#9ca3af', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.comments || '—'}</td>
+                  <td style={{ padding: '10px 12px' }}>{f.is_negative_alerted ? <span style={{ color: '#ef4444', fontSize: 11 }}>✅ Alerted</span> : <span style={{ color: '#6b7280', fontSize: 11 }}>—</span>}</td>
+                </tr>
+              ))}
+              {!loading && feedback.length === 0 && <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: '#6b7280' }}>No feedback found</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -599,7 +606,7 @@ function LogsTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const types = ['', 'low_stock', 'daily_summary', 'order_ready', 'broadcast', 'feedback_alert', 'loyalty_earned', 'loyalty_redeemed', 'test'];
+  const types = ['', 'low_stock', 'daily_summary', 'order_ready', 'broadcast', 'feedback_alert', 'loyalty_earned', 'loyalty_redeemed'];
   const channels = ['', 'whatsapp', 'sms', 'email', 'simulated'];
   const statuses = ['', 'sent', 'failed', 'simulated', 'pending'];
 
@@ -655,7 +662,7 @@ function LogsTab() {
 }
 
 // ─── Settings Tab ─────────────────────────────────────────────────────────────
-function SettingsTab() {
+function SettingsTab({ userRole }) {
   const [settings, setSettings] = useState(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState('');
@@ -685,13 +692,29 @@ function SettingsTab() {
     setTesting('');
   };
 
-  const Field = ({ label, k, type = 'text', placeholder = '' }) => (
-    <div>
-      <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>{label}</label>
-      <input type={type} value={settings?.[k] || ''} onChange={e => setSettings(p => ({ ...p, [k]: e.target.value }))} placeholder={placeholder}
-        style={{ width: '100%', padding: '10px 14px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box' }} />
-    </div>
-  );
+  const [showFieldPassword, setShowFieldPassword] = useState({});
+  const Field = ({ label, k, type = 'text', placeholder = '' }) => {
+    const isPassword = type === 'password';
+    const visible = showFieldPassword[k] || false;
+    return (
+      <div>
+        <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>{label}</label>
+        <div style={{ position: 'relative' }}>
+          <input type={isPassword ? (visible ? 'text' : 'password') : type} value={settings?.[k] || ''} onChange={e => setSettings(p => ({ ...p, [k]: e.target.value }))} placeholder={placeholder}
+            style={{ width: '100%', padding: '10px 14px', paddingRight: isPassword ? '40px' : '14px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box' }} />
+          {isPassword && (
+            <button type="button" onClick={() => setShowFieldPassword(p => ({ ...p, [k]: !p[k] }))} style={{position:'absolute', right:'10px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', padding:'4px', color:'#64748b', display:'flex', alignItems:'center'}}>
+              {visible ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   const Toggle = ({ label, k, note }) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid #374151' }}>
@@ -718,40 +741,6 @@ function SettingsTab() {
     <div style={{ maxWidth: 800 }}>
       {msg && <div style={{ padding: 12, borderRadius: 8, background: msg.startsWith('✅') ? '#10b98122' : '#ef444422', color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13, marginBottom: 16 }}>{msg}</div>}
       {testMsg && <div style={{ padding: 12, borderRadius: 8, background: testMsg.startsWith('✅') ? '#10b98122' : '#ef444422', color: testMsg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13, marginBottom: 16 }}>{testMsg}</div>}
-
-      <Section title="WhatsApp (Gupshup)" icon="💬">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <Field label="API Key" k="gupshup_api_key" placeholder="Your Gupshup API Key" />
-          <Field label="App Name" k="gupshup_app_name" placeholder="Your Gupshup App Name" />
-          <Field label="Sender Phone (with country code)" k="gupshup_phone" placeholder="+91XXXXXXXXXX" />
-        </div>
-        <button onClick={() => test('whatsapp', settings.owner_whatsapp)} disabled={!!testing} style={{ marginTop: 12, padding: '8px 20px', background: '#25d36622', color: '#25d366', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
-          {testing === 'whatsapp' ? '⏳ Testing...' : '🧪 Test WhatsApp'}
-        </button>
-      </Section>
-
-      <Section title="SMS (MSG91)" icon="📱">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <Field label="Auth Key" k="msg91_auth_key" placeholder="MSG91 Auth Key" />
-          <Field label="Sender ID" k="msg91_sender_id" placeholder="ERPALR" />
-        </div>
-        <button onClick={() => test('sms', settings.owner_whatsapp)} disabled={!!testing} style={{ marginTop: 12, padding: '8px 20px', background: '#3b82f622', color: '#3b82f6', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
-          {testing === 'sms' ? '⏳ Testing...' : '🧪 Test SMS'}
-        </button>
-      </Section>
-
-      <Section title="Email (SMTP)" icon="📧">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <Field label="SMTP Host" k="smtp_host" placeholder="smtp.gmail.com" />
-          <Field label="Port" k="smtp_port" type="number" placeholder="587" />
-          <Field label="Email (Username)" k="smtp_user" placeholder="you@gmail.com" />
-          <Field label="Password / App Password" k="smtp_pass" type="password" placeholder="••••••••" />
-          <Field label="From Name" k="smtp_from_name" placeholder="Food Court ERP" />
-        </div>
-        <button onClick={() => test('email', settings.owner_email)} disabled={!!testing} style={{ marginTop: 12, padding: '8px 20px', background: '#ec489922', color: '#ec4899', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
-          {testing === 'email' ? '⏳ Testing...' : '🧪 Test Email'}
-        </button>
-      </Section>
 
       <Section title="Owner Alert Config" icon="👤">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

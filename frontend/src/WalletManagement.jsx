@@ -13,7 +13,7 @@ const api = async (path, opts = {}) => {
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function WalletManagement({ userRole }) {
+export default function WalletManagement({ userRole, refreshCustomers }) {
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -36,6 +36,7 @@ export default function WalletManagement({ userRole }) {
       setShowRegister(false);
       setRegisterForm({ name: '', phone: '', email: '' });
       load();
+      if (refreshCustomers) refreshCustomers();
     } catch(err) { setMsg('❌ ' + err.message); }
   };
   const [topupForm, setTopupForm] = useState({ amount: '', meals: '', type: 'cash', desc: '', paymentMode: 'Cash' });
@@ -224,6 +225,11 @@ export default function WalletManagement({ userRole }) {
                     {new Date(t.created_at).toLocaleString('en-IN')} 
                     {t.reference_id && ` • Ref: ${t.reference_id}`}
                   </div>
+                  {t.transaction_amount > 0 && t.type === 'credit' && (
+                    <div style={{ color: '#9ca3af', fontSize: 11, marginTop: 4 }}>
+                      Amount Paid: ₹{fmt(t.transaction_amount)} {t.payment_mode && `(${t.payment_mode})`}
+                    </div>
+                  )}
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   {t.amount != 0 && (

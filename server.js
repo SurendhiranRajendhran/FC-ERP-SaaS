@@ -69,7 +69,7 @@ const tenantTables = [
   'holidays', 'customers', 'customer_feedback', 'daily_reconciliation',
   'stock_logs', 'suppliers', 'vendor_settlements', 'broadcast_campaigns',
   'cash_drawer', 'notification_logs', 'vendor_common_expenses', 'overheads', 'central_settlements',
-  'stock_transfers'
+  'stock_transfers', 'notification_settings'
 ];
 
 function getTableIdentifier(sql, tableName) {
@@ -145,12 +145,22 @@ function rewriteQuery(sql, params, tenantId) {
       if (lastParenInCols !== -1) {
         const newColsPart = colsPart.slice(0, lastParenInCols) + ', tenant_id' + colsPart.slice(lastParenInCols);
         
+        const onDupIdx = lowerSql.indexOf('on duplicate key update', valuesIdx);
+        let lastParenInValues = -1;
+        if (onDupIdx !== -1) {
+          lastParenInValues = valuesPart.slice(0, onDupIdx - valuesIdx).lastIndexOf(')');
+        } else {
+          lastParenInValues = valuesPart.lastIndexOf(')');
+        }
+
         const firstParenInValues = valuesPart.indexOf('(');
-        const lastParenInValues = valuesPart.lastIndexOf(')');
         if (firstParenInValues !== -1 && lastParenInValues !== -1) {
+          const queryBeforeTenantParam = colsPart + valuesPart.slice(0, lastParenInValues);
+          const paramsBeforeTenantCount = (queryBeforeTenantParam.match(/\?/g) || []).length;
+          
           const newValuesPart = valuesPart.slice(0, lastParenInValues) + ', ?' + valuesPart.slice(lastParenInValues);
           rewrittenSql = newColsPart + newValuesPart;
-          rewrittenParams.push(tenantId);
+          rewrittenParams.splice(paramsBeforeTenantCount, 0, tenantId);
         }
       }
     } else if (/\bset\b/i.test(sql)) {
@@ -285,17 +295,17 @@ app.use('/api', (req, res, next) => {
 
 // Apply RBAC based on route prefixes
 app.use('/api/hr', authorizeRoles('Owner', 'Manager'));
-app.use('/api/staff', authorizeRoles('Owner', 'Manager'));
-app.use('/api/shifts', authorizeRoles('Owner', 'Manager'));
-app.use('/api/shift-swaps', authorizeRoles('Owner', 'Manager'));
-app.use('/api/roster', authorizeRoles('Owner', 'Manager'));
-app.use('/api/attendance', authorizeRoles('Owner', 'Manager'));
-app.use('/api/leaves', authorizeRoles('Owner', 'Manager'));
-app.use('/api/leave-balance', authorizeRoles('Owner', 'Manager'));
-app.use('/api/holidays', authorizeRoles('Owner', 'Manager'));
-app.use('/api/payroll', authorizeRoles('Owner', 'Manager'));
-app.use('/api/payslip', authorizeRoles('Owner', 'Manager'));
-app.use('/api/staff-meals', authorizeRoles('Owner', 'Manager', 'Cook', 'Cashier'));
+app.use('/api/staff', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/shifts', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/shift-swaps', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/roster', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/attendance', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/leaves', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/leave-balance', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/holidays', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/payroll', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/payslip', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/staff-meals', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
 app.use('/api/performance', authorizeRoles('Owner', 'Manager'));
 
 app.use('/api/inventory', authorizeRoles('Owner', 'Manager', 'Cook'));
@@ -307,9 +317,9 @@ app.use('/api/overheads', authorizeRoles('Owner', 'Manager'));
 app.use('/api/kds', authorizeRoles('Owner', 'Manager', 'Cook'));
 
 // POS endpoints
-app.use('/api/pos', authorizeRoles('Owner', 'Manager', 'Cashier'));
-app.use('/api/categories', authorizeRoles('Owner', 'Manager', 'Cashier'));
-app.use('/api/customers', authorizeRoles('Owner', 'Manager', 'Cashier'));
+app.use('/api/pos', authorizeRoles('Owner', 'Manager', 'Billing Staff'));
+app.use('/api/categories', authorizeRoles('Owner', 'Manager', 'Billing Staff'));
+app.use('/api/customers', authorizeRoles('Owner', 'Manager', 'Billing Staff'));
 
 // ==========================================
 // AUTH ENDPOINTS
@@ -895,7 +905,7 @@ app.get('/api/stock-transfers', async (req, res) => {
       vendor_id = req.user.vendor_id;
     }
 
-    if (vendor_id) {
+    if (vendor_id && vendor_id !== 'null') {
       query += ' WHERE t.from_vendor_id = ? OR t.to_vendor_id = ?';
       params.push(parseInt(vendor_id), parseInt(vendor_id));
     }
@@ -1370,8 +1380,20 @@ app.post('/api/stock-logs', async (req, res) => {
     }
 
     let currentCost = parseFloat(mat.cost_per_unit || 0);
+    let newWeightedCost = currentCost; // default for non-purchase logs
     if (log_type === 'Purchase' && cost_per_unit && parseFloat(cost_per_unit) > 0) {
-      currentCost = parseFloat(cost_per_unit);
+      const purchaseUnitCost = parseFloat(cost_per_unit);
+      const existingStock = parseFloat(mat.stock_level || 0);
+      const purchaseQty = Math.abs(adjustedQty); // purchase qty is always positive
+
+      // Weighted Average Costing (WAVCO):
+      // New Avg Cost = (Existing Value + New Purchase Value) / (Existing Qty + New Qty)
+      if (existingStock + purchaseQty > 0) {
+        newWeightedCost = ((existingStock * currentCost) + (purchaseQty * purchaseUnitCost)) / (existingStock + purchaseQty);
+      } else {
+        newWeightedCost = purchaseUnitCost;
+      }
+      currentCost = purchaseUnitCost; // use actual purchase price for recorded_cost in log
     }
     const recordedCost = adjustedQty * currentCost;
 
@@ -1387,11 +1409,11 @@ app.post('/api/stock-logs', async (req, res) => {
       [adjustedQty, material_id]
     );
 
-    // Update unit cost if provided (only for Purchase type)
+    // Update unit cost using Weighted Average (only for Purchase type)
     if (log_type === 'Purchase' && cost_per_unit && parseFloat(cost_per_unit) > 0) {
       await connection.query(
         'UPDATE raw_materials SET cost_per_unit = ? WHERE id = ?',
-        [parseFloat(cost_per_unit), material_id]
+        [newWeightedCost, material_id]
       );
     }
 
@@ -1507,17 +1529,31 @@ app.post('/api/purchase-entry', async (req, res) => {
         }
       }
 
+      // Weighted Average Costing: fetch current stock & cost before updating
+      const [matCurrent] = await connection.query(
+        'SELECT stock_level, cost_per_unit FROM raw_materials WHERE id = ?',
+        [materialId]
+      );
+      const existingStock = parseFloat(matCurrent[0]?.stock_level || 0);
+      const existingCost = parseFloat(matCurrent[0]?.cost_per_unit || 0);
+
       // Update current stock level (cumulative addition)
       await connection.query(
         'UPDATE raw_materials SET stock_level = stock_level + ? WHERE id = ?',
         [qty, materialId]
       );
 
-      // Update unit cost if provided
+      // Update unit cost using Weighted Average
       if (unitCost > 0) {
+        let newWeightedCost;
+        if (existingStock + qty > 0) {
+          newWeightedCost = ((existingStock * existingCost) + (qty * unitCost)) / (existingStock + qty);
+        } else {
+          newWeightedCost = unitCost;
+        }
         await connection.query(
           'UPDATE raw_materials SET cost_per_unit = ? WHERE id = ?',
-          [unitCost, materialId]
+          [newWeightedCost, materialId]
         );
       }
 
@@ -1772,17 +1808,22 @@ app.post('/api/orders', async (req, res) => {
           const names = nonEligible.map(i => i.name).join(', ');
           throw new Error(`Mess Plan cannot be used for: ${names}. Only mess-eligible items can be redeemed with meal credits.`);
         }
+        
+        // Calculate total meals required based on item quantities
+        const mealsRequired = validatedItems.reduce((sum, item) => sum + parseInt(item.quantity || 1), 0);
+        
         const mealsLeft = parseInt(cust.mess_meals_left || 0);
-        if (mealsLeft < 1) throw new Error('No mess meals remaining on this card.');
+        if (mealsLeft < mealsRequired) throw new Error(`Insufficient mess meals. Required: ${mealsRequired}, Available: ${mealsLeft}`);
         if (cust.mess_valid_until && new Date(cust.mess_valid_until) < new Date()) {
           throw new Error('Mess subscription has expired. Please renew the plan.');
         }
-        const newMeals = mealsLeft - 1;
+        
+        const newMeals = mealsLeft - mealsRequired;
         await connection.query('UPDATE customers SET mess_meals_left = ? WHERE id = ?', [newMeals, custId]);
         await connection.query(
           `INSERT INTO wallet_transactions (customer_id, vendor_id, type, amount, meals_count, balance_after, meals_after, reference_id, description)
-           VALUES (?, ?, 'debit', 0, -1, ?, ?, ?, ?)`,
-          [custId, vendor_id || null, parseFloat(cust.wallet_balance || 0), newMeals, String(orderId), `Mess Meal Used (Token: ${tokenNumber})`]
+           VALUES (?, ?, 'debit', 0, ?, ?, ?, ?, ?)`,
+          [custId, vendor_id || null, -mealsRequired, parseFloat(cust.wallet_balance || 0), newMeals, String(orderId), `Mess Meal Used (${mealsRequired} items) (Token: ${tokenNumber})`]
         );
       }
     }
@@ -1811,7 +1852,7 @@ app.post('/api/orders', async (req, res) => {
       }
     }
 
-    if (customer_id) {
+    if (customer_id && payment_mode !== 'Credit') {
       crm.awardLoyaltyPoints(parseInt(customer_id), orderId, finalPayable)
         .catch(e => console.error('[CRM] Loyalty award err:', e.message));
     }
@@ -1932,16 +1973,46 @@ Item                 Qty
 // Get active kitchen orders (Pending + Preparing) with items — polled every 5s by KDS
 app.get('/api/kds/orders', async (req, res) => {
   let vendor_id = req.query.vendor_id;
-  if (req.user && req.user.vendor_id) {
-    vendor_id = req.user.vendor_id;
+  if (req.user && req.user.vendor_id !== undefined) {
+    // Override with strict vendor check if staff.
+    // However, Super Admin or Owner can pass vendor_id from frontend.
+    if (req.user.role !== 'Owner' && req.user.role !== 'Super Admin') {
+      vendor_id = req.user.vendor_id ? String(req.user.vendor_id) : 'null';
+    }
   }
+
   try {
     let ordersQuery = '';
     let ordersParams = [];
+    
+    // Determine the scope
+    const isAll = (vendor_id === 'all' || !vendor_id);
+    const isCentral = (vendor_id === 'null');
+    // Otherwise it's a specific stall ID
 
-    const isSpecificStall = (vendor_id && vendor_id !== 'all' && vendor_id !== 'null');
-
-    if (isSpecificStall) {
+    if (isAll) {
+      ordersQuery = `
+        SELECT id, token_number, order_date, status, payment_mode, total_amount,
+               order_source, customer_name, customer_phone, pickup_slot,
+               TIMESTAMPDIFF(SECOND, order_date, NOW()) as elapsed_seconds
+        FROM orders
+        WHERE status IN ('Pending', 'Preparing', 'Partially Ready')
+        ORDER BY order_date ASC
+      `;
+    } else if (isCentral) {
+      ordersQuery = `
+        SELECT DISTINCT o.id, o.token_number, o.order_date, o.status, o.payment_mode, o.total_amount,
+               o.order_source, o.customer_name, o.customer_phone, o.pickup_slot,
+               TIMESTAMPDIFF(SECOND, o.order_date, NOW()) as elapsed_seconds
+        FROM orders o
+        JOIN order_items oi ON o.id = oi.order_id
+        JOIN items i ON oi.item_id = i.id
+        WHERE o.status IN ('Pending', 'Preparing', 'Partially Ready')
+          AND i.vendor_id IS NULL
+          AND oi.status = 'Preparing'
+        ORDER BY o.order_date ASC
+      `;
+    } else {
       const vId = parseInt(vendor_id);
       ordersQuery = `
         SELECT DISTINCT o.id, o.token_number, o.order_date, o.status, o.payment_mode, o.total_amount,
@@ -1950,20 +2021,12 @@ app.get('/api/kds/orders', async (req, res) => {
         FROM orders o
         JOIN order_items oi ON o.id = oi.order_id
         JOIN items i ON oi.item_id = i.id
-        WHERE o.status IN ('Pending', 'Preparing')
+        WHERE o.status IN ('Pending', 'Preparing', 'Partially Ready')
           AND i.vendor_id = ?
+          AND oi.status = 'Preparing'
         ORDER BY o.order_date ASC
       `;
       ordersParams.push(vId);
-    } else {
-      ordersQuery = `
-        SELECT id, token_number, order_date, status, payment_mode, total_amount,
-               order_source, customer_name, customer_phone, pickup_slot,
-               TIMESTAMPDIFF(SECOND, order_date, NOW()) as elapsed_seconds
-        FROM orders
-        WHERE status IN ('Pending', 'Preparing')
-        ORDER BY order_date ASC
-      `;
     }
 
     const [orders] = await pool.query(ordersQuery, ordersParams);
@@ -1971,15 +2034,17 @@ app.get('/api/kds/orders', async (req, res) => {
 
     const orderIds = orders.map(o => o.id);
     let itemsQuery = `
-      SELECT oi.order_id, oi.quantity, oi.price, oi.spice_level, oi.special_instructions, i.name, i.category, i.vendor_id
+      SELECT oi.id as order_item_id, oi.order_id, oi.quantity, oi.price, oi.spice_level, oi.special_instructions, oi.status as item_status, i.name, i.category, i.vendor_id
       FROM order_items oi
       JOIN items i ON oi.item_id = i.id
       WHERE oi.order_id IN (?)
     `;
     let itemsParams = [orderIds];
 
-    if (isSpecificStall) {
-      itemsQuery += ` AND i.vendor_id = ?`;
+    if (isCentral) {
+      itemsQuery += ` AND i.vendor_id IS NULL AND oi.status = 'Preparing'`;
+    } else if (!isAll) {
+      itemsQuery += ` AND i.vendor_id = ? AND oi.status = 'Preparing'`;
       itemsParams.push(parseInt(vendor_id));
     }
 
@@ -1995,12 +2060,74 @@ app.get('/api/kds/orders', async (req, res) => {
       ...order,
       elapsed_seconds: Math.max(0, order.elapsed_seconds || 0),
       items: itemsByOrder[order.id] || []
-    }));
+    })).filter(order => order.items.length > 0); // Hide orders if all items for this vendor are already Ready
 
     res.json(result);
   } catch (error) {
     console.error('KDS fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch KDS orders' });
+  }
+});
+
+// KDS Item-Level Ready Update
+app.put('/api/kds/orders/:id/ready', async (req, res) => {
+  const { id } = req.params;
+  const { vendor_id } = req.body; // 'null' for central, 'all' for entire order, string/int for stall
+  
+  try {
+    // 1. Mark this vendor's items as Ready
+    let updateItemsQuery;
+    let updateItemsParams;
+    
+    if (vendor_id === 'all' || vendor_id === undefined) {
+      updateItemsQuery = `
+        UPDATE order_items oi
+        SET oi.status = 'Ready'
+        WHERE oi.order_id = ?
+      `;
+      updateItemsParams = [id];
+    } else if (vendor_id === 'null' || vendor_id === null) {
+      updateItemsQuery = `
+        UPDATE order_items oi
+        JOIN items i ON oi.item_id = i.id
+        SET oi.status = 'Ready'
+        WHERE oi.order_id = ? AND i.vendor_id IS NULL
+      `;
+      updateItemsParams = [id];
+    } else {
+      updateItemsQuery = `
+        UPDATE order_items oi
+        JOIN items i ON oi.item_id = i.id
+        SET oi.status = 'Ready'
+        WHERE oi.order_id = ? AND i.vendor_id = ?
+      `;
+      updateItemsParams = [id, parseInt(vendor_id)];
+    }
+    
+    await pool.query(updateItemsQuery, updateItemsParams);
+
+    // 2. Check if ALL items in the order are now Ready
+    const [allItemRows] = await pool.query('SELECT status FROM order_items WHERE order_id = ?', [id]);
+    
+    const totalItems = allItemRows.length;
+    const readyItems = allItemRows.filter(r => r.status === 'Ready').length;
+    
+    let newOrderStatus = '';
+    if (readyItems === totalItems) {
+      newOrderStatus = 'Ready';
+    } else if (readyItems > 0) {
+      newOrderStatus = 'Partially Ready';
+    } else {
+      newOrderStatus = 'Preparing'; // Should not happen based on logic above, but safe fallback
+    }
+
+    // 3. Update parent order status
+    await pool.query('UPDATE orders SET status = ? WHERE id = ?', [newOrderStatus, id]);
+
+    res.json({ success: true, message: 'Vendor items marked as Ready', orderStatus: newOrderStatus });
+  } catch (error) {
+    console.error('KDS ready error:', error);
+    res.status(500).json({ error: 'Failed to update KDS item status' });
   }
 });
 
@@ -2131,16 +2258,41 @@ app.put('/api/orders/:id/status', async (req, res) => {
 // Get completed orders from last 2 hours (KDS History for disputes)
 app.get('/api/kds/history', async (req, res) => {
   let vendor_id = req.query.vendor_id;
-  if (req.user && req.user.vendor_id) {
-    vendor_id = req.user.vendor_id;
+  if (req.user && req.user.vendor_id !== undefined) {
+    if (req.user.role !== 'Owner' && req.user.role !== 'Super Admin') {
+      vendor_id = req.user.vendor_id ? String(req.user.vendor_id) : 'null';
+    }
   }
+
   try {
     let ordersQuery = '';
     let ordersParams = [];
 
-    const isSpecificStall = (vendor_id && vendor_id !== 'all' && vendor_id !== 'null');
+    const isAll = (vendor_id === 'all' || !vendor_id);
+    const isCentral = (vendor_id === 'null');
 
-    if (isSpecificStall) {
+    if (isAll) {
+      ordersQuery = `
+        SELECT id, token_number, order_date, status, payment_mode, total_amount,
+               order_source, customer_name, customer_phone, pickup_slot
+        FROM orders
+        WHERE status IN ('Ready', 'Completed')
+          AND order_date >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+        ORDER BY order_date DESC
+      `;
+    } else if (isCentral) {
+      ordersQuery = `
+        SELECT DISTINCT o.id, o.token_number, o.order_date, o.status, o.payment_mode, o.total_amount,
+               o.order_source, o.customer_name, o.customer_phone, o.pickup_slot
+        FROM orders o
+        JOIN order_items oi ON o.id = oi.order_id
+        JOIN items i ON oi.item_id = i.id
+        WHERE o.status IN ('Ready', 'Completed')
+          AND o.order_date >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+          AND i.vendor_id IS NULL
+        ORDER BY o.order_date DESC
+      `;
+    } else {
       const vId = parseInt(vendor_id);
       ordersQuery = `
         SELECT DISTINCT o.id, o.token_number, o.order_date, o.status, o.payment_mode, o.total_amount,
@@ -2154,15 +2306,6 @@ app.get('/api/kds/history', async (req, res) => {
         ORDER BY o.order_date DESC
       `;
       ordersParams.push(vId);
-    } else {
-      ordersQuery = `
-        SELECT id, token_number, order_date, status, payment_mode, total_amount,
-               order_source, customer_name, customer_phone, pickup_slot
-        FROM orders
-        WHERE status IN ('Ready', 'Completed')
-          AND order_date >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
-        ORDER BY order_date DESC
-      `;
     }
 
     const [orders] = await pool.query(ordersQuery, ordersParams);
@@ -2177,7 +2320,9 @@ app.get('/api/kds/history', async (req, res) => {
     `;
     let itemsParams = [orderIds];
 
-    if (isSpecificStall) {
+    if (isCentral) {
+      itemsQuery += ` AND i.vendor_id IS NULL`;
+    } else if (!isAll) {
       itemsQuery += ` AND i.vendor_id = ?`;
       itemsParams.push(parseInt(vendor_id));
     }
@@ -2222,13 +2367,14 @@ app.get('/api/orders', async (req, res) => {
     let orderQuery;
     let orderParams = [];
 
-    if (vendor_id) {
+    if (vendor_id && vendor_id !== 'null') {
       // Stall Manager: only orders that contain at least one item from their stall
       orderQuery = `
-        SELECT DISTINCT o.*
+        SELECT DISTINCT o.*, s.vendor_id as billing_staff_vendor_id
         FROM orders o
         JOIN order_items oi ON oi.order_id = o.id
         JOIN items i ON oi.item_id = i.id
+        LEFT JOIN staff s ON o.billing_staff_id = s.id
         WHERE i.vendor_id = ?
         ORDER BY o.order_date DESC
         LIMIT 200
@@ -2236,7 +2382,13 @@ app.get('/api/orders', async (req, res) => {
       orderParams = [vendor_id];
     } else {
       // Central Admin: all orders
-      orderQuery = 'SELECT * FROM orders ORDER BY order_date DESC LIMIT 200';
+      orderQuery = `
+        SELECT o.*, s.vendor_id as billing_staff_vendor_id 
+        FROM orders o 
+        LEFT JOIN staff s ON o.billing_staff_id = s.id 
+        ORDER BY order_date DESC 
+        LIMIT 200
+      `;
     }
 
     const [orders] = await pool.query(orderQuery, orderParams);
@@ -2541,12 +2693,16 @@ app.post('/api/vendors/settlements/calculate', async (req, res) => {
         v.name,
         v.commission_rate,
         v.share_area,
-        IFNULL(SUM(oi.quantity * oi.price), 0) as gross_sales
+        IFNULL(sales.gross_sales, 0) as gross_sales
       FROM vendors v
-      LEFT JOIN items i ON v.id = i.vendor_id
-      LEFT JOIN order_items oi ON i.id = oi.item_id
-      LEFT JOIN orders o ON oi.order_id = o.id AND o.status != 'Cancelled' AND o.order_date BETWEEN ? AND ?
-      GROUP BY v.id
+      LEFT JOIN (
+        SELECT i.vendor_id, SUM(oi.quantity * oi.price) as gross_sales
+        FROM order_items oi
+        JOIN items i ON oi.item_id = i.id
+        JOIN orders o ON oi.order_id = o.id
+        WHERE o.status != 'Cancelled' AND o.order_date BETWEEN ? AND ?
+        GROUP BY i.vendor_id
+      ) sales ON v.id = sales.vendor_id
     `, [startStr, endStr]);
 
     if (vendorsSales.length === 0) {
@@ -2793,8 +2949,12 @@ app.get('/api/staff', async (req, res) => {
     let query = 'SELECT * FROM staff';
     const params = [];
     if (req.user.vendor_id) {
+      // Stall Manager: only see their own stall's staff (including themselves)
       query += ' WHERE vendor_id = ?';
       params.push(req.user.vendor_id);
+    } else {
+      // Central Admin: see Central Canteen staff (no vendor) + all Stall Managers
+      query += ' WHERE (vendor_id IS NULL OR role = \'Manager\')';
     }
     query += ' ORDER BY name';
     const [rows] = await pool.query(query, params);
@@ -2869,8 +3029,14 @@ app.get('/api/staff/performance', async (req, res) => {
         GROUP BY billing_staff_id
       ) ord ON s.id = ord.billing_staff_id
       WHERE s.is_active = 1 AND s.exclude_from_performance = 0
+        AND (
+          CASE
+            WHEN ? IS NOT NULL THEN (s.vendor_id = ? AND s.role != 'Manager')
+            ELSE (s.vendor_id IS NULL OR s.role = 'Manager')
+          END
+        )
       ORDER BY s.name
-    `, [startDateTime, endDateTime, endDateTime, startDateTime, startDateTime, endDateTime, startDateTime, endDateTime]);
+    `, [startDateTime, endDateTime, endDateTime, startDateTime, startDateTime, endDateTime, startDateTime, endDateTime, req.user.vendor_id || null, req.user.vendor_id || null]);
 
     res.json(staffMetrics);
   } catch (error) {
@@ -2896,6 +3062,9 @@ app.get('/api/staff/:id', async (req, res) => {
 
 // Add a staff member
 app.post('/api/staff', async (req, res) => {
+  if (!['Owner', 'Manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Only Owners and Managers can create staff.' });
+  }
   const {
     name, phone, email, password, role, pay_type, daily_rate, monthly_salary,
     pf_enabled, esi_enabled, tds_percentage, bank_account, joined_at,
@@ -2904,7 +3073,12 @@ app.post('/api/staff', async (req, res) => {
 
   let assigned_vendor_id = vendor_id || null;
   if (req.user.vendor_id) {
+    // Stall Managers can only create staff for their own stall
     assigned_vendor_id = req.user.vendor_id;
+    // Stall Managers cannot create other Managers
+    if (role === 'Manager') {
+      return res.status(403).json({ error: 'Stall Managers cannot create accounts with the Manager role.' });
+    }
   }
 
   try {
@@ -2947,6 +3121,9 @@ app.post('/api/staff', async (req, res) => {
 
 // Update a staff member
 app.put('/api/staff/:id', async (req, res) => {
+  if (!['Owner', 'Manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Only Owners and Managers can update staff.' });
+  }
   const { id } = req.params;
   const { name, phone, email, role, pay_type, daily_rate, monthly_salary, pf_enabled, esi_enabled, tds_percentage, bank_account, is_active, vendor_id, exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance } = req.body;
 
@@ -2957,6 +3134,14 @@ app.put('/api/staff/:id', async (req, res) => {
     }
 
     const s = existing[0];
+
+    // Stall Manager restriction: can only edit staff within their own stall, not Manager accounts
+    if (req.user.vendor_id) {
+      if (s.role === 'Manager' || s.vendor_id !== req.user.vendor_id) {
+        return res.status(403).json({ error: 'You do not have permission to edit this staff member.' });
+      }
+    }
+
     const updateName = name !== undefined ? name : s.name;
     const updatePhone = phone !== undefined ? phone : s.phone;
     const updateEmail = email !== undefined ? email : s.email;
@@ -3016,6 +3201,9 @@ app.put('/api/staff/:id', async (req, res) => {
 
 // Delete a staff member
 app.delete('/api/staff/:id', async (req, res) => {
+  if (!['Owner', 'Manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Only Owners and Managers can delete staff.' });
+  }
   const { id } = req.params;
   try {
     await pool.query('DELETE FROM staff WHERE id = ?', [id]);
@@ -3034,7 +3222,17 @@ app.delete('/api/staff/:id', async (req, res) => {
 // Get all shifts
 app.get('/api/shifts', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM shifts ORDER BY start_time');
+    let query = 'SELECT * FROM shifts WHERE vendor_id ';
+    const params = [];
+    if (req.user.vendor_id) {
+      query += '= ?';
+      params.push(req.user.vendor_id);
+    } else {
+      query += 'IS NULL';
+    }
+    query += ' ORDER BY start_time';
+    
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching shifts:', error);
@@ -3050,11 +3248,12 @@ app.post('/api/shifts', async (req, res) => {
   }
 
   try {
+    const assigned_vendor_id = req.user.vendor_id || null;
     const [result] = await pool.query(
-      'INSERT INTO shifts (name, start_time, end_time) VALUES (?, ?, ?)',
-      [name, start_time, end_time]
+      'INSERT INTO shifts (name, start_time, end_time, vendor_id) VALUES (?, ?, ?, ?)',
+      [name, start_time, end_time, assigned_vendor_id]
     );
-    res.status(201).json({ id: result.insertId, name, start_time, end_time });
+    res.status(201).json({ id: result.insertId, name, start_time, end_time, vendor_id: assigned_vendor_id });
   } catch (error) {
     console.error('Error creating shift:', error);
     res.status(500).json({ error: 'Failed to create shift' });
@@ -3073,6 +3272,10 @@ app.put('/api/shifts/:id', async (req, res) => {
     }
 
     const sh = existing[0];
+    const allowedVendorId = req.user.vendor_id || null;
+    if (sh.vendor_id !== allowedVendorId) {
+      return res.status(403).json({ error: 'You do not have permission to edit this shift.' });
+    }
     const updateName = name !== undefined ? name : sh.name;
     const updateStart = start_time !== undefined ? start_time : sh.start_time;
     const updateEnd = end_time !== undefined ? end_time : sh.end_time;
@@ -3093,6 +3296,16 @@ app.put('/api/shifts/:id', async (req, res) => {
 app.delete('/api/shifts/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    const [existing] = await pool.query('SELECT * FROM shifts WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'Shift not found' });
+    }
+
+    const allowedVendorId = req.user.vendor_id || null;
+    if (existing[0].vendor_id !== allowedVendorId) {
+      return res.status(403).json({ error: 'You do not have permission to delete this shift.' });
+    }
+
     await pool.query('DELETE FROM shifts WHERE id = ?', [id]);
     res.json({ success: true, message: 'Shift deleted successfully' });
   } catch (error) {
@@ -3118,15 +3331,19 @@ app.get('/api/roster', async (req, res) => {
     weekEnd.setDate(weekEnd.getDate() + 6);
     const weekEndStr = weekEnd.toISOString().split('T')[0];
 
+    const scopeClause = req.user.vendor_id
+      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role != 'Manager'`
+      : `AND (s.vendor_id IS NULL OR s.role = 'Manager')`;
+
     const [rows] = await pool.query(`
       SELECT r.id, r.staff_id, s.name as staff_name, r.shift_id, sh.name as shift_name,
-             sh.start_time, sh.end_time, r.roster_date, r.status, r.swap_with_staff_id,
+             sh.start_time, sh.end_time, DATE_FORMAT(r.roster_date, '%Y-%m-%d') as roster_date, r.status, r.swap_with_staff_id,
              sw.name as swap_with_staff_name, r.created_at
       FROM shift_roster r
       JOIN staff s ON r.staff_id = s.id
       JOIN shifts sh ON r.shift_id = sh.id
       LEFT JOIN staff sw ON r.swap_with_staff_id = sw.id
-      WHERE r.roster_date BETWEEN ? AND ?
+      WHERE r.roster_date BETWEEN ? AND ? ${scopeClause}
       ORDER BY r.roster_date, sh.start_time
     `, [week_start, weekEndStr]);
 
@@ -3254,14 +3471,18 @@ app.get('/api/attendance', async (req, res) => {
   }
 
   try {
+    const scopeClause = req.user.vendor_id
+      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role != 'Manager'`
+      : `AND (s.vendor_id IS NULL OR s.role = 'Manager')`;
+
     const [rows] = await pool.query(`
-      SELECT a.id, a.staff_id, s.name as staff_name, s.role, a.attendance_date,
+      SELECT a.id, a.staff_id, s.name as staff_name, s.role, DATE_FORMAT(a.attendance_date, '%Y-%m-%d') as attendance_date,
              a.check_in, a.check_out, a.shift_id, sh.name as shift_name,
              a.status, a.notes, a.created_at
       FROM attendance a
       JOIN staff s ON a.staff_id = s.id
       LEFT JOIN shifts sh ON a.shift_id = sh.id
-      WHERE a.attendance_date = ?
+      WHERE a.attendance_date = ? ${scopeClause}
       ORDER BY s.name
     `, [date]);
 
@@ -3424,13 +3645,17 @@ app.get('/api/leaves', async (req, res) => {
   const { status, staff_id } = req.query;
 
   try {
+    const scopeClause = req.user.vendor_id
+      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role != 'Manager'`
+      : `AND (s.vendor_id IS NULL OR s.role = 'Manager')`;
+
     let query = `
-      SELECT l.id, l.staff_id, s.name as staff_name, l.leave_type, l.start_date, l.end_date,
+      SELECT l.id, l.staff_id, s.name as staff_name, l.leave_type, DATE_FORMAT(l.start_date, '%Y-%m-%d') as start_date, DATE_FORMAT(l.end_date, '%Y-%m-%d') as end_date,
              l.reason, l.status, s2.name as approved_by, l.created_at
       FROM leaves l
       JOIN staff s ON l.staff_id = s.id
       LEFT JOIN staff s2 ON l.approved_by = s2.id
-      WHERE 1=1
+      WHERE 1=1 ${scopeClause}
     `;
     const params = [];
 
@@ -3758,6 +3983,10 @@ app.get('/api/payroll', async (req, res) => {
   }
 
   try {
+    const scopeClause = req.user.vendor_id
+      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role != 'Manager'`
+      : `AND (s.vendor_id IS NULL OR s.role = 'Manager')`;
+
     const [rows] = await pool.query(`
       SELECT p.id, p.staff_id, s.name as staff_name, s.role, s.pay_type, s.bank_account,
              p.month, p.year, p.working_days, p.days_present, p.gross_salary,
@@ -3765,7 +3994,7 @@ app.get('/api/payroll', async (req, res) => {
              p.net_salary, p.status, p.created_at
       FROM payroll p
       JOIN staff s ON p.staff_id = s.id
-      WHERE p.month = ? AND p.year = ?
+      WHERE p.month = ? AND p.year = ? ${scopeClause}
       ORDER BY s.name
     `, [month, year]);
 
@@ -4181,7 +4410,7 @@ app.get('/api/reports/sales', async (req, res) => {
 
   try {
     let salesQuery, salesParams;
-    if (vendor_id) {
+    if (vendor_id && vendor_id !== 'null') {
       const vId = parseInt(vendor_id);
       salesQuery = `
         SELECT COUNT(DISTINCT o.id) as total_orders,
@@ -4210,7 +4439,7 @@ app.get('/api/reports/sales', async (req, res) => {
 
     // Item-wise sales count & revenue
     let itemQuery, itemParams;
-    if (vendor_id) {
+    if (vendor_id && vendor_id !== 'null') {
       const vId = parseInt(vendor_id);
       itemQuery = `
         SELECT i.id, i.name, i.category, SUM(oi.quantity) as qty, SUM(oi.quantity * oi.price) as revenue
@@ -4236,7 +4465,7 @@ app.get('/api/reports/sales', async (req, res) => {
 
     // Payment Mode Split
     let payQuery, payParams;
-    if (vendor_id) {
+    if (vendor_id && vendor_id !== 'null') {
       const vId = parseInt(vendor_id);
       payQuery = `
         SELECT o.payment_mode, COUNT(DISTINCT o.id) as count, SUM(oi.quantity * oi.price) as amount
@@ -4258,7 +4487,7 @@ app.get('/api/reports/sales', async (req, res) => {
 
     // Cost of Goods Sold (COGS)
     let cogsQuery, cogsParams;
-    if (vendor_id) {
+    if (vendor_id && vendor_id !== 'null') {
       const vId = parseInt(vendor_id);
       cogsQuery = `
         SELECT IFNULL(SUM(oi.recorded_cogs), 0) as cogs
@@ -4280,7 +4509,7 @@ app.get('/api/reports/sales', async (req, res) => {
 
     // Wastage Costs
     let wastageQuery, wastageParams;
-    if (vendor_id) {
+    if (vendor_id && vendor_id !== 'null') {
       const vId = parseInt(vendor_id);
       wastageQuery = `
         SELECT IFNULL(SUM(ABS(sl.recorded_cost)), 0) as wastage
@@ -4303,7 +4532,7 @@ app.get('/api/reports/sales', async (req, res) => {
 
     // Overhead Expenses Split
     let overheadsVal = 0;
-    if (!vendor_id) {
+    if (!vendor_id || vendor_id === 'null') {
       const [overheadsRows] = await pool.query(
         'SELECT IFNULL(SUM(amount), 0) as amount FROM overheads WHERE expense_date BETWEEN ? AND ?',
         [startDate || '1970-01-01', endDate || '9999-12-31']
@@ -4330,7 +4559,7 @@ app.get('/api/reports/sales', async (req, res) => {
     const endMonth = endDate ? parseInt(endDate.split('-')[1]) : new Date().getMonth() + 1;
 
     let staffQuery, staffParams;
-    if (vendor_id) {
+    if (vendor_id && vendor_id !== 'null') {
       const vId = parseInt(vendor_id);
       staffQuery = `
         SELECT IFNULL(SUM(p.gross_salary), 0) as cost
@@ -4381,13 +4610,23 @@ app.get('/api/reports/sales', async (req, res) => {
 
 // 2. Stock Ledger Report
 app.get('/api/reports/stock', async (req, res) => {
-  const { startDate, endDate } = req.query;
+  const { startDate, endDate, vendor_id } = req.query;
   const startStr = startDate ? `${startDate} 00:00:00` : '1970-01-01 00:00:00';
   const endStr = endDate ? `${endDate} 23:59:59` : '9999-12-31 23:59:59';
 
   try {
-    // Get all raw materials
-    const [materials] = await pool.query('SELECT * FROM raw_materials ORDER BY name');
+    // Get raw materials for vendor or all
+    let matQuery = 'SELECT * FROM raw_materials';
+    let matParams = [];
+    if (vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
+      matQuery += ' WHERE vendor_id = ?';
+      matParams.push(parseInt(vendor_id));
+    } else if (vendor_id === 'null') {
+      matQuery += ' WHERE vendor_id IS NULL';
+    }
+    matQuery += ' ORDER BY name';
+
+    const [materials] = await pool.query(matQuery, matParams);
     const stockReport = [];
 
     for (const mat of materials) {
@@ -4438,22 +4677,36 @@ app.get('/api/reports/stock', async (req, res) => {
     }
 
     // Calculate range-wide summary totals
-    const [summaryRows] = await pool.query(
-      `SELECT 
-        IFNULL(SUM(CASE WHEN log_type = 'Purchase' THEN recorded_cost ELSE 0 END), 0) as totalPurchased,
-        IFNULL(SUM(CASE WHEN log_type = 'Wastage' THEN ABS(recorded_cost) ELSE 0 END), 0) as totalWasted
-       FROM stock_logs
-       WHERE logged_at BETWEEN ? AND ?`,
-      [startStr, endStr]
-    );
+    let summaryQuery = `SELECT 
+        IFNULL(SUM(CASE WHEN sl.log_type = 'Purchase' THEN sl.recorded_cost ELSE 0 END), 0) as totalPurchased,
+        IFNULL(SUM(CASE WHEN sl.log_type = 'Wastage' THEN ABS(sl.recorded_cost) ELSE 0 END), 0) as totalWasted
+       FROM stock_logs sl
+       JOIN raw_materials rm ON sl.material_id = rm.id
+       WHERE sl.logged_at BETWEEN ? AND ?`;
+    let summaryParams = [startStr, endStr];
 
-    const [cogsRows] = await pool.query(
-      `SELECT IFNULL(SUM(oi.recorded_cogs), 0) as totalConsumed
+    if (vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
+      summaryQuery += ' AND rm.vendor_id = ?';
+      summaryParams.push(parseInt(vendor_id));
+    } else if (vendor_id === 'null') {
+      summaryQuery += ' AND rm.vendor_id IS NULL';
+    }
+    const [summaryRows] = await pool.query(summaryQuery, summaryParams);
+
+    let cogsQuery = `SELECT IFNULL(SUM(oi.recorded_cogs), 0) as totalConsumed
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
-       WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled'`,
-      [startStr, endStr]
-    );
+       JOIN items i ON oi.item_id = i.id
+       WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled'`;
+    let cogsParams = [startStr, endStr];
+
+    if (vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
+      cogsQuery += ' AND i.vendor_id = ?';
+      cogsParams.push(parseInt(vendor_id));
+    } else if (vendor_id === 'null') {
+      cogsQuery += ' AND i.vendor_id IS NULL';
+    }
+    const [cogsRows] = await pool.query(cogsQuery, cogsParams);
 
     const totalPurchased = parseFloat(summaryRows[0].totalPurchased || 0);
     const totalWasted = parseFloat(summaryRows[0].totalWasted || 0);
@@ -4554,7 +4807,7 @@ app.get('/api/reports/peak-hours', async (req, res) => {
 
   try {
     let query, params;
-    if (vendor_id) {
+    if (vendor_id && vendor_id !== 'null') {
       const vId = parseInt(vendor_id);
       query = `
         SELECT HOUR(o.order_date) as hour_of_day, 
@@ -4609,7 +4862,7 @@ app.get('/api/reports/peak-hours', async (req, res) => {
 
 // 5. Monthly Profit & Loss Statement
 app.get('/api/reports/monthly-pl', async (req, res) => {
-  const { year } = req.query;
+  const { year, vendor_id } = req.query;
   const currentYear = year ? parseInt(year) : new Date().getFullYear();
 
   try {
@@ -4622,57 +4875,126 @@ app.get('/api/reports/monthly-pl', async (req, res) => {
       const monthEnd = `${currentYear}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')} 23:59:59`;
 
       // 1. Total Revenue
-      const [sales] = await pool.query(
-        "SELECT IFNULL(SUM(total_amount), 0) as revenue FROM orders WHERE order_date BETWEEN ? AND ? AND status != 'Cancelled'",
-        [monthStart, monthEnd]
-      );
+      let salesQuery, salesParams;
+      if (vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
+        const vId = parseInt(vendor_id);
+        salesQuery = `
+          SELECT IFNULL(SUM(oi.quantity * oi.price), 0) as revenue
+          FROM order_items oi
+          JOIN orders o ON oi.order_id = o.id
+          JOIN items i ON oi.item_id = i.id
+          WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled' AND i.vendor_id = ?`;
+        salesParams = [monthStart, monthEnd, vId];
+      } else {
+        salesQuery = "SELECT IFNULL(SUM(total_amount), 0) as revenue FROM orders WHERE order_date BETWEEN ? AND ? AND status != 'Cancelled'";
+        salesParams = [monthStart, monthEnd];
+      }
+      const [sales] = await pool.query(salesQuery, salesParams);
       const revenue = parseFloat(sales[0].revenue || 0);
 
       // 2. COGS (Cost of Goods Sold)
-      const [cogsRows] = await pool.query(
-        `SELECT IFNULL(SUM(oi.recorded_cogs), 0) as cogs
-         FROM order_items oi
-         JOIN orders o ON oi.order_id = o.id
-         WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled'`,
-        [monthStart, monthEnd]
-      );
+      let cogsQuery, cogsParams;
+      if (vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
+        const vId = parseInt(vendor_id);
+        cogsQuery = `
+          SELECT IFNULL(SUM(oi.recorded_cogs), 0) as cogs
+          FROM order_items oi
+          JOIN orders o ON oi.order_id = o.id
+          JOIN items i ON oi.item_id = i.id
+          WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled' AND i.vendor_id = ?`;
+        cogsParams = [monthStart, monthEnd, vId];
+      } else {
+        cogsQuery = `
+          SELECT IFNULL(SUM(oi.recorded_cogs), 0) as cogs
+          FROM order_items oi
+          JOIN orders o ON oi.order_id = o.id
+          WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled'`;
+        cogsParams = [monthStart, monthEnd];
+      }
+      const [cogsRows] = await pool.query(cogsQuery, cogsParams);
       const cogs = parseFloat(cogsRows[0].cogs || 0);
 
       // 3. Staff Salaries
-      const [staffRows] = await pool.query(
-        'SELECT IFNULL(SUM(gross_salary), 0) as salaries FROM payroll WHERE month = ? AND year = ?',
-        [month, currentYear]
-      );
+      let staffQuery, staffParams;
+      if (vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
+        const vId = parseInt(vendor_id);
+        staffQuery = `
+          SELECT IFNULL(SUM(p.gross_salary), 0) as salaries
+          FROM payroll p
+          JOIN staff s ON p.staff_id = s.id
+          WHERE s.vendor_id = ? AND p.month = ? AND p.year = ?`;
+        staffParams = [vId, month, currentYear];
+      } else {
+        staffQuery = 'SELECT IFNULL(SUM(gross_salary), 0) as salaries FROM payroll WHERE month = ? AND year = ?';
+        staffParams = [month, currentYear];
+      }
+      const [staffRows] = await pool.query(staffQuery, staffParams);
       const staffSalaries = parseFloat(staffRows[0].salaries || 0);
 
       // 4. Overheads (Expenses logged for this month)
-      const [overheadsRows] = await pool.query(
-        'SELECT IFNULL(SUM(amount), 0) as amount FROM overheads WHERE expense_date BETWEEN ? AND ?',
-        [`${currentYear}-${month.toString().padStart(2, '0')}-01`, `${currentYear}-${month.toString().padStart(2, '0')}-${lastDay}`]
-      );
-      const overheads = parseFloat(overheadsRows[0].amount || 0);
+      let overheadsVal = 0;
+      if (!vendor_id || vendor_id === 'null' || vendor_id === 'all') {
+        const [overheadsRows] = await pool.query(
+          'SELECT IFNULL(SUM(amount), 0) as amount FROM overheads WHERE expense_date BETWEEN ? AND ?',
+          [`${currentYear}-${month.toString().padStart(2, '0')}-01`, `${currentYear}-${month.toString().padStart(2, '0')}-${lastDay}`]
+        );
+        overheadsVal = parseFloat(overheadsRows[0].amount || 0);
+      } else {
+        const vId = parseInt(vendor_id);
+        const [vendorRows] = await pool.query('SELECT share_area FROM vendors WHERE id = ?', [vId]);
+        if (vendorRows.length > 0) {
+          const sharePct = parseFloat(vendorRows[0].share_area || 0);
+          const [overheadsRows] = await pool.query(
+            'SELECT IFNULL(SUM(amount), 0) as amount FROM overheads WHERE expense_date BETWEEN ? AND ?',
+            [`${currentYear}-${month.toString().padStart(2, '0')}-01`, `${currentYear}-${month.toString().padStart(2, '0')}-${lastDay}`]
+          );
+          overheadsVal = parseFloat(overheadsRows[0].amount || 0) * (sharePct / 100);
+        }
+      }
 
       // 5. Wastage Cost
-      const [wastageRows] = await pool.query(
-        `SELECT IFNULL(SUM(ABS(sl.recorded_cost)), 0) as wastage
-         FROM stock_logs sl
-         JOIN raw_materials rm ON sl.material_id = rm.id
-         WHERE sl.logged_at BETWEEN ? AND ? AND sl.log_type = 'Wastage'`,
-        [monthStart, monthEnd]
-      );
+      let wastageQuery, wastageParams;
+      if (vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
+        const vId = parseInt(vendor_id);
+        wastageQuery = `
+          SELECT IFNULL(SUM(ABS(sl.recorded_cost)), 0) as wastage
+          FROM stock_logs sl
+          JOIN raw_materials rm ON sl.material_id = rm.id
+          WHERE sl.logged_at BETWEEN ? AND ? AND sl.log_type = 'Wastage' AND rm.vendor_id = ?`;
+        wastageParams = [monthStart, monthEnd, vId];
+      } else {
+        wastageQuery = `
+          SELECT IFNULL(SUM(ABS(sl.recorded_cost)), 0) as wastage
+          FROM stock_logs sl
+          JOIN raw_materials rm ON sl.material_id = rm.id
+          WHERE sl.logged_at BETWEEN ? AND ? AND sl.log_type = 'Wastage'`;
+        wastageParams = [monthStart, monthEnd];
+      }
+      const [wastageRows] = await pool.query(wastageQuery, wastageParams);
       const wastage = parseFloat(wastageRows[0].wastage || 0);
 
       // 6. Total Purchases (cash outflow)
-      const [purchaseRows] = await pool.query(
-        `SELECT IFNULL(SUM(ABS(sl.recorded_cost)), 0) as purchases
-         FROM stock_logs sl
-         WHERE sl.logged_at BETWEEN ? AND ? AND sl.log_type = 'Purchase'`,
-        [monthStart, monthEnd]
-      );
+      let purchaseQuery, purchaseParams;
+      if (vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
+        const vId = parseInt(vendor_id);
+        purchaseQuery = `
+          SELECT IFNULL(SUM(ABS(sl.recorded_cost)), 0) as purchases
+          FROM stock_logs sl
+          JOIN raw_materials rm ON sl.material_id = rm.id
+          WHERE sl.logged_at BETWEEN ? AND ? AND sl.log_type = 'Purchase' AND rm.vendor_id = ?`;
+        purchaseParams = [monthStart, monthEnd, vId];
+      } else {
+        purchaseQuery = `
+          SELECT IFNULL(SUM(ABS(sl.recorded_cost)), 0) as purchases
+          FROM stock_logs sl
+          WHERE sl.logged_at BETWEEN ? AND ? AND sl.log_type = 'Purchase'`;
+        purchaseParams = [monthStart, monthEnd];
+      }
+      const [purchaseRows] = await pool.query(purchaseQuery, purchaseParams);
       const totalPurchases = parseFloat(purchaseRows[0].purchases || 0);
 
       const grossProfit = revenue - cogs;
-      const netProfit = revenue - cogs - staffSalaries - overheads - wastage;
+      const netProfit = revenue - cogs - staffSalaries - overheadsVal - wastage;
 
       plData.push({
         month: month,
@@ -4681,7 +5003,7 @@ app.get('/api/reports/monthly-pl', async (req, res) => {
         cogs: cogs,
         grossProfit: grossProfit,
         staffCost: staffSalaries,
-        overheads: overheads,
+        overheads: overheadsVal,
         wastageCost: wastage,
         purchases: totalPurchases,
         netProfit: netProfit
@@ -5184,17 +5506,30 @@ app.post('/api/cash-drawer/close', async (req, res) => {
 
 // Reconciliation summary
 app.get('/api/reconciliation/summary', async (req, res) => {
-  const { date } = req.query;
+  const { date, vendor_id } = req.query;
   const dateVal = date || new Date().toISOString().split('T')[0];
   try {
-    const [orders] = await pool.query(
-      `SELECT payment_mode, total_amount as total, payment_details
-       FROM orders
-       WHERE DATE(order_date) = ? AND status != 'Cancelled'`,
-      [dateVal]
-    );
+    let orders;
+      if (vendor_id && vendor_id !== 'null') {
+        const vId = parseInt(vendor_id);
+        [orders] = await pool.query(
+          `SELECT o.payment_mode, o.total_amount as total, o.payment_details
+           FROM orders o
+           JOIN staff s ON o.billing_staff_id = s.id
+           WHERE DATE(o.order_date) = ? AND o.status != 'Cancelled' AND s.vendor_id = ?`,
+          [dateVal, vId]
+        );
+      } else {
+        [orders] = await pool.query(
+          `SELECT o.payment_mode, o.total_amount as total, o.payment_details
+           FROM orders o
+           LEFT JOIN staff s ON o.billing_staff_id = s.id
+           WHERE DATE(o.order_date) = ? AND o.status != 'Cancelled' AND (s.vendor_id IS NULL OR o.billing_staff_id IS NULL)`,
+          [dateVal]
+        );
+      }
 
-    const systemTotals = { Cash: 0, UPI: 0, Card: 0, 'Meal Card': 0, Credit: 0 };
+    const systemTotals = { Cash: 0, UPI: 0, Card: 0 };
     orders.forEach(row => {
       if (row.payment_mode === 'Split' && row.payment_details) {
         try {
@@ -5212,12 +5547,15 @@ app.get('/api/reconciliation/summary', async (req, res) => {
       }
     });
 
-    const [walletTopups] = await pool.query(
-      `SELECT payment_mode, transaction_amount as amount
-       FROM wallet_transactions
-       WHERE type = 'credit' AND DATE(created_at) = ?`,
-      [dateVal]
-    );
+    let walletTopups = [];
+    if (!vendor_id || vendor_id === 'null') {
+      [walletTopups] = await pool.query(
+        `SELECT payment_mode, transaction_amount as amount
+         FROM wallet_transactions
+         WHERE type = 'credit' AND DATE(created_at) = ?`,
+        [dateVal]
+      );
+    }
 
     walletTopups.forEach(row => {
       const mode = row.payment_mode || 'Cash';
@@ -5228,7 +5566,15 @@ app.get('/api/reconciliation/summary', async (req, res) => {
       }
     });
 
-    const [recon] = await pool.query('SELECT d.*, s.name as submitted_by_name FROM daily_reconciliation d LEFT JOIN staff s ON d.submitted_by = s.id WHERE d.recon_date = ? ORDER BY d.created_at DESC', [dateVal]);
+    let reconQuery = 'SELECT d.*, s.name as submitted_by_name FROM daily_reconciliation d LEFT JOIN staff s ON d.submitted_by = s.id WHERE d.recon_date = ?';
+    let reconParams = [dateVal];
+    if (vendor_id && vendor_id !== 'null') {
+      reconQuery += ' AND s.vendor_id = ?';
+      reconParams.push(parseInt(vendor_id));
+    }
+    reconQuery += ' ORDER BY d.created_at DESC';
+    const [recon] = await pool.query(reconQuery, reconParams);
+
     res.json({
       recon_date: dateVal,
       systemTotals,
@@ -5245,14 +5591,29 @@ app.post('/api/reconciliation', async (req, res) => {
   const { recon_date, physical_cash, upi_settlement, card_settlement, notes, submitted_by } = req.body;
   const dateVal = recon_date || new Date().toISOString().split('T')[0];
   try {
-    const [orders] = await pool.query(
-      `SELECT payment_mode, total_amount as total, payment_details
-       FROM orders
-       WHERE DATE(order_date) = ? AND status != 'Cancelled'`,
-      [dateVal]
-    );
+    const [staff] = await pool.query('SELECT vendor_id FROM staff WHERE id = ?', [submitted_by]);
+    const vId = staff.length > 0 ? staff[0].vendor_id : null;
 
-    const systemTotals = { Cash: 0, UPI: 0, Card: 0, 'Meal Card': 0, Credit: 0 };
+    let orders;
+    if (vId) {
+      [orders] = await pool.query(
+        `SELECT o.payment_mode, o.total_amount as total, o.payment_details
+         FROM orders o
+         JOIN staff s ON o.billing_staff_id = s.id
+         WHERE DATE(o.order_date) = ? AND o.status != 'Cancelled' AND s.vendor_id = ?`,
+        [dateVal, vId]
+      );
+    } else {
+      [orders] = await pool.query(
+        `SELECT o.payment_mode, o.total_amount as total, o.payment_details
+         FROM orders o
+         LEFT JOIN staff s ON o.billing_staff_id = s.id
+         WHERE DATE(o.order_date) = ? AND o.status != 'Cancelled' AND (s.vendor_id IS NULL OR o.billing_staff_id IS NULL)`,
+        [dateVal]
+      );
+    }
+
+    const systemTotals = { Cash: 0, UPI: 0, Card: 0 };
     orders.forEach(row => {
       if (row.payment_mode === 'Split' && row.payment_details) {
         try {
@@ -5270,10 +5631,29 @@ app.post('/api/reconciliation', async (req, res) => {
       }
     });
 
-    const sysCash = systemTotals['Cash'];
-    const sysUpi = systemTotals['UPI'];
-    const sysCard = systemTotals['Card'];
-    const sysMealCard = systemTotals['Meal Card'];
+    let walletTopups = [];
+    if (!vId) {
+      [walletTopups] = await pool.query(
+        `SELECT payment_mode, transaction_amount as amount
+         FROM wallet_transactions
+         WHERE type = 'credit' AND DATE(created_at) = ?`,
+        [dateVal]
+      );
+    }
+
+    walletTopups.forEach(row => {
+      const mode = row.payment_mode || 'Cash';
+      if (systemTotals[mode] !== undefined) {
+        systemTotals[mode] += parseFloat(row.amount || 0);
+      } else {
+        systemTotals[mode] = parseFloat(row.amount || 0);
+      }
+    });
+
+    const sysCash = systemTotals['Cash'] || 0;
+    const sysUpi = systemTotals['UPI'] || 0;
+    const sysCard = systemTotals['Card'] || 0;
+    const sysMealCard = 0; // Legacy column, set to 0
 
     const physCash = parseFloat(physical_cash || 0);
     const upiSet = parseFloat(upi_settlement || 0);
@@ -5294,20 +5674,135 @@ app.post('/api/reconciliation', async (req, res) => {
     res.status(500).json({ error: 'Failed to save daily reconciliation' });
   }
 });
+// --- Digital Wallet & Credit Settlements API ---
+
+app.get('/api/digital-settlements/summary', async (req, res) => {
+  const { vendor_id } = req.query;
+  const tenantId = req.user.tenant_id;
+  try {
+    let query = `
+      SELECT 
+        v.id as vendor_id, 
+        v.name as vendor_name,
+        v.stall_number,
+        o.payment_mode,
+        SUM(oi.quantity * oi.price) as pending_settlement
+      FROM orders o
+      JOIN order_items oi ON o.id = oi.order_id
+      JOIN items i ON oi.item_id = i.id
+      JOIN vendors v ON i.vendor_id = v.id
+      WHERE o.payment_mode IN ('Credit', 'RFID Wallet', 'Mess Plan')
+        AND o.status != 'Cancelled'
+        AND oi.wallet_settlement_id IS NULL
+        AND o.tenant_id = ?
+    `;
+    let params = [tenantId];
+    if (vendor_id && vendor_id !== 'null') {
+      query += ` AND v.id = ?`;
+      params.push(parseInt(vendor_id));
+    }
+    query += ` GROUP BY v.id, v.name, v.stall_number, o.payment_mode`;
+
+    const [results] = await pool.query(query, params);
+    res.json(results);
+  } catch (error) {
+    console.error('Error fetching digital settlements:', error);
+    res.status(500).json({ error: 'Failed to fetch digital settlements' });
+  }
+});
+
+// Get pending itemized digital orders for a specific vendor
+app.get('/api/digital-settlements/pending/:vendorId', async (req, res) => {
+  const { vendorId } = req.params;
+  const { payment_mode } = req.query;
+  const tenantId = req.user.tenant_id;
+  try {
+    let query = `
+      SELECT 
+        oi.id AS order_item_id,
+        o.id AS order_id,
+        o.token_number,
+        o.order_date,
+        o.order_source,
+        o.payment_mode,
+        i.name AS item_name,
+        oi.quantity,
+        oi.price,
+        (oi.quantity * oi.price) AS total_price
+      FROM order_items oi
+      JOIN orders o ON oi.order_id = o.id
+      JOIN items i ON oi.item_id = i.id
+      WHERE oi.wallet_settlement_id IS NULL
+        AND i.vendor_id = ?
+        AND o.payment_mode IN ('Credit', 'RFID Wallet', 'Mess Plan')
+        AND o.status != 'Cancelled'
+        AND o.tenant_id = ?
+    `;
+    let params = [vendorId, tenantId];
+    if (payment_mode) {
+      query += ` AND o.payment_mode = ?`;
+      params.push(payment_mode);
+    }
+    query += ` ORDER BY o.order_date DESC`;
+
+    const [rows] = await pool.query(query, params);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching pending digital items for vendor:', error);
+    res.status(500).json({ error: 'Failed to fetch pending digital items' });
+  }
+});
+
+// Settle selected digital order items
+app.post('/api/digital-settlements/settle', async (req, res) => {
+  const { vendor_id, orderItemIds, amount, payment_mode } = req.body;
+  if (!vendor_id || !orderItemIds || !Array.isArray(orderItemIds) || orderItemIds.length === 0 || !amount || !payment_mode) {
+    return res.status(400).json({ error: 'vendor_id, orderItemIds (array), amount, and payment_mode are required.' });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Insert payout record
+    const [insertResult] = await connection.query(
+      `INSERT INTO wallet_settlements (vendor_id, amount, payment_mode, tenant_id) VALUES (?, ?, ?, ?)`,
+      [vendor_id, parseFloat(amount), payment_mode, req.user.tenant_id]
+    );
+    const settlementId = insertResult.insertId;
+
+    // 2. Mark order items as settled
+    await connection.query(
+      `UPDATE order_items SET wallet_settlement_id = ? WHERE id IN (?)`,
+      [settlementId, orderItemIds]
+    );
+
+    await connection.commit();
+    res.json({ success: true, message: 'Digital settlement recorded successfully', settlementId });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error recording digital settlement:', error);
+    res.status(500).json({ error: 'Failed to record settlement' });
+  } finally {
+    connection.release();
+  }
+});
 
 // Credit customers outstanding list
 app.get('/api/credits/customers', async (req, res) => {
   try {
+    const tenantId = req.user?.tenant_id;
     const [rows] = await pool.query(`
       SELECT c.id, c.name, c.phone, c.email,
              IFNULL(SUM(CASE WHEN cl.type = 'Credit' THEN cl.amount ELSE 0 END), 0) - 
              IFNULL(SUM(CASE WHEN cl.type = 'Payment' THEN cl.amount ELSE 0 END), 0) as outstanding
       FROM customers c
       LEFT JOIN credit_ledger cl ON c.id = cl.customer_id
+      WHERE c.tenant_id = ?
       GROUP BY c.id
       HAVING outstanding > 0 OR outstanding < 0 OR EXISTS (SELECT 1 FROM credit_ledger WHERE customer_id = c.id)
       ORDER BY c.name
-    `);
+    `, [tenantId]);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching credits:', error);
@@ -5348,6 +5843,41 @@ app.post('/api/credits/settle', async (req, res) => {
   }
 });
 
+// Partial credit settlement — settle specific ledger items
+app.post('/api/credits/settle-items', async (req, res) => {
+  const { customer_id, ledger_ids, payment_mode } = req.body;
+  if (!customer_id || !ledger_ids || !Array.isArray(ledger_ids) || ledger_ids.length === 0) {
+    return res.status(400).json({ error: 'customer_id and ledger_ids[] are required.' });
+  }
+  try {
+    // Get the total amount of the selected ledger entries
+    const placeholders = ledger_ids.map(() => '?').join(',');
+    const [rows] = await pool.query(
+      `SELECT id, amount FROM credit_ledger WHERE id IN (${placeholders}) AND customer_id = ? AND type = 'Credit' AND is_settled = 0`,
+      [...ledger_ids, customer_id]
+    );
+    if (rows.length === 0) return res.status(400).json({ error: 'No valid unsettled credit entries found.' });
+
+    const totalAmount = rows.reduce((sum, r) => sum + parseFloat(r.amount), 0);
+
+    // Mark selected entries as settled
+    await pool.query(
+      `UPDATE credit_ledger SET is_settled = 1, settled_date = NOW() WHERE id IN (${placeholders}) AND customer_id = ?`,
+      [...ledger_ids, customer_id]
+    );
+
+    // Insert a Payment entry as a record
+    await pool.query(
+      'INSERT INTO credit_ledger (customer_id, amount, type, notes, is_settled, settled_date) VALUES (?, ?, "Payment", ?, 1, NOW())',
+      [customer_id, totalAmount, `Partial settlement of ${rows.length} item(s) via ${payment_mode || 'Cash'}`]
+    );
+
+    res.json({ success: true, message: `₹${totalAmount.toFixed(2)} settled for ${rows.length} item(s).` });
+  } catch (error) {
+    console.error('Error settling credit items:', error);
+    res.status(500).json({ error: 'Failed to settle credit items' });
+  }
+});
 // GST Report
 app.get('/api/reports/gst', async (req, res) => {
   const { month, year, startDate, endDate, vendor_id } = req.query;
@@ -5382,7 +5912,7 @@ app.get('/api/reports/gst', async (req, res) => {
       params.push(parseInt(m), parseInt(y));
     }
 
-    if (vendor_id) {
+    if (vendor_id && vendor_id !== 'null') {
       query += ` AND i.vendor_id = ?`;
       params.push(vendor_id);
     }
@@ -5486,6 +6016,9 @@ app.post('/api/shifts/swap-request', async (req, res) => {
   if (!requester_id || !target_id || !swap_date) {
     return res.status(400).json({ error: 'requester_id, target_id, and swap_date are required.' });
   }
+  if (String(requester_id) === String(target_id)) {
+    return res.status(400).json({ error: 'You cannot swap shifts with yourself.' });
+  }
   try {
     const [reqRoster] = await pool.query('SELECT shift_id FROM shift_roster WHERE staff_id = ? AND roster_date = ?', [requester_id, swap_date]);
     const [targetRoster] = await pool.query('SELECT shift_id FROM shift_roster WHERE staff_id = ? AND roster_date = ?', [target_id, swap_date]);
@@ -5508,8 +6041,12 @@ app.post('/api/shifts/swap-request', async (req, res) => {
 // Shift swap requests list
 app.get('/api/shifts/swap-requests', async (req, res) => {
   try {
+    const scopeClause = req.user.vendor_id
+      ? `WHERE s1.vendor_id = ${pool.escape(req.user.vendor_id)} AND s1.role != 'Manager'`
+      : `WHERE (s1.vendor_id IS NULL OR s1.role = 'Manager')`;
+
     const [rows] = await pool.query(`
-      SELECT r.*, 
+      SELECT r.id, r.requester_id, r.target_id, r.requester_shift_id, r.target_shift_id, DATE_FORMAT(r.swap_date, '%Y-%m-%d') as swap_date, r.reason, r.status, r.approved_by, r.created_at, r.tenant_id, 
              s1.name as requester_name, 
              s2.name as target_name,
              sh1.name as requester_shift_name,
@@ -5519,6 +6056,7 @@ app.get('/api/shifts/swap-requests', async (req, res) => {
       JOIN staff s2 ON r.target_id = s2.id
       LEFT JOIN shifts sh1 ON r.requester_shift_id = sh1.id
       LEFT JOIN shifts sh2 ON r.target_shift_id = sh2.id
+      ${scopeClause}
       ORDER BY r.created_at DESC
     `);
     res.json(rows);
@@ -5546,6 +6084,10 @@ app.put('/api/shifts/swap/:id/approve', async (req, res) => {
     if (request.status !== 'Pending') {
       connection.release();
       return res.status(400).json({ error: `Request has already been ${request.status}.` });
+    }
+    if (request.requester_id === request.target_id) {
+      connection.release();
+      return res.status(400).json({ error: 'Invalid swap request (requester and target are the same).' });
     }
 
     // Delete existing roster entries for both staff on this date
@@ -5600,10 +6142,18 @@ app.put('/api/shifts/swap/:id/reject', async (req, res) => {
   }
 });
 
-// Holidays list
+// Holidays list (scoped by vendor_id)
 app.get('/api/holidays', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays ORDER BY holiday_date');
+    let query, params;
+    if (req.user.vendor_id) {
+      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE vendor_id = ? ORDER BY holiday_date';
+      params = [req.user.vendor_id];
+    } else {
+      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE vendor_id IS NULL ORDER BY holiday_date';
+      params = [];
+    }
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching holidays:', error);
@@ -5611,16 +6161,17 @@ app.get('/api/holidays', async (req, res) => {
   }
 });
 
-// Add holiday
+// Add holiday (scoped by vendor_id)
 app.post('/api/holidays', async (req, res) => {
   const { holiday_date, name, is_recurring } = req.body;
   if (!holiday_date || !name) {
     return res.status(400).json({ error: 'holiday_date and name are required.' });
   }
   try {
+    const assignedVendorId = req.user.vendor_id || null;
     await pool.query(
-      'INSERT INTO holidays (holiday_date, name, is_recurring) VALUES (?, ?, ?)',
-      [holiday_date, name, is_recurring ? 1 : 0]
+      'INSERT INTO holidays (holiday_date, name, is_recurring, vendor_id) VALUES (?, ?, ?, ?)',
+      [holiday_date, name, is_recurring ? 1 : 0, assignedVendorId]
     );
     res.status(201).json({ success: true, message: 'Holiday added successfully.' });
   } catch (error) {
@@ -5629,11 +6180,19 @@ app.post('/api/holidays', async (req, res) => {
   }
 });
 
-// Delete holiday
+// Delete holiday (scoped by vendor_id)
 app.delete('/api/holidays/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    await pool.query('DELETE FROM holidays WHERE id = ?', [id]);
+    let query, params;
+    if (req.user.vendor_id) {
+      query = 'DELETE FROM holidays WHERE id = ? AND vendor_id = ?';
+      params = [id, req.user.vendor_id];
+    } else {
+      query = 'DELETE FROM holidays WHERE id = ? AND vendor_id IS NULL';
+      params = [id];
+    }
+    await pool.query(query, params);
     res.json({ success: true, message: 'Holiday deleted successfully.' });
   } catch (error) {
     console.error('Error deleting holiday:', error);
@@ -5651,7 +6210,7 @@ app.delete('/api/holidays/:id', async (req, res) => {
 // ── Settings ──────────────────────────────────────────────────────────────────
 app.get('/api/notifications/settings', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM notification_settings WHERE id=1');
+    const [rows] = await pool.query('SELECT * FROM notification_settings LIMIT 1');
     const s = rows[0] || {};
     // Never expose raw passwords/keys in GET response (redact)
     const safe = { ...s };
@@ -5664,28 +6223,28 @@ app.get('/api/notifications/settings', async (req, res) => {
 
 app.put('/api/notifications/settings', async (req, res) => {
   try {
-    const fields = [
-      'whatsapp_provider','gupshup_api_key','gupshup_app_name','gupshup_phone',
-      'sms_provider','msg91_auth_key','msg91_sender_id',
-      'smtp_host','smtp_port','smtp_user','smtp_pass','smtp_from_name',
+    const allFields = [
       'owner_whatsapp','owner_email',
       'daily_summary_time','daily_summary_enabled',
       'loyalty_points_per_100','loyalty_min_redeem','loyalty_redeem_ratio','loyalty_enabled',
       'low_stock_alert_enabled','low_stock_throttle_hours',
       'order_ready_sms','order_ready_whatsapp','negative_feedback_threshold'
     ];
+    // Removed API key fields from this endpoint completely as per Tier 2
     const body = req.body;
     const updates = [];
     const vals = [];
-    for (const f of fields) {
+    for (const f of allFields) {
       if (body[f] !== undefined && body[f] !== '••••••••') {
         updates.push(`${f}=?`);
         vals.push(body[f]);
       }
     }
     if (updates.length === 0) return res.json({ success: true, message: 'No changes' });
-    vals.push(1);
-    await pool.query(`UPDATE notification_settings SET ${updates.join(',')} WHERE id=?`, vals);
+    
+    // We don't need WHERE id=? anymore because tenantTables proxy adds WHERE tenant_id=? automatically
+    // But we need some WHERE clause for valid syntax. We can use a dummy condition.
+    await pool.query(`UPDATE notification_settings SET ${updates.join(',')} WHERE 1=1`, vals);
     res.json({ success: true, message: 'Settings saved' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -5760,7 +6319,11 @@ app.get('/api/notifications/loyalty', async (req, res) => {
 app.get('/api/notifications/loyalty/:customerId/history', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      'SELECT * FROM loyalty_transactions WHERE customer_id=? ORDER BY created_at DESC LIMIT 100',
+      `SELECT lt.*, o.total_amount as order_cost 
+       FROM loyalty_transactions lt 
+       LEFT JOIN orders o ON lt.order_id = o.id 
+       WHERE lt.customer_id=? 
+       ORDER BY lt.created_at DESC LIMIT 100`,
       [req.params.customerId]
     );
     const [cus] = await pool.query('SELECT id,name,loyalty_points,total_spent FROM customers WHERE id=?', [req.params.customerId]);
@@ -6046,7 +6609,12 @@ app.put('/api/wallet/assign-rfid', authenticateToken, async (req, res) => {
 // ==========================================
 app.get('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT id, name, owner_email, plan, is_active, created_at FROM tenants ORDER BY id DESC');
+    const [rows] = await pool.query(`
+      SELECT t.id, t.name, t.owner_email, t.plan, t.is_active, t.created_at, s.name as owner_name 
+      FROM tenants t
+      LEFT JOIN staff s ON t.id = s.tenant_id AND s.role = 'Owner'
+      ORDER BY t.id DESC
+    `);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching tenants:', error);
@@ -6087,6 +6655,12 @@ app.post('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async
       [owner_name, email, hashedPassword, 'Owner', tenantId]
     );
 
+    // 4. Initialize notification settings for the new tenant
+    await conn.query(
+      'INSERT INTO notification_settings (tenant_id) VALUES (?)',
+      [tenantId]
+    );
+
     await conn.commit();
     res.status(201).json({ success: true, message: 'Food Court registered successfully', tenant_id: tenantId });
   } catch (error) {
@@ -6096,6 +6670,112 @@ app.post('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async
   } finally {
     conn.release();
   }
+});
+
+app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
+  const { id } = req.params;
+  const { name, owner_name, email, password, is_active } = req.body;
+  if (!name || !owner_name || !email) {
+    return res.status(400).json({ error: 'Name, owner name, and email are required' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Update tenant record
+    const updateTenantActive = is_active !== undefined ? (is_active ? 1 : 0) : 1;
+    await conn.query(
+      'UPDATE tenants SET name = ?, owner_email = ?, is_active = ? WHERE id = ?',
+      [name, email, updateTenantActive, id]
+    );
+
+    // Update owner user record
+    let passwordQuerySegment = '';
+    const queryParams = [owner_name, email];
+
+    if (password) {
+      const bcrypt = require('bcryptjs');
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+      passwordQuerySegment = ', password_hash = ?';
+      queryParams.push(hashedPassword);
+    }
+    
+    queryParams.push(updateTenantActive, id, 'Owner');
+    
+    await conn.query(
+      `UPDATE staff SET name = ?, email = ?${passwordQuerySegment}, is_active = ? WHERE tenant_id = ? AND role = ?`,
+      queryParams
+    );
+
+    await conn.commit();
+    res.json({ success: true, message: 'Food Court updated successfully' });
+  } catch (error) {
+    await conn.rollback();
+    console.error('Error updating tenant:', error);
+    res.status(400).json({ error: error.message || 'Failed to update food court' });
+  } finally {
+    conn.release();
+  }
+});
+
+app.delete('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
+  const { id } = req.params;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    // Delete all staff belonging to this tenant first
+    await conn.query('DELETE FROM staff WHERE tenant_id = ?', [id]);
+    await conn.query('DELETE FROM notification_settings WHERE tenant_id = ?', [id]);
+    // Then delete the tenant
+    await conn.query('DELETE FROM tenants WHERE id = ?', [id]);
+    await conn.commit();
+    res.json({ success: true, message: 'Food court removed successfully' });
+  } catch (error) {
+    await conn.rollback();
+    console.error('Error deleting tenant:', error);
+    res.status(500).json({ error: error.message || 'Failed to remove food court' });
+  } finally {
+    conn.release();
+  }
+});
+
+// -- Super Admin Integrations Management (Tier 1 Settings) --
+app.get('/api/superadmin/tenants/:id/integrations', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM notification_settings WHERE tenant_id = ?', [req.params.id]);
+    const s = rows[0] || {};
+    // Never expose raw passwords/keys in GET response
+    const safe = { ...s };
+    if (safe.gupshup_api_key) safe.gupshup_api_key = '••••••••';
+    if (safe.msg91_auth_key) safe.msg91_auth_key = '••••••••';
+    if (safe.smtp_pass) safe.smtp_pass = '••••••••';
+    res.json(safe);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/superadmin/tenants/:id/integrations', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
+  try {
+    const tier1Fields = [
+      'whatsapp_provider','gupshup_api_key','gupshup_app_name','gupshup_phone',
+      'sms_provider','msg91_auth_key','msg91_sender_id',
+      'smtp_host','smtp_port','smtp_user','smtp_pass','smtp_from_name'
+    ];
+    const body = req.body;
+    const updates = [];
+    const vals = [];
+    for (const f of tier1Fields) {
+      if (body[f] !== undefined && body[f] !== '••••••••') {
+        updates.push(`${f}=?`);
+        vals.push(body[f]);
+      }
+    }
+    if (updates.length === 0) return res.json({ success: true, message: 'No changes' });
+    vals.push(req.params.id);
+    await pool.query(`UPDATE notification_settings SET ${updates.join(',')} WHERE tenant_id=?`, vals);
+    res.json({ success: true, message: 'Integrations saved' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ==========================================

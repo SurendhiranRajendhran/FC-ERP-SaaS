@@ -10,7 +10,7 @@ function setPool(p) { pool = p; }
 
 // ─── Get notification settings from DB ─────────────────────────────────────
 async function getSettings() {
-  const [rows] = await pool.query('SELECT * FROM notification_settings WHERE id=1');
+  const [rows] = await pool.query('SELECT * FROM notification_settings LIMIT 1');
   return rows[0] || {};
 }
 
@@ -263,20 +263,44 @@ async function awardLoyaltyPoints(customerId, orderId, totalAmount) {
   if (!settings.loyalty_enabled || !customerId) return 0;
 
   const rate = parseFloat(settings.loyalty_points_per_100) || 1;
-  const points = Math.floor((totalAmount / 100) * rate);
-  if (points <= 0) return 0;
-
-  await pool.query('UPDATE customers SET loyalty_points=loyalty_points+?, total_spent=total_spent+?, total_visits=total_visits+1, last_visit=CURDATE() WHERE id=?', [points, totalAmount, customerId]);
   
-  // Get the updated balance for the log
-  const [cusRows] = await pool.query('SELECT loyalty_points FROM customers WHERE id=?', [customerId]);
-  const newBalance = cusRows.length ? cusRows[0].loyalty_points : points;
+  // Fetch current customer state
+  const [cusRows] = await pool.query('SELECT total_spent, loyalty_points FROM customers WHERE id=?', [customerId]);
+  if (!cusRows.length) return 0;
+  
+  const oldSpent = parseFloat(cusRows[0].total_spent) || 0;
+  const newSpent = oldSpent + totalAmount;
+  
+  // Calculate total lifetime points they SHOULD have earned based on total_spent
+  const newLifetimePoints = Math.floor((newSpent / 100) * rate);
+  
+  // Fetch total points ever redeemed by this customer
+  const [redRows] = await pool.query('SELECT ABS(SUM(points)) as redeemed FROM loyalty_transactions WHERE type="redeem" AND customer_id=?', [customerId]);
+  const totalRedeemed = parseFloat(redRows[0].redeemed) || 0;
+  
+  // Their target balance should be their lifetime earned minus what they've redeemed
+  const targetBalance = newLifetimePoints - totalRedeemed;
+  const currentBalance = parseFloat(cusRows[0].loyalty_points) || 0;
+  
+  const pointsEarned = Math.max(0, targetBalance - currentBalance);
+
+  // ALWAYS update lifetime spent & visits
+  await pool.query(
+    'UPDATE customers SET loyalty_points=loyalty_points+?, total_spent=?, total_visits=total_visits+1, last_visit=CURDATE() WHERE id=?', 
+    [pointsEarned, newSpent, customerId]
+  );
+
+  // If no points earned, stop here so we don't spam the transaction logs
+  if (pointsEarned <= 0) return 0;
+  
+  const newBalance = (parseFloat(cusRows[0].loyalty_points) || 0) + pointsEarned;
 
   await pool.query('INSERT INTO loyalty_transactions (customer_id,order_id,type,points,balance_after,note) VALUES (?,?,?,?,?,?)',
-    [customerId, orderId, 'earn', points, newBalance, `Earned on order #${orderId}`]);
+    [customerId, orderId, 'earn', pointsEarned, newBalance, `Earned on order #${orderId}`]);
 
-  await logNotification({ type: 'loyalty_earned', channel: 'simulated', recipientName: 'Customer', message: `Earned ${points} pts. Balance: ${newBalance} pts`, referenceId: String(orderId) });
-  return points;
+  await logNotification({ type: 'loyalty_earned', channel: 'simulated', recipientName: 'Customer', message: `Earned ${pointsEarned} pts. Balance: ${newBalance} pts`, referenceId: String(orderId) });
+  
+  return pointsEarned;
 }
 
 // ─── LOYALTY: REDEEM POINTS ──────────────────────────────────────────────────
