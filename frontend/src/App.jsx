@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import CrmNotifications from './CrmNotifications';
 import WalletManagement from './WalletManagement';
 import StallInsights from './StallInsights';
+import Promotions from './Promotions';
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -31,6 +33,360 @@ window.fetch = async (...args) => {
 
 
 
+// --- STAFF MEAL LEDGER MODAL ---
+function StaffMealLedgerModal({ staffId, staffName, token, onClose }) {
+  const [ledgerData, setLedgerData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState('all'); // 'all', 'orders', 'adjustments'
+
+  useEffect(() => {
+    fetch(`${API_BASE}/staff/${staffId}/meal-ledger`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(d => { setLedgerData(d); setLoading(false); })
+      .catch(e => { console.error('Error fetching ledger:', e); setLoading(false); });
+  }, [staffId, token]);
+
+  const summary = ledgerData?.summary;
+  const timeline = ledgerData?.timeline || [];
+
+  const filteredTimeline = timeline.filter(item => {
+    if (activeFilter === 'orders') return item.event_type === 'Order';
+    if (activeFilter === 'adjustments') return item.event_type !== 'Order';
+    return true;
+  });
+
+  return createPortal(
+    <div className="modal-overlay active" style={{ zIndex: 1200 }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-card" style={{ maxWidth: '800px', width: '95%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            📜 Staff Meal Ledger — <span style={{ color: 'var(--primary-color)' }}>{staffName || summary?.staff_name || `Staff #${staffId}`}</span>
+          </h3>
+          <button className="close-btn" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }}>&times;</button>
+        </div>
+
+        <div className="modal-body" style={{ overflowY: 'auto', padding: '16px 0' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading meal ledger records...</div>
+          ) : !ledgerData || !summary ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#dc3545' }}>Failed to load meal ledger.</div>
+          ) : (
+            <div>
+              {/* Summary KPIs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+                <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Monthly Limit</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '2px' }}>₹{summary.limit.toFixed(2)}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>{summary.auto_reset ? 'Auto (Monthly)' : 'Manual Reset'}</div>
+                </div>
+
+                <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Extra Added</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: summary.additional > 0 ? '#10b981' : 'var(--text-main)', marginTop: '2px' }}>+₹{summary.additional.toFixed(2)}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>This period</div>
+                </div>
+
+                <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Allowance</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#3b82f6', marginTop: '2px' }}>₹{summary.total_allowance.toFixed(2)}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>Limit + Extra</div>
+                </div>
+
+                <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Used This Period</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f59e0b', marginTop: '2px' }}>₹{summary.used.toFixed(2)}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>Since {summary.period_start ? new Date(summary.period_start).toLocaleDateString() : 'N/A'}</div>
+                </div>
+
+                <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Remaining</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: summary.remaining > 0 ? '#10b981' : '#ef4444', marginTop: '2px' }}>
+                    ₹{summary.remaining.toFixed(2)}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>Available balance</div>
+                </div>
+              </div>
+
+              {/* Filter Tabs */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    onClick={() => setActiveFilter('all')}
+                    style={{
+                      padding: '4px 10px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                      background: activeFilter === 'all' ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                      color: activeFilter === 'all' ? '#fff' : 'var(--text-main)'
+                    }}
+                  >
+                    All Events ({timeline.length})
+                  </button>
+                  <button
+                    onClick={() => setActiveFilter('orders')}
+                    style={{
+                      padding: '4px 10px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                      background: activeFilter === 'orders' ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                      color: activeFilter === 'orders' ? '#fff' : 'var(--text-main)'
+                    }}
+                  >
+                    Meal Orders ({ledgerData.orders?.length || 0})
+                  </button>
+                  <button
+                    onClick={() => setActiveFilter('adjustments')}
+                    style={{
+                      padding: '4px 10px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                      background: activeFilter === 'adjustments' ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                      color: activeFilter === 'adjustments' ? '#fff' : 'var(--text-main)'
+                    }}
+                  >
+                    Top-ups & Resets ({ledgerData.adjustments?.length || 0})
+                  </button>
+                </div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Period Start: <strong>{summary.period_start ? new Date(summary.period_start).toLocaleDateString() : 'N/A'}</strong>
+                </span>
+              </div>
+
+              {/* Timeline Table */}
+              <div style={{ overflowX: 'auto', border: '1px solid var(--border-light)', borderRadius: '8px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-light)' }}>
+                      <th style={{ padding: '8px 10px' }}>Date & Time</th>
+                      <th style={{ padding: '8px 10px' }}>Event Type</th>
+                      <th style={{ padding: '8px 10px' }}>Details / Note</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right' }}>Amount</th>
+                      <th style={{ padding: '8px 10px' }}>Action By</th>
+                      <th style={{ padding: '8px 10px' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredTimeline.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                          No staff meal ledger records found.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredTimeline.map((item) => (
+                        <tr key={item.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
+                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                            {new Date(item.timestamp).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                            <span style={{
+                              padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600,
+                              background: item.event_type === 'Order' ? 'rgba(59, 130, 246, 0.12)' : item.event_type === 'Allowance Top-Up' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(148, 163, 184, 0.15)',
+                              color: item.event_type === 'Order' ? '#3b82f6' : item.event_type === 'Allowance Top-Up' ? '#10b981' : '#94a3b8'
+                            }}>
+                              {item.event_type === 'Order' ? '🍽️ Meal Order' : item.event_type === 'Allowance Top-Up' ? '➕ Top-Up' : '↺ Reset'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <div style={{ fontWeight: 500 }}>{item.title}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>{item.description}</div>
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {item.event_type === 'Order' ? (
+                              <span style={{ color: '#ef4444' }}>-₹{Math.abs(item.amount).toFixed(2)}</span>
+                            ) : item.event_type === 'Allowance Top-Up' ? (
+                              <span style={{ color: '#10b981' }}>+₹{item.amount.toFixed(2)}</span>
+                            ) : (
+                              <span style={{ color: '#94a3b8' }}>Cycle Reset</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>
+                            {item.action_by}
+                          </td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <span style={{
+                              padding: '2px 6px', borderRadius: '4px', fontSize: '0.68rem',
+                              background: item.status === 'Cancelled' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.12)',
+                              color: item.status === 'Cancelled' ? '#ef4444' : '#10b981'
+                            }}>
+                              {item.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer" style={{ borderTop: '1px solid var(--border-light)', paddingTop: '10px', display: 'flex', justifyContent: 'flex-end' }}>
+          <button className="btn btn-outline-primary" onClick={onClose} style={{ padding: '6px 16px', fontSize: '0.8rem' }}>Close</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// --- MEAL ALLOWANCE WIDGET ---
+function MealAllowanceWidget({ staffId, staffName, limit, autoReset, token, showToast, fetchStaff }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showLedger, setShowLedger] = useState(false);
+
+  const fetchUsage = () => {
+    fetch(`${API_BASE}/staff/${staffId}/meal-usage`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(e => { console.error(e); setLoading(false); });
+  };
+
+  useEffect(() => {
+    fetchUsage();
+  }, [staffId, token, limit, autoReset]);
+
+  const handleAddAmount = async () => {
+    const amtStr = window.prompt('Enter additional amount to add for this period (₹):');
+    if (!amtStr) return;
+    const amt = parseFloat(amtStr);
+    if (isNaN(amt) || amt <= 0) {
+      showToast('Invalid amount', 'error');
+      return;
+    }
+    const note = window.prompt('Enter a note (optional):', 'Extra allowance');
+    
+    try {
+      const res = await fetch(`${API_BASE}/staff/${staffId}/meal-adjustment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ type: 'additional', amount: amt, note })
+      });
+      if (res.ok) {
+        showToast('Amount added successfully', 'success');
+        fetchUsage();
+        fetchStaff();
+      }
+    } catch (e) {
+      showToast('Failed to add amount', 'error');
+    }
+  };
+
+  const handleReset = async () => {
+    if (!window.confirm('Are you sure you want to manually reset the meal allowance? This will clear all current usage and start a new period.')) return;
+    
+    try {
+      const res = await fetch(`${API_BASE}/staff/${staffId}/meal-adjustment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ type: 'reset', note: 'Manual reset' })
+      });
+      if (res.ok) {
+        showToast('Allowance reset successfully', 'success');
+        fetchUsage();
+        fetchStaff();
+      }
+    } catch (e) {
+      showToast('Failed to reset allowance', 'error');
+    }
+  };
+
+  if (loading) return <div style={{ fontSize: '0.8rem', color: '#666' }}>Loading allowance...</div>;
+  if (!data) return null;
+
+  const pct = Math.min(100, Math.round((data.used / data.total_allowance) * 100)) || 0;
+  const barColor = pct > 90 ? '#dc3545' : pct > 75 ? '#ffc107' : '#28a745';
+
+  return (
+    <div style={{ fontSize: '0.8rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+        <strong>🍽️ Meal Allowance:</strong>
+        <span style={{ color: pct >= 100 ? '#dc3545' : 'inherit' }}>
+          ₹{data.remaining.toFixed(2)} remaining of ₹{data.total_allowance.toFixed(2)}
+        </span>
+      </div>
+      <div style={{ width: '100%', height: '8px', background: '#e9ecef', borderRadius: '4px', overflow: 'hidden', marginBottom: '8px' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: barColor, transition: 'width 0.3s' }}></div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted, #94a3b8)' }}>
+          {autoReset ? 'Resets 1st of month' : 'Manual reset only'}
+          {data.additional > 0 ? ` (Base: ₹${data.limit.toFixed(0)} + ₹${data.additional.toFixed(0)} extra)` : ''}
+        </span>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button
+            onClick={handleAddAmount}
+            title="Add additional staff meal allowance"
+            style={{
+              background: '#2563eb',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '4px',
+              padding: '3px 8px',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '2px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+            }}
+          >
+            + Add
+          </button>
+          <button
+            onClick={handleReset}
+            title="Reset period usage back to full base limit"
+            style={{
+              background: '#475569',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '4px',
+              padding: '3px 8px',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '2px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+            }}
+          >
+            ↺ Reset
+          </button>
+          <button
+            onClick={() => setShowLedger(true)}
+            title="View complete Staff Meal usage ledger & audit trail"
+            style={{
+              background: '#059669',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '4px',
+              padding: '3px 8px',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '3px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+            }}
+          >
+            📜 Ledger
+          </button>
+        </div>
+      </div>
+
+      {showLedger && (
+        <StaffMealLedgerModal
+          staffId={staffId}
+          staffName={staffName}
+          token={token}
+          onClose={() => setShowLedger(false)}
+        />
+      )}
+    </div>
+  );
+}
+
 // --- SUPER ADMIN DASHBOARD ---
 function SuperAdminDashboard({ user, onLogout }) {
   const [tenants, setTenants] = useState([]);
@@ -38,6 +394,87 @@ function SuperAdminDashboard({ user, onLogout }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [formParams, setFormParams] = useState({ name: '', owner_name: '', email: '', password: '' });
   const [adding, setAdding] = useState(false);
+
+  // Tabs
+  const [activeTab, setActiveTab] = useState('foodCourts');
+
+  // Registrations state
+  const [registrations, setRegistrations] = useState([]);
+  const [loadingRegs, setLoadingRegs] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewAction, setReviewAction] = useState(null); // 'approve' or 'reject'
+  const [reviewingRegId, setReviewingRegId] = useState(null);
+  const [adminNotes, setAdminNotes] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [showPendingAlert, setShowPendingAlert] = useState(false);
+  const [customPassword, setCustomPassword] = useState('');
+  const [customEmail, setCustomEmail] = useState('');
+
+  useEffect(() => {
+    fetchRegistrations();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'registrations') {
+      fetchRegistrations();
+    }
+  }, [activeTab]);
+
+  const fetchRegistrations = async () => {
+    setLoadingRegs(true);
+    try {
+      const res = await originalFetch(`${API_BASE}/superadmin/registrations`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        cache: 'no-store'
+      });
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setRegistrations(data);
+        if (data.some(r => r.status === 'pending')) {
+          setShowPendingAlert(true);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch registrations:', err);
+    } finally {
+      setLoadingRegs(false);
+    }
+  };
+
+  const submitReview = async () => {
+    setSubmittingReview(true);
+    try {
+      const res = await originalFetch(`${API_BASE}/superadmin/registrations/${reviewingRegId}/review`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ action: reviewAction, admin_notes: adminNotes, custom_password: customPassword, custom_email: customEmail })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to review registration');
+      
+      // Update state locally for instant feedback
+      const newStatus = reviewAction === 'approve' ? 'approved' : 'rejected';
+      setRegistrations(prev => prev.map(r => 
+        r.id === reviewingRegId ? { ...r, status: newStatus, reviewed_at: new Date().toISOString() } : r
+      ));
+      
+      alert(data.message);
+      setShowReviewModal(false);
+      setAdminNotes('');
+      setCustomPassword('');
+      setCustomEmail('');
+      fetchRegistrations();
+      if (reviewAction === 'approve') fetchTenants();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
 
   // Edit Tenant State
   const [showEditModal, setShowEditModal] = useState(false);
@@ -264,11 +701,23 @@ function SuperAdminDashboard({ user, onLogout }) {
         </div>
 
         <ul style={saStyles.navList}>
-          <li style={saStyles.navItem(true)}>
+          <li style={saStyles.navItem(activeTab === 'foodCourts')} onClick={() => setActiveTab('foodCourts')}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><path d="M3 9h18M9 21V9" />
             </svg>
             Food Courts
+          </li>
+          <li style={saStyles.navItem(activeTab === 'registrations')} onClick={() => setActiveTab('registrations')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+            </svg>
+            Registrations
+            {registrations.filter(r => r.status === 'pending').length > 0 && (
+              <span style={{ marginLeft: 'auto', background: '#eab308', color: '#000', padding: '2px 6px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 600 }}>
+                {registrations.filter(r => r.status === 'pending').length}
+              </span>
+            )}
           </li>
           <li style={saStyles.navItem(false)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
@@ -307,6 +756,7 @@ function SuperAdminDashboard({ user, onLogout }) {
         </div>
 
         <div style={saStyles.content}>
+          {activeTab === 'foodCourts' && (<>
           {/* Stats Row */}
           <div style={saStyles.statsRow}>
             <div style={saStyles.statCard('#8b5cf6')}>
@@ -408,6 +858,118 @@ function SuperAdminDashboard({ user, onLogout }) {
               </div>
             )}
           </div>
+          </>)}
+
+          {/* ── REGISTRATIONS TAB ── */}
+          {activeTab === 'registrations' && (
+          <div>
+            {/* Stats Row */}
+            <div style={saStyles.statsRow}>
+              <div style={saStyles.statCard('#eab308')}>
+                <span style={saStyles.statLabel}>Pending</span>
+                <span style={saStyles.statValue}>{registrations.filter(r => r.status === 'pending').length}</span>
+              </div>
+              <div style={saStyles.statCard('#10b981')}>
+                <span style={saStyles.statLabel}>Approved</span>
+                <span style={saStyles.statValue}>{registrations.filter(r => r.status === 'approved').length}</span>
+              </div>
+              <div style={saStyles.statCard('#ef4444')}>
+                <span style={saStyles.statLabel}>Rejected</span>
+                <span style={saStyles.statValue}>{registrations.filter(r => r.status === 'rejected').length}</span>
+              </div>
+            </div>
+
+            <div style={saStyles.tableCard}>
+              <div style={saStyles.tableHeader}>
+                <h3 style={saStyles.tableTitle}>Registration Requests</h3>
+                <button style={{...saStyles.addBtn, background: 'linear-gradient(135deg, #eab308, #ca8a04)', boxShadow: '0 4px 15px rgba(234,179,8,0.3)'}} onClick={fetchRegistrations}>
+                  ↻ Refresh
+                </button>
+              </div>
+
+              {loadingRegs ? (
+                <div style={{textAlign: 'center', padding: '48px', color: '#64748b'}}>
+                  <div style={{marginBottom: '12px', fontSize: '1.5rem'}}>⏳</div>
+                  Loading registrations...
+                </div>
+              ) : registrations.length === 0 ? (
+                <div style={{textAlign: 'center', padding: '48px', color: '#64748b'}}>
+                  <div style={{marginBottom: '12px', fontSize: '2rem'}}>📋</div>
+                  <p style={{margin: 0, fontSize: '0.95rem'}}>No registration requests yet.</p>
+                </div>
+              ) : (
+                <div style={{overflowX: 'auto'}}>
+                  <table style={{width: '100%', borderCollapse: 'collapse'}}>
+                    <thead>
+                      <tr>
+                        <th style={saStyles.th}>ID</th>
+                        <th style={saStyles.th}>Food Court</th>
+                        <th style={saStyles.th}>Owner</th>
+                        <th style={saStyles.th}>Email</th>
+                        <th style={saStyles.th}>Phone</th>
+                        <th style={saStyles.th}>City</th>
+                        <th style={{...saStyles.th, textAlign: 'center'}}>Status</th>
+                        <th style={{...saStyles.th, textAlign: 'right'}}>Submitted</th>
+                        <th style={{...saStyles.th, textAlign: 'center'}}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {registrations.map(r => (
+                        <tr key={r.id} style={{transition: 'background 0.15s'}}
+                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+                          <td style={saStyles.td}><span style={{color: '#64748b'}}>#{r.id}</span></td>
+                          <td style={{...saStyles.td, fontWeight: 700, color: '#8b5cf6'}}>{r.food_court_name}</td>
+                          <td style={{...saStyles.td, color: '#f1f5f9'}}>{r.owner_name}</td>
+                          <td style={{...saStyles.td, color: '#94a3b8'}}>{r.email}</td>
+                          <td style={{...saStyles.td, color: '#94a3b8'}}>{r.phone || '—'}</td>
+                          <td style={{...saStyles.td, color: '#94a3b8'}}>{r.city || '—'}</td>
+                          <td style={{...saStyles.td, textAlign: 'center'}}>
+                            {r.status === 'pending' ? (
+                              <span style={{display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#eab308', background: 'rgba(234,179,8,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600}}>
+                                <span style={{width: '6px', height: '6px', borderRadius: '50%', background: '#eab308'}}></span> Pending
+                              </span>
+                            ) : r.status === 'approved' ? (
+                              <span style={{display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600}}>
+                                <span style={{width: '6px', height: '6px', borderRadius: '50%', background: '#10b981'}}></span> Approved
+                              </span>
+                            ) : (
+                              <span style={{display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600}}>
+                                <span style={{width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444'}}></span> Rejected
+                              </span>
+                            )}
+                          </td>
+                          <td style={{...saStyles.td, textAlign: 'right', color: '#64748b'}}>
+                            {new Date(r.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                          </td>
+                          <td style={{...saStyles.td, textAlign: 'center'}}>
+                            {r.status === 'pending' ? (
+                              <div style={{display: 'flex', gap: '6px', justifyContent: 'center'}}>
+                                <button onClick={() => { setReviewingRegId(r.id); setReviewAction('approve'); setAdminNotes(''); setShowReviewModal(true); }}
+                                  style={{background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600}}>
+                                  ✓ Approve
+                                </button>
+                                <button onClick={() => { setReviewingRegId(r.id); setReviewAction('reject'); setAdminNotes(''); setShowReviewModal(true); }}
+                                  style={{background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600}}>
+                                  ✕ Reject
+                                </button>
+                              </div>
+                            ) : (
+                              <span style={{color: '#64748b', fontSize: '0.82rem'}}>
+                                {r.reviewed_at ? new Date(r.reviewed_at).toLocaleDateString() : '—'}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+          )}
+
         </div>
       </div>
 
@@ -652,6 +1214,76 @@ function SuperAdminDashboard({ user, onLogout }) {
           </div>
         </div>
       )}
+
+      {/* ── REVIEW REGISTRATION MODAL ── */}
+      {showReviewModal && (
+        <div style={saStyles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setShowReviewModal(false); }}>
+          <div style={{...saStyles.modal, maxWidth: '460px'}}>
+            <div style={saStyles.modalHeader}>
+              <h2 style={{...saStyles.modalTitle, color: reviewAction === 'approve' ? '#10b981' : '#ef4444'}}>
+                {reviewAction === 'approve' ? '✓ Approve Registration' : '✕ Reject Registration'}
+              </h2>
+              <button style={saStyles.closeBtn} onClick={() => setShowReviewModal(false)}>&times;</button>
+            </div>
+            <div style={saStyles.modalBody}>
+              {reviewAction === 'approve' && (
+                <>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Assign Login Email</label>
+                  <input
+                    type="email"
+                    style={saStyles.formInput}
+                    value={customEmail}
+                    onChange={e => setCustomEmail(e.target.value)}
+                    placeholder="Leave empty to use registration email"
+                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                  />
+                </div>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Assign Password</label>
+                  <input
+                    type="text"
+                    style={saStyles.formInput}
+                    value={customPassword}
+                    onChange={e => setCustomPassword(e.target.value)}
+                    placeholder="Enter password to assign (or leave empty to auto-generate)"
+                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                  />
+                </div>
+                </>
+              )}
+              <div style={saStyles.formGroup}>
+                <label style={saStyles.formLabel}>Admin Notes (optional)</label>
+                <textarea
+                  style={{...saStyles.formInput, minHeight: '80px', resize: 'vertical'}}
+                  value={adminNotes}
+                  onChange={e => setAdminNotes(e.target.value)}
+                  placeholder={reviewAction === 'approve' ? 'e.g. Welcome aboard!' : 'e.g. Reason for rejection...'}
+                  onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                  onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                />
+              </div>
+              <div style={saStyles.modalActions}>
+                <button type="button" style={saStyles.cancelBtn} onClick={() => setShowReviewModal(false)}>Cancel</button>
+                <button type="button" disabled={submittingReview} onClick={submitReview}
+                  style={{
+                    padding: '10px 24px',
+                    background: submittingReview ? '#4c3a7a' : reviewAction === 'approve' ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #ef4444, #dc2626)',
+                    color: '#fff', border: 'none', borderRadius: '8px',
+                    cursor: submittingReview ? 'not-allowed' : 'pointer',
+                    fontSize: '0.88rem', fontWeight: 600,
+                    opacity: submittingReview ? 0.6 : 1,
+                  }}>
+                  {submittingReview ? 'Processing...' : reviewAction === 'approve' ? 'Confirm Approve' : 'Confirm Reject'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -1186,12 +1818,11 @@ function App() {
   const [showHoldModal, setShowHoldModal] = useState(false);
   const [holdName, setHoldName] = useState('');
   
-  const [discountType, setDiscountType] = useState('None'); // 'None', 'Percentage', 'Fixed', 'Student', 'Staff', 'Coupon', 'Loyalty'
+  const [discountType, setDiscountType] = useState('None'); // 'None', 'Percentage', 'Fixed', 'StaffMeal', 'Coupon', 'Loyalty'
   const [discountValue, setDiscountValue] = useState(0);
   const [discountAmount, setDiscountAmount] = useState(0);
   const [discountReference, setDiscountReference] = useState('');
   const [couponCode, setCouponCode] = useState('');
-  const [studentId, setStudentId] = useState('');
   const [selectedStaffId, setSelectedStaffId] = useState('');
   // Loyalty redemption state
   const [loyaltyRedeemPoints, setLoyaltyRedeemPoints] = useState('');
@@ -1427,7 +2058,8 @@ function App() {
     id: '', name: '', phone: '', email: '', password: '', role: 'Stall Staff',
     pay_type: 'monthly', daily_rate: '0', monthly_salary: '0',
     pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '',
-    exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false
+    exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false,
+    staff_meal_limit: '0', staff_meal_auto_reset: true
   });
   const [showShiftForm, setShowShiftForm] = useState(false);
   const [formShift, setFormShift] = useState({ id: '', name: '', start_time: '09:00:00', end_time: '17:00:00' });
@@ -2009,6 +2641,33 @@ function App() {
       setKdsHistory(data);
     } catch (err) {
       console.error('Failed to fetch KDS history:', err);
+    }
+  };
+
+  const handleKdsStart = async (orderId) => {
+    try {
+      let targetVendorId;
+      if (user && user.role !== 'Owner' && user.role !== 'Super Admin') {
+        targetVendorId = user.vendor_id ? String(user.vendor_id) : 'null';
+      } else {
+        targetVendorId = (selectedVendorId !== 'all') ? String(selectedVendorId) : 'all';
+      }
+      const res = await fetch(`${API_BASE}/kds/orders/${orderId}/start`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vendor_id: targetVendorId })
+      });
+      if (res.ok) {
+        showToast('Preparation started', 'success');
+        fetchKdsOrders();
+        if (kdsShowHistory) fetchKdsHistory();
+        fetchOrders();
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Failed to start preparation', 'error');
+      }
+    } catch (err) {
+      showToast('API communication failed', 'error');
     }
   };
 
@@ -2934,7 +3593,9 @@ function App() {
         exclude_from_payroll: formStaff.exclude_from_payroll ? 1 : 0,
         exclude_from_roster: formStaff.exclude_from_roster ? 1 : 0,
         exclude_from_attendance: formStaff.exclude_from_attendance ? 1 : 0,
-        exclude_from_performance: formStaff.exclude_from_performance ? 1 : 0
+        exclude_from_performance: formStaff.exclude_from_performance ? 1 : 0,
+        staff_meal_limit: parseFloat(formStaff.staff_meal_limit || 0),
+        staff_meal_auto_reset: formStaff.staff_meal_auto_reset ? 1 : 0
       };
       if (formStaff.id) {
         body.is_active = formStaff.is_active;
@@ -2953,7 +3614,8 @@ function App() {
           id: '', name: '', phone: '', email: '', password: '', role: 'Stall Staff',
           pay_type: 'monthly', daily_rate: '0', monthly_salary: '0',
           pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '',
-          exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false
+          exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false,
+          staff_meal_limit: '0', staff_meal_auto_reset: true
         });
         fetchStaff();
       } else {
@@ -2984,7 +3646,9 @@ function App() {
       exclude_from_roster: member.exclude_from_roster === 1,
       exclude_from_attendance: member.exclude_from_attendance === 1,
       exclude_from_performance: member.exclude_from_performance === 1,
-      is_active: member.is_active
+      is_active: member.is_active,
+      staff_meal_limit: (member.staff_meal_limit || 0).toString(),
+      staff_meal_auto_reset: member.staff_meal_auto_reset === 1
     });
     setShowStaffForm(true);
   };
@@ -3412,7 +4076,8 @@ function App() {
           price: parseFloat(item.is_special && item.special_price ? item.special_price : item.price),
           gst_rate: parseFloat(item.gst_rate),
           quantity: 1,
-          mess_eligible: !!item.mess_eligible
+          mess_eligible: !!item.mess_eligible,
+          vendor_id: item.vendor_id || null
         }];
       }
     });
@@ -3550,7 +4215,9 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code: couponCode,
-          subtotal: cartSubtotal
+          subtotal: cartSubtotal,
+          vendor_id: user.vendor_id,
+          cart_items: cart.map(i => ({ vendor_id: i.vendor_id || null, subtotal: i.price * i.quantity }))
         })
       });
       if (res.ok) {
@@ -3569,37 +4236,6 @@ function App() {
     }
   };
 
-  const handleApplyStudentDiscount = () => {
-    if (!studentId.trim()) {
-      showToast('Please enter a valid Student ID.', 'error');
-      return;
-    }
-    const amount = cartSubtotal * 0.10; // 10% off
-    setDiscountType('Student');
-    setDiscountValue(10);
-    setDiscountAmount(amount);
-    setDiscountReference(studentId);
-    showToast(`Student Discount (10%) applied!`, 'success');
-  };
-
-  const handleApplyStaffDiscount = (staffId) => {
-    if (!staffId) {
-      setDiscountType('None');
-      setDiscountValue(0);
-      setDiscountAmount(0);
-      setDiscountReference('');
-      return;
-    }
-    const staffMember = staff.find(s => s.id === parseInt(staffId));
-    if (!staffMember) return;
-    const amount = cartSubtotal * 0.15; // 15% off for staff
-    setDiscountType('Staff');
-    setDiscountValue(15);
-    setDiscountAmount(amount);
-    setDiscountReference(`${staffMember.name} (ID: ${staffMember.id})`);
-    setSelectedStaffId(staffId);
-    showToast(`Staff Discount (15%) applied for ${staffMember.name}`, 'success');
-  };
 
   const handleApplyCustomDiscount = (pct) => {
     const val = parseFloat(pct || 0);
@@ -3615,7 +4251,7 @@ function App() {
     showToast(`Custom Discount (${val}%) applied!`, 'success');
   };
 
-  const handleApplyStaffMeal = (staffId) => {
+  const handleApplyStaffMeal = async (staffId) => {
     if (!staffId) {
       setDiscountType('None');
       setDiscountValue(0);
@@ -3623,8 +4259,33 @@ function App() {
       setDiscountReference('');
       return;
     }
+    // Staff Meal only covers items from the staff member's own vendor
+    const userVendorId = user.vendor_id || null;
+    const hasOtherVendorItems = cart.some(item => (item.vendor_id || null) !== userVendorId);
+    if (hasOtherVendorItems) {
+      showToast('Staff Meal can only be applied when the cart contains items from your own stall/canteen.', 'error');
+      return;
+    }
     const staffMember = staff.find(s => s.id === parseInt(staffId));
     if (!staffMember) return;
+
+    // Check Meal Limit
+    try {
+      const res = await fetch(`${API_BASE}/staff/${staffId}/meal-usage`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const usageData = await res.json();
+      
+      if (!usageData.unlimited && cartSubtotal > usageData.remaining) {
+        showToast(`Staff Meal limit exceeded for ${staffMember.name}. Used ₹${usageData.used.toFixed(2)} of ₹${usageData.total_allowance.toFixed(2)}. Remaining: ₹${usageData.remaining.toFixed(2)}. Cart total: ₹${cartSubtotal.toFixed(2)}.`, 'error');
+        // Reset dropdown if possible
+        setSelectedStaffId('');
+        return;
+      }
+    } catch (e) {
+      console.error('Error checking meal limit:', e);
+      showToast('Failed to verify staff meal limit. Please try again.', 'error');
+      return;
+    }
+
     setDiscountType('StaffMeal');
     setDiscountValue(100);
     setDiscountAmount(cartSubtotal);
@@ -3675,7 +4336,6 @@ function App() {
     setDiscountAmount(0);
     setDiscountReference('');
     setCouponCode('');
-    setStudentId('');
     setSelectedStaffId('');
     setLoyaltyRedeemPoints('');
     setLoyaltyCustomerInfo(null);
@@ -4073,6 +4733,17 @@ function App() {
                 <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
               </svg>
               <span>Multi-Vendor</span>
+            </div>
+          )}
+          {(['Owner', 'Manager'].includes(user.role)) && (
+            <div
+              className={`menu-item ${activeTab === 'promotions' ? 'active' : ''}`}
+              onClick={() => setActiveTab('promotions')}
+            >
+              <svg className="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line>
+              </svg>
+              <span>Promotions</span>
             </div>
           )}
           {(['Owner', 'Manager'].includes(user.role)) && (
@@ -5123,22 +5794,8 @@ function App() {
                           >
                             Promo Code
                           </button>
-                          <button 
-                            type="button"
-                            className={`btn btn-xs ${discountType === 'Student' ? 'btn-primary' : 'btn-secondary-outline'}`}
-                            onClick={() => { setDiscountType(discountType === 'Student' ? 'None' : 'Student'); setDiscountAmount(0); }}
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
-                            Student ID
-                          </button>
-                          <button 
-                            type="button"
-                            className={`btn btn-xs ${discountType === 'Staff' ? 'btn-primary' : 'btn-secondary-outline'}`}
-                            onClick={() => { setDiscountType(discountType === 'Staff' ? 'None' : 'Staff'); setDiscountAmount(0); }}
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
-                            Staff Discount
-                          </button>
+
+
                           <button 
                             type="button"
                             className={`btn btn-xs ${discountType === 'StaffMeal' ? 'btn-primary' : 'btn-secondary-outline'}`}
@@ -5171,35 +5828,7 @@ function App() {
                           </div>
                         )}
 
-                        {discountType === 'Student' && (
-                          <div style={{ display: 'flex', gap: '6px', animation: 'slideDown 0.2s' }}>
-                            <input 
-                              type="text" 
-                              placeholder="Enter Student Card ID" 
-                              className="input-field input-xs"
-                              value={studentId} 
-                              onChange={(e) => setStudentId(e.target.value)}
-                              style={{ flex: 1, padding: '4px 8px', height: '32px', fontSize: '12px' }}
-                            />
-                            <button type="button" className="btn btn-primary btn-xs" onClick={handleApplyStudentDiscount}>10% Off</button>
-                          </div>
-                        )}
 
-                        {discountType === 'Staff' && (
-                          <div style={{ display: 'flex', gap: '6px', animation: 'slideDown 0.2s' }}>
-                            <select 
-                              className="input-field input-xs" 
-                              value={selectedStaffId}
-                              onChange={(e) => handleApplyStaffDiscount(e.target.value)}
-                              style={{ flex: 1, padding: '4px 8px', height: '32px', fontSize: '12px' }}
-                            >
-                              <option value="">-- Choose Employee (15% Off) --</option>
-                              {staff.map(s => (
-                                <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
 
                         {discountType === 'StaffMeal' && (
                           <div style={{ display: 'flex', gap: '6px', animation: 'slideDown 0.2s' }}>
@@ -5210,7 +5839,7 @@ function App() {
                               style={{ flex: 1, padding: '4px 8px', height: '32px', fontSize: '12px' }}
                             >
                               <option value="">-- Choose Employee (Staff Meal) --</option>
-                              {staff.map(s => (
+                              {staff.filter(s => s.vendor_id === user.vendor_id && s.role !== 'Owner').map(s => (
                                 <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
                               ))}
                             </select>
@@ -5418,7 +6047,7 @@ function App() {
                     <button 
                       className="btn btn-primary btn-block btn-large" 
                       onClick={handleCheckoutPOS}
-                      disabled={cart.length === 0 || !posCashierId || isPosCheckoutLoading}
+                      disabled={cart.length === 0 || !posCashierId || isPosCheckoutLoading || (discountType === 'StaffMeal' && !selectedStaffId)}
                       style={{ marginTop: '12px', opacity: isPosCheckoutLoading ? 0.75 : 1, cursor: isPosCheckoutLoading ? 'not-allowed' : 'pointer' }}
                     >
                       {isPosCheckoutLoading ? (
@@ -5440,6 +6069,11 @@ function App() {
                     {!posCashierId && cart.length > 0 && (
                       <p style={{ color: '#f87171', fontSize: '11px', textAlign: 'center', marginTop: '4px', fontWeight: 600 }}>
                         [Warning] Select cashier before confirming order
+                      </p>
+                    )}
+                    {discountType === 'StaffMeal' && !selectedStaffId && (
+                      <p style={{ color: '#f87171', fontSize: '11px', textAlign: 'center', marginTop: '4px', fontWeight: 600 }}>
+                        [Warning] Select a staff member for Staff Meal before confirming order
                       </p>
                     )}
                   </div>
@@ -6366,9 +7000,19 @@ function App() {
                                   <span className="kds-source-badge" style={{ fontSize: '0.8rem', padding: '2px 6px', borderRadius: '4px', background: order.order_source === 'QR' ? 'var(--accent-primary)' : '#64748b', color: '#fff' }}>
                                     {order.order_source === 'QR' ? '📱 QR' : '🖥️ POS'}
                                   </span>
-                                  <span className={`kds-status-badge ${order.status.toLowerCase()}`}>
-                                    {order.status === 'Pending' ? '🕒 Pending' : '🍳 Preparing'}
-                                  </span>
+                                  {(() => {
+                                    const items = order.items || [];
+                                    const hasReady = items.some(i => i.item_status === 'Ready');
+                                    const allReady = items.length > 0 && items.every(i => i.item_status === 'Ready');
+                                    const hasPreparing = items.some(i => i.item_status === 'Preparing');
+                                    let displayStatus = order.status === 'Pending' ? '🕒 Pending' : '🍳 Preparing';
+                                    let badgeClass = order.status.toLowerCase();
+                                    if (hasReady && !allReady) {
+                                      displayStatus = '⏳ Partially Ready';
+                                      badgeClass = 'partially-ready';
+                                    }
+                                    return <span className={`kds-status-badge ${badgeClass}`}>{displayStatus}</span>;
+                                  })()}
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                   <span className="kds-payment-tag">{order.payment_mode}</span>
@@ -6401,72 +7045,169 @@ function App() {
                                 </div>
                               )}
 
-                              {/* Items List */}
+                              {/* Items List - With Vendor Grouping Support */}
                               <div className="kds-items-list">
-                                {order.items && order.items.map((item, idx) => (
-                                  <div key={idx} className="kds-item-block" style={{ padding: '0.4rem 0', borderBottom: idx < order.items.length - 1 ? '1px dashed var(--border-color)' : 'none' }}>
-                                    <div className="kds-item-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span
-                                          className="kds-item-category-dot"
-                                          style={{
-                                            background:
-                                              item.category === 'Breakfast' ? '#f59e0b' :
-                                              item.category === 'Lunch' ? '#3b82f6' :
-                                              item.category === 'Snacks' ? '#ef4444' :
-                                              item.category === 'Beverages' ? '#10b981' :
-                                              '#8b5cf6'
-                                          }}
-                                        />
-                                        <span className="kds-item-name" style={{ fontWeight: '600' }}>{item.name}</span>
-                                      </div>
-                                      <span className="kds-item-qty" style={{ fontWeight: 'bold' }}>×{item.quantity}</span>
-                                    </div>
+                                {(() => {
+                                  if (!order.items) return null;
+                                  // Determine if we need to group by vendor (Expo view usually has vendor_name)
+                                  const isExpoView = order.items.some(item => item.vendor_name);
+                                  
+                                  const itemsToRender = order.items;
+                                  
+                                  // If Expo View, group by vendor
+                                  if (isExpoView) {
+                                    const groupedItems = itemsToRender.reduce((acc, item) => {
+                                      const vName = item.vendor_name || 'Central Canteen';
+                                      if (!acc[vName]) acc[vName] = [];
+                                      acc[vName].push(item);
+                                      return acc;
+                                    }, {});
                                     
-                                    {(item.spice_level || item.special_instructions) && (
-                                      <div style={{ paddingLeft: '20px', display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '2px' }}>
-                                        {item.spice_level && (
-                                          <span style={{ fontSize: '0.75rem', padding: '1px 5px', borderRadius: '3px', background: item.spice_level === 'Hot' ? '#fee2e2' : item.spice_level === 'Medium' ? '#fffbeb' : '#f0fdf4', color: item.spice_level === 'Hot' ? '#dc2626' : item.spice_level === 'Medium' ? '#d97706' : '#16a34a', border: '1px solid currentColor', fontWeight: '500' }}>
-                                            🌶️ {item.spice_level}
-                                          </span>
-                                        )}
-                                        {item.special_instructions && (
-                                          <span style={{ fontSize: '0.75rem', padding: '1px 5px', borderRadius: '3px', background: 'var(--bg-color)', color: 'var(--text-color-secondary)', border: '1px solid var(--border-color)', fontStyle: 'italic' }}>
-                                            📝 "{item.special_instructions}"
-                                          </span>
+                                    return Object.entries(groupedItems).map(([vendorName, vItems], vIdx) => (
+                                      <div key={vIdx} className="kds-vendor-group">
+                                        <div className="kds-vendor-header">
+                                          {vendorName === 'Central Canteen' ? '🏠' : '🏪'} {vendorName}
+                                        </div>
+                                        {vItems.map((item, idx) => (
+                                          <div key={`${vIdx}-${idx}`} className="kds-item-block">
+                                            <div className="kds-item-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span className={`item-status-chip ${item.item_status ? item.item_status.toLowerCase() : 'pending'}`}>
+                                                  {item.item_status === 'Pending' ? '🟡' : item.item_status === 'Preparing' ? '🔵' : '🟢 ✓'}
+                                                </span>
+                                                <span className="kds-item-name" style={{ fontWeight: '600' }}>{item.name}</span>
+                                              </div>
+                                              <span className="kds-item-qty" style={{ fontWeight: 'bold' }}>×{item.quantity}</span>
+                                            </div>
+                                            {(item.spice_level || item.special_instructions) && (
+                                              <div style={{ paddingLeft: '32px', display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '2px' }}>
+                                                {item.spice_level && (
+                                                  <span style={{ fontSize: '0.75rem', padding: '1px 5px', borderRadius: '3px', background: item.spice_level === 'Hot' ? '#fee2e2' : item.spice_level === 'Medium' ? '#fffbeb' : '#f0fdf4', color: item.spice_level === 'Hot' ? '#dc2626' : item.spice_level === 'Medium' ? '#d97706' : '#16a34a', border: '1px solid currentColor', fontWeight: '500' }}>
+                                                    🌶️ {item.spice_level}
+                                                  </span>
+                                                )}
+                                                {item.special_instructions && (
+                                                  <span style={{ fontSize: '0.75rem', padding: '1px 5px', borderRadius: '3px', background: 'var(--bg-color)', color: 'var(--text-color-secondary)', border: '1px solid var(--border-color)', fontStyle: 'italic' }}>
+                                                    📝 "{item.special_instructions}"
+                                                  </span>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ));
+                                  } else {
+                                    // Normal Stall View
+                                    return itemsToRender.map((item, idx) => (
+                                      <div key={idx} className="kds-item-block" style={{ padding: '0.4rem 0', borderBottom: idx < itemsToRender.length - 1 ? '1px dashed var(--border-color)' : 'none' }}>
+                                        <div className="kds-item-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span className={`item-status-chip ${item.item_status ? item.item_status.toLowerCase() : 'pending'}`}>
+                                              {item.item_status === 'Pending' ? '🟡' : item.item_status === 'Preparing' ? '🔵' : '🟢 ✓'}
+                                            </span>
+                                            <span className="kds-item-name" style={{ fontWeight: '600' }}>{item.name}</span>
+                                          </div>
+                                          <span className="kds-item-qty" style={{ fontWeight: 'bold' }}>×{item.quantity}</span>
+                                        </div>
+                                        
+                                        {(item.spice_level || item.special_instructions) && (
+                                          <div style={{ paddingLeft: '32px', display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '2px' }}>
+                                            {item.spice_level && (
+                                              <span style={{ fontSize: '0.75rem', padding: '1px 5px', borderRadius: '3px', background: item.spice_level === 'Hot' ? '#fee2e2' : item.spice_level === 'Medium' ? '#fffbeb' : '#f0fdf4', color: item.spice_level === 'Hot' ? '#dc2626' : item.spice_level === 'Medium' ? '#d97706' : '#16a34a', border: '1px solid currentColor', fontWeight: '500' }}>
+                                                🌶️ {item.spice_level}
+                                              </span>
+                                            )}
+                                            {item.special_instructions && (
+                                              <span style={{ fontSize: '0.75rem', padding: '1px 5px', borderRadius: '3px', background: 'var(--bg-color)', color: 'var(--text-color-secondary)', border: '1px solid var(--border-color)', fontStyle: 'italic' }}>
+                                                📝 "{item.special_instructions}"
+                                              </span>
+                                            )}
+                                          </div>
                                         )}
                                       </div>
-                                    )}
-                                  </div>
-                                ))}
+                                    ));
+                                  }
+                                })()}
                               </div>
 
                               {/* Action Buttons */}
-                              <div className="kds-card-footer">
-                                {order.status === 'Pending' && (
-                                  <button
-                                    className="kds-action-btn start"
-                                    onClick={() => handleKdsStatusUpdate(order.id, 'Preparing')}
-                                  >
-                                    ▶ Start
-                                  </button>
+                              <div className="kds-card-footer" style={{ flexDirection: 'column' }}>
+                                {(() => {
+                                  const relevantItems = order.items ? order.items.filter(i => i.is_own !== 0) : [];
+                                  const hasPending = relevantItems.some(i => i.item_status === 'Pending');
+                                  const allPreparing = relevantItems.length > 0 && relevantItems.every(i => i.item_status === 'Preparing');
+                                  
+                                  // Expo gating: check if all external stall items are Ready
+                                  const isExpo = order.is_expo;
+                                  const externalItems = isExpo ? (order.items || []).filter(i => i.is_own === 0) : [];
+                                  const allExternalReady = externalItems.length === 0 || externalItems.every(i => i.item_status === 'Ready');
+                                  const readyExternalStalls = isExpo ? [...new Set(externalItems.filter(i => i.item_status === 'Ready').map(i => i.vendor_name))].length : 0;
+                                  const totalExternalStalls = isExpo ? [...new Set(externalItems.map(i => i.vendor_name))].length : 0;
+                                  
+                                  return (
+                                    <div style={{ display: 'flex', width: '100%', gap: '10px' }}>
+                                      {hasPending && (
+                                        <button
+                                          className="kds-action-btn start"
+                                          onClick={() => handleKdsStart(order.id)}
+                                          style={{ flex: 1 }}
+                                        >
+                                          ▶ Start
+                                        </button>
+                                      )}
+                                      {!hasPending && allPreparing && (
+                                        isExpo && !allExternalReady ? (
+                                          <button
+                                            className="kds-action-btn ready"
+                                            disabled
+                                            style={{ flex: 1, opacity: 0.5, cursor: 'not-allowed' }}
+                                            title="Waiting for other stalls to complete..."
+                                          >
+                                            ⏳ Waiting for stalls...
+                                          </button>
+                                        ) : (
+                                          <button
+                                            className="kds-action-btn ready"
+                                            onClick={() => handleKdsStatusUpdate(order.id, 'Ready')}
+                                            style={{ flex: 1 }}
+                                          >
+                                            ✓ Ready
+                                          </button>
+                                        )
+                                      )}
+                                      <button
+                                        className="kds-action-btn cancel"
+                                        onClick={() => {
+                                          setCancelModal({ show: true, orderId: order.id, tokenNumber: order.token_number, pin: '', reason: '', step: 1 });
+                                        }}
+                                        style={{ width: '40px', flex: 'none' }}
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  );
+                                })()}
+                                {order.is_expo && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-color-secondary)' }}>
+                                      (Controls Central items only)
+                                    </span>
+                                    {(() => {
+                                      const extItems = (order.items || []).filter(i => i.is_own === 0);
+                                      const totalExtStalls = [...new Set(extItems.map(i => i.vendor_name))].length;
+                                      const readyExtStalls = [...new Set(extItems.filter(i => i.item_status === 'Ready').map(i => i.vendor_name))].length;
+                                      if (totalExtStalls > 0) {
+                                        return (
+                                          <span style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: '10px', background: readyExtStalls === totalExtStalls ? '#dcfce7' : '#fef9c3', color: readyExtStalls === totalExtStalls ? '#166534' : '#854d0e', fontWeight: 'bold' }}>
+                                            {readyExtStalls === totalExtStalls ? '✅' : '⏳'} {readyExtStalls} of {totalExtStalls} stalls ready
+                                          </span>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
+                                  </div>
                                 )}
-                                {['Preparing', 'Partially Ready', 'Pending'].includes(order.status) && (
-                                  <button
-                                    className="kds-action-btn ready"
-                                    onClick={() => handleKdsStatusUpdate(order.id, 'Ready')}
-                                  >
-                                    ✓ Ready
-                                  </button>
-                                )}
-                                <button
-                                  className="kds-action-btn cancel"
-                                  onClick={() => {
-                                    setCancelModal({ show: true, orderId: order.id, tokenNumber: order.token_number, pin: '', reason: '', step: 1 });
-                                  }}
-                                >
-                                  ✕
-                                </button>
                               </div>
                             </div>
                           );
@@ -7298,6 +8039,12 @@ function App() {
             </div>
           )}
 
+          {activeTab === 'promotions' && (
+            <div className="view-panel active" style={{ height: '100%', overflowY: 'auto' }}>
+              <Promotions user={user} />
+            </div>
+          )}
+
           {/* ==========================================
                TAB 10: HR, PAYROLL & ATTENDANCE
                ========================================== */}
@@ -7346,7 +8093,7 @@ function App() {
                       <div className="modal-card" style={{ maxWidth: '600px', width: '95%' }}>
                         <div className="modal-header">
                           <h3>{formStaff.id ? '✏️ Edit Staff Member' : '➕ Register New Staff Member'}</h3>
-                          <button className="close-btn" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Staff', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false }); }}>&times;</button>
+                          <button className="close-btn" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Staff', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); }}>&times;</button>
                         </div>
                         <form onSubmit={handleSaveStaff}>
                           <div className="modal-body">
@@ -7458,9 +8205,26 @@ function App() {
                                 Exclude from Performance
                               </label>
                             </div>
+                            <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '12px' }}>
+                              <h4 style={{ margin: '0 0 10px 0', fontSize: '0.95rem' }}>🍽️ Staff Meal Allowance</h4>
+                              <div className="hr-form-grid">
+                                <div className="form-group">
+                                  <label>Monthly Meal Limit (₹)</label>
+                                  <input type="number" min="0" step="0.01" value={formStaff.staff_meal_limit} onChange={e => setFormStaff({ ...formStaff, staff_meal_limit: e.target.value })} placeholder="0 = Unlimited" />
+                                  <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Set to 0 for unlimited</small>
+                                </div>
+                                <div className="form-group">
+                                  <label>Auto Reset Monthly</label>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer', marginTop: '6px' }}>
+                                    <input type="checkbox" checked={formStaff.staff_meal_auto_reset} onChange={e => setFormStaff({ ...formStaff, staff_meal_auto_reset: e.target.checked })} />
+                                    {formStaff.staff_meal_auto_reset ? 'ON — Resets on 1st of each month' : 'OFF — Manual reset only'}
+                                  </label>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                           <div className="modal-footer" style={{ borderTop: '1px solid var(--border-light)', paddingTop: '15px' }}>
-                            <button type="button" className="btn btn-outline-primary" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Staff', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false }); }}>Cancel</button>
+                            <button type="button" className="btn btn-outline-primary" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Staff', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); }}>Cancel</button>
                             <button type="submit" className="btn btn-success">{formStaff.id ? 'Update Staff Info' : 'Add Staff'}</button>
                           </div>
                         </form>
@@ -7500,6 +8264,11 @@ function App() {
                               </span>
                             </div>
                           </div>
+                          {parseFloat(s.staff_meal_limit || 0) > 0 && (
+                            <div style={{ padding: '8px 15px', borderTop: '1px solid var(--border-light)', background: 'var(--bg-secondary)' }}>
+                              <MealAllowanceWidget staffId={s.id} staffName={s.name} limit={parseFloat(s.staff_meal_limit)} autoReset={s.staff_meal_auto_reset === 1} token={token} showToast={showToast} fetchStaff={fetchStaff} />
+                            </div>
+                          )}
                           <div className="hr-card-footer">
                             {s.id !== user.id && (
                               <>
@@ -7512,7 +8281,7 @@ function App() {
                       );
                     })}
 
-                    <div className="hr-add-card" onClick={() => { setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Staff', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false }); setShowStaffForm(true); }}>
+                    <div className="hr-add-card" onClick={() => { setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Staff', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); setShowStaffForm(true); }}>
                       <div className="add-icon">＋</div>
                       <span>Add Staff Member</span>
                     </div>

@@ -243,7 +243,7 @@ const authenticateToken = (req, res, next) => {
   }
 
   // Public routes that don't require auth (but we still populated req.user if they had a token)
-  const publicPaths = ['/server-info', '/auth/login'];
+  const publicPaths = ['/server-info', '/auth/login', '/register'];
   if (publicPaths.some(p => req.path === p || req.path.startsWith(p))) return next();
   
   // Allow QR menu to fetch active items and combos without auth
@@ -1586,6 +1586,96 @@ app.post('/api/purchase-entry', async (req, res) => {
 
 
 
+function getLocalMonthStart() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}-01 00:00:00`;
+}
+
+async function calculateStaffMealUsage(db, staffId) {
+  const [staffRows] = await db.query('SELECT id, name, staff_meal_limit, staff_meal_auto_reset, vendor_id FROM staff WHERE id = ?', [staffId]);
+  if (staffRows.length === 0) return null;
+
+  const staff = staffRows[0];
+  const limit = parseFloat(staff.staff_meal_limit || 0);
+  const autoReset = staff.staff_meal_auto_reset === 1;
+
+  const monthStart = getLocalMonthStart();
+
+  // Find latest manual reset
+  const [resetLogs] = await db.query(
+    'SELECT id, created_at FROM staff_meal_adjustments WHERE staff_id = ? AND type = "reset" ORDER BY id DESC LIMIT 1',
+    [staffId]
+  );
+
+  let periodStart;
+  let resetId = 0;
+
+  if (autoReset) {
+    if (resetLogs.length > 0) {
+      const resetTime = new Date(resetLogs[0].created_at);
+      const mStartTime = new Date(monthStart);
+      if (resetTime >= mStartTime) {
+        periodStart = resetLogs[0].created_at;
+        resetId = resetLogs[0].id;
+      } else {
+        periodStart = monthStart;
+        resetId = 0;
+      }
+    } else {
+      periodStart = monthStart;
+      resetId = 0;
+    }
+  } else {
+    if (resetLogs.length > 0) {
+      periodStart = resetLogs[0].created_at;
+      resetId = resetLogs[0].id;
+    } else {
+      periodStart = '2000-01-01 00:00:00';
+      resetId = 0;
+    }
+  }
+
+  // Calculate additional allowances added during this period
+  let additionalQuery = 'SELECT IFNULL(SUM(amount), 0) as extra FROM staff_meal_adjustments WHERE staff_id = ? AND type = "additional" AND created_at >= ?';
+  const additionalParams = [staffId, periodStart];
+  if (resetId > 0) {
+    additionalQuery += ' AND id > ?';
+    additionalParams.push(resetId);
+  }
+
+  const [additionalLogs] = await db.query(additionalQuery, additionalParams);
+  const additional = parseFloat(additionalLogs[0].extra || 0);
+  const totalAllowance = limit + additional;
+
+  // Calculate used allowance in this period from active StaffMeal orders
+  const [usageRows] = await db.query(`
+    SELECT IFNULL(SUM(oi.quantity * oi.price), 0) as used
+    FROM orders o
+    JOIN order_items oi ON o.id = oi.order_id
+    WHERE o.customer_staff_id = ?
+      AND o.discount_type = 'StaffMeal'
+      AND o.order_date >= ?
+      AND o.status != 'Cancelled'
+  `, [staffId, periodStart]);
+
+  const used = parseFloat(usageRows[0].used || 0);
+  const remaining = totalAllowance - used;
+
+  return {
+    staff,
+    limit,
+    auto_reset: autoReset,
+    period_start: periodStart,
+    used,
+    additional,
+    total_allowance: totalAllowance,
+    remaining,
+    unlimited: limit === 0
+  };
+}
+
 // ==========================================
 // 6. POS OPERATIONS (ORDER PLACEMENT)
 // ==========================================
@@ -1611,6 +1701,9 @@ app.post('/api/orders', async (req, res) => {
     vendor_id = null              // stall that placed this order (for wallet settlement tracking)
   } = req.body; // items: Array of { item_id, quantity }
   
+  if (discount_type === 'StaffMeal' && !customer_staff_id) {
+    return res.status(400).json({ error: 'Staff member must be selected for Staff Meal discount.' });
+  }
   if (!orderItems || !Array.isArray(orderItems) || orderItems.length === 0 || !payment_mode) {
     return res.status(400).json({ error: 'Order items array and payment mode are required.' });
   }
@@ -1618,6 +1711,40 @@ app.post('/api/orders', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+
+    if (discount_type === 'StaffMeal' && customer_staff_id) {
+      const [staffCheck] = await connection.query('SELECT vendor_id FROM staff WHERE id = ?', [customer_staff_id]);
+      if (staffCheck.length === 0) {
+        throw new Error('Selected staff member not found.');
+      }
+      if (staffCheck[0].vendor_id !== (req.user.vendor_id || null)) {
+        throw new Error('Cannot apply Staff Meal for staff belonging to a different vendor.');
+      }
+      // Verify all cart items belong to the same vendor as the cashier
+      const userVendorId = req.user.vendor_id || null;
+      for (const ordItem of orderItems) {
+        const [itemCheck] = await connection.query('SELECT vendor_id FROM items WHERE id = ?', [ordItem.item_id]);
+        if (itemCheck.length > 0 && (itemCheck[0].vendor_id || null) !== userVendorId) {
+          throw new Error('Staff Meal can only be applied when all items belong to your own stall/canteen.');
+        }
+      }
+
+      // Staff Meal limit enforcement
+      const usageData = await calculateStaffMealUsage(connection, customer_staff_id);
+      if (usageData && !usageData.unlimited) {
+        let orderSubtotal = 0;
+        for (const oi of orderItems) {
+          const [ir] = await connection.query('SELECT price, special_price, is_special FROM items WHERE id = ?', [oi.item_id]);
+          if (ir.length > 0) {
+            const p = (ir[0].is_special && ir[0].special_price != null) ? parseFloat(ir[0].special_price) : parseFloat(ir[0].price);
+            orderSubtotal += p * parseInt(oi.quantity);
+          }
+        }
+        if (orderSubtotal > usageData.remaining) {
+          throw new Error(`Staff Meal limit exceeded. Used ₹${usageData.used.toFixed(2)} of ₹${usageData.total_allowance.toFixed(2)}. Remaining: ₹${usageData.remaining.toFixed(2)}. Cart total: ₹${orderSubtotal.toFixed(2)}.`);
+        }
+      }
+    }
 
     // 1. Calculate order total & tax and double-check menu item validity
     let subtotal = 0;
@@ -1832,8 +1959,8 @@ app.post('/api/orders', async (req, res) => {
     // 5. Write order line items
     for (const valItem of validatedItems) {
       await connection.query(
-        'INSERT INTO order_items (order_id, item_id, quantity, price, recorded_cogs, spice_level, special_instructions) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [orderId, valItem.id, valItem.quantity, valItem.priceSnapshot, valItem.recordedCogs || 0, valItem.spice_level, valItem.special_instructions]
+        'INSERT INTO order_items (order_id, item_id, quantity, price, recorded_cogs, spice_level, special_instructions, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [orderId, valItem.id, valItem.quantity, valItem.priceSnapshot, valItem.recordedCogs || 0, valItem.spice_level, valItem.special_instructions, 'Pending']
       );
     }
 
@@ -1974,8 +2101,6 @@ Item                 Qty
 app.get('/api/kds/orders', async (req, res) => {
   let vendor_id = req.query.vendor_id;
   if (req.user && req.user.vendor_id !== undefined) {
-    // Override with strict vendor check if staff.
-    // However, Super Admin or Owner can pass vendor_id from frontend.
     if (req.user.role !== 'Owner' && req.user.role !== 'Super Admin') {
       vendor_id = req.user.vendor_id ? String(req.user.vendor_id) : 'null';
     }
@@ -1985,21 +2110,21 @@ app.get('/api/kds/orders', async (req, res) => {
     let ordersQuery = '';
     let ordersParams = [];
     
-    // Determine the scope
     const isAll = (vendor_id === 'all' || !vendor_id);
     const isCentral = (vendor_id === 'null');
-    // Otherwise it's a specific stall ID
 
     if (isAll) {
+      // Owner/Super Admin global view — all active orders
       ordersQuery = `
         SELECT id, token_number, order_date, status, payment_mode, total_amount,
                order_source, customer_name, customer_phone, pickup_slot,
                TIMESTAMPDIFF(SECOND, order_date, NOW()) as elapsed_seconds
         FROM orders
-        WHERE status IN ('Pending', 'Preparing', 'Partially Ready')
+        WHERE status IN ('Pending', 'Preparing')
         ORDER BY order_date ASC
       `;
     } else if (isCentral) {
+      // Central Canteen EXPO view — orders that have at least one central item not yet Ready
       ordersQuery = `
         SELECT DISTINCT o.id, o.token_number, o.order_date, o.status, o.payment_mode, o.total_amount,
                o.order_source, o.customer_name, o.customer_phone, o.pickup_slot,
@@ -2007,12 +2132,13 @@ app.get('/api/kds/orders', async (req, res) => {
         FROM orders o
         JOIN order_items oi ON o.id = oi.order_id
         JOIN items i ON oi.item_id = i.id
-        WHERE o.status IN ('Pending', 'Preparing', 'Partially Ready')
+        WHERE o.status IN ('Pending', 'Preparing')
           AND i.vendor_id IS NULL
-          AND oi.status = 'Preparing'
+          AND oi.status IN ('Pending', 'Preparing')
         ORDER BY o.order_date ASC
       `;
     } else {
+      // Specific stall view — orders containing that stall's items not yet Ready
       const vId = parseInt(vendor_id);
       ordersQuery = `
         SELECT DISTINCT o.id, o.token_number, o.order_date, o.status, o.payment_mode, o.total_amount,
@@ -2021,9 +2147,9 @@ app.get('/api/kds/orders', async (req, res) => {
         FROM orders o
         JOIN order_items oi ON o.id = oi.order_id
         JOIN items i ON oi.item_id = i.id
-        WHERE o.status IN ('Pending', 'Preparing', 'Partially Ready')
+        WHERE o.status IN ('Pending', 'Preparing')
           AND i.vendor_id = ?
-          AND oi.status = 'Preparing'
+          AND oi.status IN ('Pending', 'Preparing')
         ORDER BY o.order_date ASC
       `;
       ordersParams.push(vId);
@@ -2033,18 +2159,50 @@ app.get('/api/kds/orders', async (req, res) => {
     if (orders.length === 0) return res.json([]);
 
     const orderIds = orders.map(o => o.id);
+
+    if (isCentral) {
+      // EXPO MODE: fetch ALL items from ALL stalls for these orders, with vendor names
+      const [items] = await pool.query(`
+        SELECT oi.id as order_item_id, oi.order_id, oi.quantity, oi.price,
+               oi.spice_level, oi.special_instructions, oi.status as item_status,
+               i.name, i.category, i.vendor_id,
+               COALESCE(v.name, 'Central Canteen') as vendor_name,
+               CASE WHEN i.vendor_id IS NULL THEN 1 ELSE 0 END as is_own
+        FROM order_items oi
+        JOIN items i ON oi.item_id = i.id
+        LEFT JOIN vendors v ON i.vendor_id = v.id
+        WHERE oi.order_id IN (?)
+      `, [orderIds]);
+
+      const itemsByOrder = {};
+      items.forEach(item => {
+        if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
+        itemsByOrder[item.order_id].push(item);
+      });
+
+      const result = orders.map(order => ({
+        ...order,
+        elapsed_seconds: Math.max(0, order.elapsed_seconds || 0),
+        items: itemsByOrder[order.id] || [],
+        is_expo: true
+      })).filter(order => order.items.length > 0);
+
+      return res.json(result);
+    }
+
+    // Non-expo mode: only this vendor's non-Ready items
     let itemsQuery = `
-      SELECT oi.id as order_item_id, oi.order_id, oi.quantity, oi.price, oi.spice_level, oi.special_instructions, oi.status as item_status, i.name, i.category, i.vendor_id
+      SELECT oi.id as order_item_id, oi.order_id, oi.quantity, oi.price,
+             oi.spice_level, oi.special_instructions, oi.status as item_status,
+             i.name, i.category, i.vendor_id
       FROM order_items oi
       JOIN items i ON oi.item_id = i.id
       WHERE oi.order_id IN (?)
     `;
     let itemsParams = [orderIds];
 
-    if (isCentral) {
-      itemsQuery += ` AND i.vendor_id IS NULL AND oi.status = 'Preparing'`;
-    } else if (!isAll) {
-      itemsQuery += ` AND i.vendor_id = ? AND oi.status = 'Preparing'`;
+    if (!isAll) {
+      itemsQuery += ` AND i.vendor_id = ? AND oi.status IN ('Pending', 'Preparing')`;
       itemsParams.push(parseInt(vendor_id));
     }
 
@@ -2060,12 +2218,67 @@ app.get('/api/kds/orders', async (req, res) => {
       ...order,
       elapsed_seconds: Math.max(0, order.elapsed_seconds || 0),
       items: itemsByOrder[order.id] || []
-    })).filter(order => order.items.length > 0); // Hide orders if all items for this vendor are already Ready
+    })).filter(order => order.items.length > 0);
 
     res.json(result);
   } catch (error) {
     console.error('KDS fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch KDS orders' });
+  }
+});
+
+
+// KDS Item-Level Start Update
+app.put('/api/kds/orders/:id/start', async (req, res) => {
+  const { id } = req.params;
+  const { vendor_id } = req.body;
+  
+  try {
+    let updateItemsQuery;
+    let updateItemsParams;
+    
+    if (vendor_id === 'all' || vendor_id === undefined) {
+      updateItemsQuery = `UPDATE order_items oi SET oi.status = 'Preparing' WHERE oi.order_id = ? AND oi.status = 'Pending'`;
+      updateItemsParams = [id];
+    } else if (vendor_id === 'null' || vendor_id === null) {
+      updateItemsQuery = `
+        UPDATE order_items oi JOIN items i ON oi.item_id = i.id 
+        SET oi.status = 'Preparing' WHERE oi.order_id = ? AND i.vendor_id IS NULL AND oi.status = 'Pending'
+      `;
+      updateItemsParams = [id];
+    } else {
+      updateItemsQuery = `
+        UPDATE order_items oi JOIN items i ON oi.item_id = i.id 
+        SET oi.status = 'Preparing' WHERE oi.order_id = ? AND i.vendor_id = ? AND oi.status = 'Pending'
+      `;
+      updateItemsParams = [id, parseInt(vendor_id)];
+    }
+    
+    await pool.query(updateItemsQuery, updateItemsParams);
+
+    // Set preparation_start if this is the first item being started
+    const [orderCheck] = await pool.query('SELECT preparation_start FROM orders WHERE id = ?', [id]);
+    if (orderCheck.length > 0 && !orderCheck[0].preparation_start) {
+      await pool.query('UPDATE orders SET preparation_start = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+    }
+
+    const [allItemRows] = await pool.query('SELECT status FROM order_items WHERE order_id = ?', [id]);
+    const totalItems = allItemRows.length;
+    const readyItems = allItemRows.filter(r => r.status === 'Ready').length;
+    const preparingItems = allItemRows.filter(r => r.status === 'Preparing').length;
+    
+    let newOrderStatus = 'Pending';
+    if (readyItems === totalItems) {
+      newOrderStatus = 'Ready';
+    } else if (preparingItems > 0 || readyItems > 0) {
+      newOrderStatus = 'Preparing';
+    }
+
+    await pool.query('UPDATE orders SET status = ? WHERE id = ?', [newOrderStatus, id]);
+    res.json({ success: true, message: 'Vendor items marked as Preparing', orderStatus: newOrderStatus });
+  } catch (error) {
+    console.error('KDS start error:', error);
+    res.status(500).json({ error: 'Failed to update KDS item status to Preparing' });
   }
 });
 
@@ -2075,6 +2288,20 @@ app.put('/api/kds/orders/:id/ready', async (req, res) => {
   const { vendor_id } = req.body; // 'null' for central, 'all' for entire order, string/int for stall
   
   try {
+    // 0. Guard: If Central is marking Ready, ensure all external stall items are already Ready
+    if (vendor_id === 'null' || vendor_id === null) {
+      const [externalItems] = await pool.query(`
+        SELECT oi.status as item_status
+        FROM order_items oi
+        JOIN items i ON oi.item_id = i.id
+        WHERE oi.order_id = ? AND i.vendor_id IS NOT NULL
+      `, [id]);
+      const allExternalReady = externalItems.length === 0 || externalItems.every(r => r.item_status === 'Ready');
+      if (!allExternalReady) {
+        return res.status(400).json({ error: 'Cannot mark ready — other stalls are still preparing' });
+      }
+    }
+
     // 1. Mark this vendor's items as Ready
     let updateItemsQuery;
     let updateItemsParams;
@@ -2083,7 +2310,7 @@ app.put('/api/kds/orders/:id/ready', async (req, res) => {
       updateItemsQuery = `
         UPDATE order_items oi
         SET oi.status = 'Ready'
-        WHERE oi.order_id = ?
+        WHERE oi.order_id = ? AND oi.status = 'Preparing'
       `;
       updateItemsParams = [id];
     } else if (vendor_id === 'null' || vendor_id === null) {
@@ -2091,7 +2318,7 @@ app.put('/api/kds/orders/:id/ready', async (req, res) => {
         UPDATE order_items oi
         JOIN items i ON oi.item_id = i.id
         SET oi.status = 'Ready'
-        WHERE oi.order_id = ? AND i.vendor_id IS NULL
+        WHERE oi.order_id = ? AND i.vendor_id IS NULL AND oi.status = 'Preparing'
       `;
       updateItemsParams = [id];
     } else {
@@ -2099,7 +2326,7 @@ app.put('/api/kds/orders/:id/ready', async (req, res) => {
         UPDATE order_items oi
         JOIN items i ON oi.item_id = i.id
         SET oi.status = 'Ready'
-        WHERE oi.order_id = ? AND i.vendor_id = ?
+        WHERE oi.order_id = ? AND i.vendor_id = ? AND oi.status = 'Preparing'
       `;
       updateItemsParams = [id, parseInt(vendor_id)];
     }
@@ -2112,13 +2339,12 @@ app.put('/api/kds/orders/:id/ready', async (req, res) => {
     const totalItems = allItemRows.length;
     const readyItems = allItemRows.filter(r => r.status === 'Ready').length;
     
-    let newOrderStatus = '';
+    const preparingItems = allItemRows.filter(r => r.status === 'Preparing').length;
+    let newOrderStatus = 'Pending';
     if (readyItems === totalItems) {
       newOrderStatus = 'Ready';
-    } else if (readyItems > 0) {
-      newOrderStatus = 'Partially Ready';
-    } else {
-      newOrderStatus = 'Preparing'; // Should not happen based on logic above, but safe fallback
+    } else if (preparingItems > 0 || readyItems > 0) {
+      newOrderStatus = 'Preparing';
     }
 
     // 3. Update parent order status
@@ -2946,15 +3172,15 @@ app.get('/api/vendors/central-settlements/history', async (req, res) => {
 // Get all staff
 app.get('/api/staff', async (req, res) => {
   try {
-    let query = 'SELECT * FROM staff';
-    const params = [];
+    let query = 'SELECT * FROM staff WHERE tenant_id = ?';
+    const params = [req.user.tenant_id];
     if (req.user.vendor_id) {
       // Stall Manager: only see their own stall's staff (including themselves)
-      query += ' WHERE vendor_id = ?';
+      query += ' AND vendor_id = ?';
       params.push(req.user.vendor_id);
     } else {
       // Central Admin: see Central Canteen staff (no vendor) + all Stall Managers
-      query += ' WHERE (vendor_id IS NULL OR role = \'Manager\')';
+      query += ' AND (vendor_id IS NULL OR role = \'Manager\')';
     }
     query += ' ORDER BY name';
     const [rows] = await pool.query(query, params);
@@ -3001,10 +3227,12 @@ app.get('/api/staff/performance', async (req, res) => {
         GROUP BY staff_id
       ) att ON s.id = att.staff_id
       LEFT JOIN (
-        SELECT staff_id, COUNT(*) as leaves_taken
+        SELECT staff_id, 
+          SUM(DATEDIFF(LEAST(end_date, DATE(?)), GREATEST(start_date, DATE(?))) + 1) as leaves_taken
         FROM leaves
         WHERE status = 'Approved'
-          AND (start_date <= ? AND end_date >= ?)
+          AND start_date <= DATE(?) 
+          AND end_date >= DATE(?)
         GROUP BY staff_id
       ) lv ON s.id = lv.staff_id
       LEFT JOIN (
@@ -3029,14 +3257,20 @@ app.get('/api/staff/performance', async (req, res) => {
         GROUP BY billing_staff_id
       ) ord ON s.id = ord.billing_staff_id
       WHERE s.is_active = 1 AND s.exclude_from_performance = 0
+        AND s.tenant_id = ?
         AND (
-          CASE
-            WHEN ? IS NOT NULL THEN (s.vendor_id = ? AND s.role != 'Manager')
-            ELSE (s.vendor_id IS NULL OR s.role = 'Manager')
-          END
+          (? IS NOT NULL AND s.vendor_id = ?) OR
+          (? IS NULL AND (s.vendor_id IS NULL OR s.role = 'Manager'))
         )
       ORDER BY s.name
-    `, [startDateTime, endDateTime, endDateTime, startDateTime, startDateTime, endDateTime, startDateTime, endDateTime, req.user.vendor_id || null, req.user.vendor_id || null]);
+    `, [
+      startDateTime, endDateTime,
+      endDateTime, startDateTime, endDateTime, startDateTime,
+      startDateTime, endDateTime,
+      startDateTime, endDateTime,
+      req.user.tenant_id,
+      req.user.vendor_id || null, req.user.vendor_id || null, req.user.vendor_id || null
+    ]);
 
     res.json(staffMetrics);
   } catch (error) {
@@ -3060,6 +3294,158 @@ app.get('/api/staff/:id', async (req, res) => {
   }
 });
 
+// Get staff meal usage
+app.get('/api/staff/:id/meal-usage', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const usageData = await calculateStaffMealUsage(pool, id);
+    if (!usageData) return res.status(404).json({ error: 'Staff not found' });
+    
+    // Vendor isolation: If requester is associated with a vendor, ensure the staff belongs to the same vendor
+    if (req.user?.vendor_id && usageData.staff.vendor_id !== req.user.vendor_id) {
+      return res.status(403).json({ error: 'Cannot view staff meal usage for another vendor.' });
+    }
+
+    res.json({
+      limit: usageData.limit,
+      auto_reset: usageData.auto_reset,
+      period_start: usageData.period_start,
+      used: usageData.used,
+      additional: usageData.additional,
+      total_allowance: usageData.total_allowance,
+      remaining: usageData.remaining,
+      unlimited: usageData.unlimited
+    });
+  } catch (error) {
+    console.error('Error fetching meal usage:', error);
+    res.status(500).json({ error: 'Failed to fetch meal usage' });
+  }
+});
+
+// Get staff meal ledger (complete chronological audit trail of orders & adjustments)
+app.get('/api/staff/:id/meal-ledger', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const usageData = await calculateStaffMealUsage(pool, id);
+    if (!usageData) return res.status(404).json({ error: 'Staff not found' });
+
+    // Vendor isolation
+    if (req.user?.vendor_id && usageData.staff.vendor_id !== req.user.vendor_id) {
+      return res.status(403).json({ error: 'Cannot view staff meal ledger for another vendor.' });
+    }
+
+    // 1. Fetch StaffMeal orders for this staff
+    const [orders] = await pool.query(`
+      SELECT 
+        o.id,
+        o.token_number,
+        o.order_date,
+        o.status,
+        bs.name as cashier_name,
+        GROUP_CONCAT(CONCAT(i.name, ' x', oi.quantity) SEPARATOR ', ') as items_description,
+        IFNULL(SUM(oi.quantity * oi.price), 0) as total_cost
+      FROM orders o
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN items i ON oi.item_id = i.id
+      LEFT JOIN staff bs ON o.billing_staff_id = bs.id
+      WHERE o.customer_staff_id = ? AND o.discount_type = 'StaffMeal'
+      GROUP BY o.id
+      ORDER BY o.order_date DESC
+    `, [id]);
+
+    // 2. Fetch allowance adjustments
+    const [adjustments] = await pool.query(`
+      SELECT 
+        a.id,
+        a.type,
+        a.amount,
+        a.note,
+        a.created_at,
+        s.name as created_by_name
+      FROM staff_meal_adjustments a
+      LEFT JOIN staff s ON a.created_by = s.id
+      WHERE a.staff_id = ?
+      ORDER BY a.created_at DESC
+    `, [id]);
+
+    // 3. Build unified timeline sorted by timestamp DESC
+    const timeline = [
+      ...orders.map(o => ({
+        id: `ord-${o.id}`,
+        timestamp: o.order_date,
+        event_type: 'Order',
+        title: `Meal Order (${o.token_number})`,
+        description: o.items_description || 'Staff meal items',
+        amount: -parseFloat(o.total_cost),
+        action_by: o.cashier_name || 'Cashier',
+        status: o.status
+      })),
+      ...adjustments.map(a => ({
+        id: `adj-${a.id}`,
+        timestamp: a.created_at,
+        event_type: a.type === 'additional' ? 'Allowance Top-Up' : 'Manual Reset',
+        title: a.type === 'additional' ? `+₹${parseFloat(a.amount).toFixed(2)} Extra Allowance` : 'Period Reset (Fresh Start)',
+        description: a.note || (a.type === 'additional' ? 'Additional meal allowance' : 'Manual cycle reset to base limit'),
+        amount: a.type === 'additional' ? parseFloat(a.amount) : 0,
+        action_by: a.created_by_name || 'Manager',
+        status: 'Applied'
+      }))
+    ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    res.json({
+      summary: {
+        staff_id: usageData.staff.id,
+        staff_name: usageData.staff.name,
+        limit: usageData.limit,
+        auto_reset: usageData.auto_reset,
+        period_start: usageData.period_start,
+        used: usageData.used,
+        additional: usageData.additional,
+        total_allowance: usageData.total_allowance,
+        remaining: usageData.remaining,
+        unlimited: usageData.unlimited
+      },
+      timeline,
+      orders,
+      adjustments
+    });
+  } catch (error) {
+    console.error('Error fetching staff meal ledger:', error);
+    res.status(500).json({ error: 'Failed to fetch staff meal ledger' });
+  }
+});
+
+
+// Post staff meal adjustment
+app.post('/api/staff/:id/meal-adjustment', async (req, res) => {
+  if (!['Owner', 'Manager'].includes(req.user?.role)) {
+    return res.status(403).json({ error: 'Only Owners and Managers can adjust meal allowances.' });
+  }
+
+  const { id } = req.params;
+  const { type, amount, note } = req.body;
+  if (!['additional', 'reset'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+
+  try {
+    const [staffMember] = await pool.query('SELECT vendor_id, role FROM staff WHERE id = ?', [id]);
+    if (staffMember.length === 0) return res.status(404).json({ error: 'Staff not found' });
+
+    // Stall Manager restriction: can only adjust staff within their own stall
+    if (req.user.vendor_id && staffMember[0].vendor_id !== req.user.vendor_id) {
+      return res.status(403).json({ error: 'You do not have permission to adjust meal allowance for this staff member.' });
+    }
+
+    await pool.query(
+      'INSERT INTO staff_meal_adjustments (staff_id, type, amount, note, created_by) VALUES (?, ?, ?, ?, ?)',
+      [id, type, type === 'additional' ? (amount || 0) : 0, note || null, req.user.id || null]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error adding meal adjustment:', error);
+    res.status(500).json({ error: 'Failed to add adjustment' });
+  }
+});
+
 // Add a staff member
 app.post('/api/staff', async (req, res) => {
   if (!['Owner', 'Manager'].includes(req.user.role)) {
@@ -3068,7 +3454,8 @@ app.post('/api/staff', async (req, res) => {
   const {
     name, phone, email, password, role, pay_type, daily_rate, monthly_salary,
     pf_enabled, esi_enabled, tds_percentage, bank_account, joined_at,
-    exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance, vendor_id
+    exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance, vendor_id,
+    staff_meal_limit, staff_meal_auto_reset
   } = req.body;
 
   let assigned_vendor_id = vendor_id || null;
@@ -3087,13 +3474,14 @@ app.post('/api/staff', async (req, res) => {
       `INSERT INTO staff (
         name, phone, email, password_hash, role, pay_type, daily_rate, monthly_salary,
         pf_enabled, esi_enabled, tds_percentage, bank_account, joined_at,
-        exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance, vendor_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance, vendor_id,
+        staff_meal_limit, staff_meal_auto_reset
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name, phone, email, passwordHash, role, pay_type, daily_rate || 0, monthly_salary || 0,
         pf_enabled || 0, esi_enabled || 0, tds_percentage || 0.00, bank_account, joined_at,
         exclude_from_payroll || 0, exclude_from_roster || 0, exclude_from_attendance || 0, exclude_from_performance || 0,
-        assigned_vendor_id
+        assigned_vendor_id, staff_meal_limit || 0, staff_meal_auto_reset === false ? 0 : 1
       ]
     );
     res.status(201).json({
@@ -3111,7 +3499,9 @@ app.post('/api/staff', async (req, res) => {
       exclude_from_payroll: exclude_from_payroll ? 1 : 0,
       exclude_from_roster: exclude_from_roster ? 1 : 0,
       exclude_from_attendance: exclude_from_attendance ? 1 : 0,
-      exclude_from_performance: exclude_from_performance ? 1 : 0
+      exclude_from_performance: exclude_from_performance ? 1 : 0,
+      staff_meal_limit: parseFloat(staff_meal_limit || 0),
+      staff_meal_auto_reset: staff_meal_auto_reset === false ? 0 : 1
     });
   } catch (error) {
     console.error('Error creating staff:', error);
@@ -3125,7 +3515,7 @@ app.put('/api/staff/:id', async (req, res) => {
     return res.status(403).json({ error: 'Only Owners and Managers can update staff.' });
   }
   const { id } = req.params;
-  const { name, phone, email, role, pay_type, daily_rate, monthly_salary, pf_enabled, esi_enabled, tds_percentage, bank_account, is_active, vendor_id, exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance } = req.body;
+  const { name, phone, email, role, pay_type, daily_rate, monthly_salary, pf_enabled, esi_enabled, tds_percentage, bank_account, is_active, vendor_id, exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance, staff_meal_limit, staff_meal_auto_reset } = req.body;
 
   try {
     const [existing] = await pool.query('SELECT * FROM staff WHERE id = ?', [id]);
@@ -3159,6 +3549,8 @@ app.put('/api/staff/:id', async (req, res) => {
     const updateExcludeRoster = exclude_from_roster !== undefined ? (exclude_from_roster ? 1 : 0) : s.exclude_from_roster;
     const updateExcludeAttendance = exclude_from_attendance !== undefined ? (exclude_from_attendance ? 1 : 0) : s.exclude_from_attendance;
     const updateExcludePerformance = exclude_from_performance !== undefined ? (exclude_from_performance ? 1 : 0) : s.exclude_from_performance;
+    const updateMealLimit = staff_meal_limit !== undefined ? staff_meal_limit : s.staff_meal_limit;
+    const updateMealAutoReset = staff_meal_auto_reset !== undefined ? (staff_meal_auto_reset ? 1 : 0) : s.staff_meal_auto_reset;
 
     let updatePasswordHash = s.password_hash;
     if (req.body.password) {
@@ -3168,9 +3560,9 @@ app.put('/api/staff/:id', async (req, res) => {
 
     await pool.query(
       `UPDATE staff SET name = ?, phone = ?, email = ?, role = ?, pay_type = ?, daily_rate = ?, monthly_salary = ?,
-       pf_enabled = ?, esi_enabled = ?, tds_percentage = ?, bank_account = ?, is_active = ?, vendor_id = ?, exclude_from_payroll = ?, exclude_from_roster = ?, exclude_from_attendance = ?, exclude_from_performance = ?, password_hash = ? WHERE id = ?`,
+       pf_enabled = ?, esi_enabled = ?, tds_percentage = ?, bank_account = ?, is_active = ?, vendor_id = ?, exclude_from_payroll = ?, exclude_from_roster = ?, exclude_from_attendance = ?, exclude_from_performance = ?, password_hash = ?, staff_meal_limit = ?, staff_meal_auto_reset = ? WHERE id = ?`,
       [updateName, updatePhone, updateEmail, updateRole, updatePayType, updateDailyRate, updateMonthlySalary,
-       updatePf, updateEsi, updateTds, updateBank, updateActive, updateVendor, updateExclude, updateExcludeRoster, updateExcludeAttendance, updateExcludePerformance, updatePasswordHash, id]
+       updatePf, updateEsi, updateTds, updateBank, updateActive, updateVendor, updateExclude, updateExcludeRoster, updateExcludeAttendance, updateExcludePerformance, updatePasswordHash, updateMealLimit, updateMealAutoReset, id]
     );
 
     res.json({
@@ -3191,7 +3583,9 @@ app.put('/api/staff/:id', async (req, res) => {
       exclude_from_payroll: parseInt(updateExclude),
       exclude_from_roster: parseInt(updateExcludeRoster),
       exclude_from_attendance: parseInt(updateExcludeAttendance),
-      exclude_from_performance: parseInt(updateExcludePerformance)
+      exclude_from_performance: parseInt(updateExcludePerformance),
+      staff_meal_limit: parseFloat(updateMealLimit),
+      staff_meal_auto_reset: parseInt(updateMealAutoReset)
     });
   } catch (error) {
     console.error('Error updating staff:', error);
@@ -4164,7 +4558,7 @@ app.delete('/api/held-orders/:id', async (req, res) => {
 
 // Validate a coupon code
 app.post('/api/coupons/validate', async (req, res) => {
-  const { code, subtotal } = req.body;
+  const { code, subtotal, vendor_id, cart_items } = req.body;
   if (!code) {
     return res.status(400).json({ error: 'Coupon code is required.' });
   }
@@ -4176,10 +4570,43 @@ app.post('/api/coupons/validate', async (req, res) => {
     }
 
     const coupon = rows[0];
-    const minAmt = parseFloat(coupon.min_order_amount);
-    const currentSub = parseFloat(subtotal || 0);
 
-    if (currentSub < minAmt) {
+    // Enforce POS Isolation
+    const isCentralPos = (!vendor_id || vendor_id === 'null' || vendor_id === 'all');
+    
+    if (isCentralPos && coupon.vendor_id !== null) {
+      return res.status(400).json({ error: 'This promo code can only be used at a specific stall\'s counter.' });
+    }
+    if (!isCentralPos && String(coupon.vendor_id) !== String(vendor_id)) {
+      return res.status(400).json({ error: 'This promo code cannot be used at this stall.' });
+    }
+
+    // Enforce cart purity: coupon is only valid if ALL cart items belong to the coupon's vendor
+    let applicableSubtotal = parseFloat(subtotal || 0);
+    
+    if (cart_items && Array.isArray(cart_items) && cart_items.length > 0) {
+      const isCentralCoupon = (coupon.vendor_id === null);
+      
+      // Check if every single item in the cart belongs to the coupon's vendor
+      const hasNonMatchingItems = cart_items.some(ci => {
+        if (isCentralCoupon) {
+          return ci.vendor_id && ci.vendor_id !== null; // any stall item is a violation
+        } else {
+          return String(ci.vendor_id) !== String(coupon.vendor_id); // any non-matching stall item is a violation
+        }
+      });
+
+      if (hasNonMatchingItems) {
+        const vendorLabel = isCentralCoupon ? 'Central Canteen' : 'this stall';
+        return res.status(400).json({ error: `This promo code is only valid when your cart contains items exclusively from ${vendorLabel}. Please remove items from other stalls to use this code.` });
+      }
+
+      applicableSubtotal = cart_items.reduce((sum, ci) => sum + parseFloat(ci.subtotal || 0), 0);
+    }
+
+    const minAmt = parseFloat(coupon.min_order_amount);
+
+    if (applicableSubtotal < minAmt) {
       return res.status(400).json({
         error: `Minimum order amount of ₹${minAmt.toFixed(2)} required to use this coupon.`
       });
@@ -4188,13 +4615,13 @@ app.post('/api/coupons/validate', async (req, res) => {
     let discountAmount = 0;
     const value = parseFloat(coupon.value);
     if (coupon.discount_type === 'Percentage') {
-      discountAmount = currentSub * (value / 100);
+      discountAmount = applicableSubtotal * (value / 100);
     } else {
       discountAmount = value;
     }
 
-    if (discountAmount > currentSub) {
-      discountAmount = currentSub;
+    if (discountAmount > applicableSubtotal) {
+      discountAmount = applicableSubtotal;
     }
 
     res.json({
@@ -4210,14 +4637,143 @@ app.post('/api/coupons/validate', async (req, res) => {
   }
 });
 
-// Get all coupons
+// Get all coupons (Scoped by vendor)
 app.get('/api/coupons', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM coupons ORDER BY code');
+    let targetVendorId = req.user.vendor_id;
+    // Central Admin can fetch specific vendor's coupons or all
+    if (!targetVendorId && req.query.vendor_id) {
+      targetVendorId = req.query.vendor_id;
+    }
+
+    let query = 'SELECT * FROM coupons';
+    let params = [];
+
+    if (targetVendorId && targetVendorId !== 'all' && targetVendorId !== 'null') {
+      query += ' WHERE vendor_id = ?';
+      params.push(parseInt(targetVendorId));
+    } else if (targetVendorId === 'null' || (!targetVendorId && req.query.vendor_id !== 'all')) {
+      query += ' WHERE vendor_id IS NULL';
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching coupons:', error);
     res.status(500).json({ error: 'Failed to fetch coupons' });
+  }
+});
+
+// Create a new coupon
+app.post('/api/coupons', async (req, res) => {
+  const { code, discount_type, value, min_order_amount, is_active } = req.body;
+  
+  if (!code || !discount_type || value === undefined) {
+    return res.status(400).json({ error: 'Code, discount type, and value are required.' });
+  }
+
+  const vendorId = req.user.vendor_id || null; // Force creation under their own stall
+
+  try {
+    await pool.query(
+      'INSERT INTO coupons (code, discount_type, value, min_order_amount, is_active, vendor_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [code.toUpperCase(), discount_type, value, min_order_amount || 0, is_active ? 1 : 0, vendorId]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ error: 'This coupon code already exists.' });
+    }
+    console.error('Error creating coupon:', error);
+    res.status(500).json({ error: 'Failed to create coupon' });
+  }
+});
+
+// Edit a coupon's details
+app.put('/api/coupons/:id', async (req, res) => {
+  const { code, discount_type, value, min_order_amount } = req.body;
+  const vendorId = req.user.vendor_id || null;
+
+  if (!code || !discount_type || value === undefined) {
+    return res.status(400).json({ error: 'Code, discount type, and value are required.' });
+  }
+
+  try {
+    let query = 'UPDATE coupons SET code = ?, discount_type = ?, value = ?, min_order_amount = ? WHERE id = ?';
+    let params = [code.toUpperCase(), discount_type, value, min_order_amount || 0, req.params.id];
+
+    if (vendorId) {
+      query += ' AND vendor_id = ?';
+      params.push(vendorId);
+    } else if (req.user.role !== 'Super Admin') {
+      query += ' AND vendor_id IS NULL';
+    }
+
+    const [result] = await pool.query(query, params);
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Coupon not found or unauthorized.' });
+
+    res.json({ success: true });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ error: 'This coupon code already exists.' });
+    }
+    console.error('Error updating coupon:', error);
+    res.status(500).json({ error: 'Failed to update coupon' });
+  }
+});
+
+// Update coupon status
+app.put('/api/coupons/:id/status', async (req, res) => {
+  const { is_active } = req.body;
+  const vendorId = req.user.vendor_id || null;
+
+  try {
+    // Scoped update
+    let query = 'UPDATE coupons SET is_active = ? WHERE id = ?';
+    let params = [is_active ? 1 : 0, req.params.id];
+    
+    if (vendorId) {
+      query += ' AND vendor_id = ?';
+      params.push(vendorId);
+    } else if (req.user.role !== 'Super Admin') {
+      // Central admin but not super admin (safety catch)
+      query += ' AND vendor_id IS NULL';
+    }
+
+    const [result] = await pool.query(query, params);
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Coupon not found or unauthorized.' });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating coupon:', error);
+    res.status(500).json({ error: 'Failed to update coupon' });
+  }
+});
+
+// Delete a coupon
+app.delete('/api/coupons/:id', async (req, res) => {
+  const vendorId = req.user.vendor_id || null;
+
+  try {
+    let query = 'DELETE FROM coupons WHERE id = ?';
+    let params = [req.params.id];
+    
+    if (vendorId) {
+      query += ' AND vendor_id = ?';
+      params.push(vendorId);
+    } else if (req.user.role !== 'Super Admin') {
+      query += ' AND vendor_id IS NULL';
+    }
+
+    const [result] = await pool.query(query, params);
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Coupon not found or unauthorized.' });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting coupon:', error);
+    res.status(500).json({ error: 'Failed to delete coupon' });
   }
 });
 
@@ -6607,6 +7163,185 @@ app.put('/api/wallet/assign-rfid', authenticateToken, async (req, res) => {
 // ==========================================
 // SAAS TENANT MANAGEMENT (SUPER ADMIN)
 // ==========================================
+
+// ==========================================
+// REGISTRATION & SUPER ADMIN REVIEW
+// ==========================================
+
+// Public endpoint for new client sign-ups
+app.post('/api/register', async (req, res) => {
+  let payload = req.body || {};
+  const {
+    food_court_name = payload.foodCourtName,
+    owner_name = payload.ownerName,
+    email,
+    phone = payload.phone || payload.phoneNumber,
+    city = payload.city,
+    message = payload.message
+  } = payload;
+  if (!food_court_name || !owner_name || !email) {
+    return res.status(400).json({ error: 'Food Court Name, Owner Name, and Email are required.' });
+  }
+  const conn = await pool.getConnection();
+  try {
+    const [existingStaff] = await conn.query('SELECT id FROM staff WHERE email = ?', [email]);
+    if (existingStaff.length > 0) {
+      return res.status(400).json({ error: 'Email is already registered as an active user.' });
+    }
+    const [existingReg] = await conn.query('SELECT id FROM registrations WHERE email = ? AND status = "pending"', [email]);
+    if (existingReg.length > 0) {
+      return res.status(400).json({ error: 'A registration request for this email is already pending review.' });
+    }
+    await conn.query(
+      'INSERT INTO registrations (food_court_name, owner_name, email, phone, city, message) VALUES (?, ?, ?, ?, ?, ?)',
+      [food_court_name, owner_name, email, phone || null, city || null, message || null]
+    );
+    res.status(201).json({ success: true, message: 'Registration submitted successfully' });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Failed to submit registration' });
+  } finally {
+    conn.release();
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Super Admin: Get all registrations
+app.get('/api/superadmin/registrations', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
+  const { status } = req.query;
+  try {
+    let query = 'SELECT * FROM registrations ORDER BY created_at DESC';
+    let params = [];
+    if (status) {
+      query = 'SELECT * FROM registrations WHERE status = ? ORDER BY created_at DESC';
+      params = [status];
+    }
+    const [rows] = await pool.query(query, params);
+    res.json(rows);
+  } catch (error) {
+    console.error('Fetch registrations error:', error);
+    res.status(500).json({ error: 'Failed to fetch registrations' });
+  }
+});
+
+// Super Admin: Review registration (Approve/Reject)
+app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
+  const { id } = req.params;
+  const { action, admin_notes, custom_password, custom_email } = req.body; // action: 'approve' or 'reject'
+
+  if (action !== 'approve' && action !== 'reject') {
+    return res.status(400).json({ error: 'Invalid action. Must be approve or reject.' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [regs] = await conn.query('SELECT * FROM registrations WHERE id = ? FOR UPDATE', [id]);
+    if (regs.length === 0) throw new Error('Registration not found');
+    const reg = regs[0];
+    
+    if (reg.status !== 'pending') {
+      throw new Error(`Registration is already ${reg.status}`);
+    }
+
+    // Get super admin SMTP settings
+    const [saSettings] = await pool.query('SELECT * FROM notification_settings WHERE tenant_id = 1');
+    const settings = saSettings[0] || {};
+
+    if (action === 'approve') {
+      // 1. Create tenant
+      const [tenantResult] = await conn.query(
+        'INSERT INTO tenants (name, owner_email) VALUES (?, ?)',
+        [reg.food_court_name, reg.email]
+      );
+      const tenantId = tenantResult.insertId;
+
+      // 2. Create owner user with custom or random password
+      const bcrypt = require('bcryptjs');
+      const crypto = require('crypto');
+      const plainPassword = custom_password || crypto.randomBytes(4).toString('hex');
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(plainPassword, salt);
+
+      const loginEmail = custom_email || reg.email;
+      await conn.query(
+        'INSERT INTO staff (name, email, password_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?)',
+        [reg.owner_name, loginEmail, hashedPassword, 'Owner', tenantId]
+      );
+
+      // 3. Initialize notification settings
+      await conn.query('INSERT INTO notification_settings (tenant_id) VALUES (?)', [tenantId]);
+
+      // 4. Update registration status
+      await conn.query(
+        'UPDATE registrations SET status = "approved", admin_notes = ?, reviewed_at = CURRENT_TIMESTAMP, tenant_id = ? WHERE id = ?',
+        [admin_notes || null, tenantId, id]
+      );
+
+      await conn.commit();
+
+      // Send approval email
+      const loginUrl = 'http://localhost:5173/signin'; // Adjust as needed
+      const html = `
+        <h2>Welcome to FC-ERP!</h2>
+        <p>Dear ${reg.owner_name},</p>
+        <p>Your registration for <b>${reg.food_court_name}</b> has been approved!</p>
+        <p>Here are your login credentials:</p>
+        <ul>
+          <li><b>Login Email:</b> ${loginEmail}</li>
+          <li><b>Password:</b> ${plainPassword}</li>
+        </ul>
+        <p>You can log in to your dashboard here: <a href="${loginUrl}">${loginUrl}</a></p>
+        ${!custom_password ? `<p>Please change your password after your first login.</p>` : ''}
+        ${admin_notes ? `<p><b>Admin Note:</b> ${admin_notes}</p>` : ''}
+        <br/><p>Regards,<br/>The FC-ERP Team</p>
+      `;
+      await crm.sendEmail(reg.email, 'Your FC-ERP Account is Ready!', html, settings);
+      
+      res.json({ success: true, message: 'Registration approved and tenant created', tenant_id: tenantId });
+    } else {
+      // Reject
+      await conn.query(
+        'UPDATE registrations SET status = "rejected", admin_notes = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [admin_notes || null, id]
+      );
+      await conn.commit();
+
+      // Send rejection email
+      const html = `
+        <h2>FC-ERP Registration Update</h2>
+        <p>Dear ${reg.owner_name},</p>
+        <p>Thank you for your interest in FC-ERP. Unfortunately, we are unable to approve your registration for <b>${reg.food_court_name}</b> at this time.</p>
+        ${admin_notes ? `<p><b>Reason:</b> ${admin_notes}</p>` : ''}
+        <br/><p>Regards,<br/>The FC-ERP Team</p>
+      `;
+      await crm.sendEmail(reg.email, 'Update on your FC-ERP Registration', html, settings);
+
+      res.json({ success: true, message: 'Registration rejected' });
+    }
+  } catch (error) {
+    await conn.rollback();
+    console.error('Registration review error:', error);
+    res.status(400).json({ error: error.message || 'Failed to review registration' });
+  } finally {
+    conn.release();
+  }
+});
+
+
 app.get('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
   try {
     const [rows] = await pool.query(`

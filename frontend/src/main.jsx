@@ -4,11 +4,27 @@ import './index.css'
 import App from './App.jsx'
 import QRMenu from './QRMenu.jsx'
 
+import HomePage from './HomePage.jsx'
+import AboutPage from './AboutPage.jsx'
+import ContactPage from './ContactPage.jsx'
+import SignUpPage from './SignUpPage.jsx'
+
 const path = window.location.pathname;
-const isMenu = path.startsWith('/menu');
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    {isMenu ? <QRMenu /> : <App />}
+    {path === '/' ? (
+      <HomePage />
+    ) : path === '/about' ? (
+      <AboutPage />
+    ) : path === '/contact' ? (
+      <ContactPage />
+    ) : path === '/signup' ? (
+      <SignUpPage />
+    ) : path.startsWith('/menu') ? (
+      <QRMenu />
+    ) : (
+      <App />
+    )}
   </StrictMode>,
 )

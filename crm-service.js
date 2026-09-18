@@ -415,7 +415,7 @@ function startDailySummaryScheduler() {
 }
 
 module.exports = {
-  setPool, getSettings, logNotification, smartSend,
+  setPool, getSettings, logNotification, smartSend, sendEmail,
   triggerLowStockAlert, sendDailySummary, sendOrderReadyNotification,
   sendNegativeFeedbackAlert, awardLoyaltyPoints, redeemLoyaltyPoints,
   dispatchBroadcast, startDailySummaryScheduler
