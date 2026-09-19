@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = '/api';
 
 const api = async (path, opts = {}) => {
   const token = localStorage.getItem('token');

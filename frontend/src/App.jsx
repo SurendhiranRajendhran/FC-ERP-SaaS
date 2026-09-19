@@ -5,7 +5,7 @@ import WalletManagement from './WalletManagement';
 import StallInsights from './StallInsights';
 import Promotions from './Promotions';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = '/api';
 
 // --- AUTHENTICATION INTERCEPTOR ---
 const originalFetch = window.fetch;
@@ -1399,7 +1399,7 @@ function QRManagementPanel({ user }) {
 
   useEffect(() => {
     // Auto-detect the LAN IP so QR codes work on mobile phones
-    fetch('http://localhost:5000/api/server-info')
+    fetch('/api/server-info')
       .then(r => r.json())
       .then(info => {
         const url = `http://${info.lan_ip}:${info.port}/menu?tenant=${user.tenant_id}`;
@@ -1447,7 +1447,7 @@ function QRManagementPanel({ user }) {
   const fetchQrOrders = async (silent = false) => {
     if (!silent) setLoadingOrders(true);
     try {
-      const res = await fetch('http://localhost:5000/api/orders');
+      const res = await fetch('/api/orders');
       const data = await res.json();
       setQrOrders((data || []).filter(o => o.order_source === 'QR').slice(0, 50));
     } catch (e) {}
@@ -1955,7 +1955,7 @@ function App() {
       if (reportDateRange.startDate) queryParams.append('startDate', reportDateRange.startDate);
       if (reportDateRange.endDate) queryParams.append('endDate', reportDateRange.endDate);
       if (selectedVendorId && selectedVendorId !== 'all') queryParams.append('vendor_id', selectedVendorId);
-      const res = await fetch(`http://localhost:5000/api/reports/${type}?${queryParams}`);
+      const res = await fetch(`/api/reports/${type}?${queryParams}`);
       if (res.ok) {
         const data = await res.json();
         const stateKey = type.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
@@ -1982,7 +1982,7 @@ function App() {
   const handleOverheadSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('http://localhost:5000/api/overheads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(overheadForm) });
+      const res = await fetch('/api/overheads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(overheadForm) });
       const data = await res.json();
       if (res.ok) {
         showToast('Overhead expense logged successfully!', 'success');
@@ -1998,7 +1998,7 @@ function App() {
   const handleCustomerSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('http://localhost:5000/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(customerForm) });
+      const res = await fetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(customerForm) });
       if (res.ok) {
         showToast('Customer registered successfully', 'success');
         setShowCustomerModal(false);
