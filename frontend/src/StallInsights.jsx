@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = '/api';
 
 function StallInsights({ user }) {
   const [activeSubTab, setActiveSubTab] = useState('central_orders');

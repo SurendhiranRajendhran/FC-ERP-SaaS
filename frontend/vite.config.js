@@ -7,5 +7,10 @@ export default defineConfig({
   build: {
     outDir: '../public',
     emptyOutDir: true, // clear old files before writing new build
-  }
+  },
+  server: {
+    proxy: {
+      '/api': 'http://localhost:5000',
+    },
+  },
 })
