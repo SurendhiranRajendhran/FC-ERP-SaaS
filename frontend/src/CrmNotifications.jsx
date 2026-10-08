@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 const api = async (url, opts = {}) => {
   const token = localStorage.getItem('token');
   const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(opts.headers || {}) };
-  const fullUrl = url.startsWith('http') ? url : `http://localhost:5000${url}`;
+  const fullUrl = url.startsWith('http') ? url : url;
   const r = await fetch(fullUrl, { ...opts, headers });
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || `HTTP ${r.status}`); }
   return r.json();

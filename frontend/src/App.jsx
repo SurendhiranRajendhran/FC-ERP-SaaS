@@ -1560,7 +1560,12 @@ function QRManagementPanel({ user }) {
     fetch(`${API_BASE}/server-info`)
       .then(r => r.json())
       .then(info => {
-        const url = `http://${info.lan_ip}:${info.port}/menu?tenant=${user.tenant_id}`;
+        let url;
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+          url = `http://${info.lan_ip}:${info.port}/menu?tenant=${user.tenant_id}`;
+        } else {
+          url = window.location.origin + '/menu?tenant=' + user.tenant_id;
+        }
         setLanIp(info.lan_ip);
         setBaseUrl(url);
       })
