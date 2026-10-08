@@ -227,11 +227,191 @@ function StaffMealLedgerModal({ staffId, staffName, token, onClose }) {
   );
 }
 
+// --- ADD MEAL ALLOWANCE MODAL ---
+function AddMealAllowanceModal({ staffId, staffName, data, token, onClose, onSuccess, showToast }) {
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('Extra allowance');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const num = parseFloat(amount);
+    if (isNaN(num) || num <= 0) {
+      showToast('Please enter a valid amount greater than 0', 'error');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/staff/${staffId}/meal-adjustment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ type: 'additional', amount: num, note: note.trim() || 'Extra allowance' })
+      });
+      if (res.ok) {
+        showToast(`Successfully added ₹${num.toFixed(2)} to ${staffName}'s meal allowance`, 'success');
+        onSuccess();
+        onClose();
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Failed to add allowance', 'error');
+      }
+    } catch (e) {
+      showToast('Network error adding meal allowance', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const quickAmounts = [100, 200, 500, 1000];
+
+  return createPortal(
+    <div className="modal-overlay active" style={{ zIndex: 1200 }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-card" style={{ maxWidth: '460px', width: '95%' }}>
+        <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            ➕ Top-Up Meal Allowance
+          </h3>
+          <button className="close-btn" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }}>&times;</button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body" style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+              <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>{staffName}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', flexWrap: 'wrap', gap: '6px' }}>
+                <span>Base Limit: <strong>₹{data?.limit?.toFixed(2) || '0.00'}</strong></span>
+                <span>Current Total: <strong style={{ color: '#3b82f6' }}>₹{data?.total_allowance?.toFixed(2) || '0.00'}</strong></span>
+                <span>Remaining: <strong style={{ color: (data?.remaining || 0) > 0 ? '#10b981' : '#ef4444' }}>₹{data?.remaining?.toFixed(2) || '0.00'}</strong></span>
+              </div>
+            </div>
+
+            <div className="hr-form-group">
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px', display: 'block' }}>Additional Amount (₹) *</label>
+              <input
+                type="number"
+                step="0.01"
+                min="1"
+                required
+                placeholder="e.g. 500"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                autoFocus
+                style={{ width: '100%', padding: '10px 12px', fontSize: '1rem', borderRadius: '6px', boxSizing: 'border-box' }}
+              />
+              <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+                {quickAmounts.map(amt => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => setAmount(amt.toString())}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      borderRadius: '4px',
+                      border: '1px solid var(--border-light)',
+                      background: parseFloat(amount) === amt ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                      color: parseFloat(amount) === amt ? '#fff' : 'var(--text-main)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    +₹{amt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="hr-form-group">
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px', display: 'block' }}>Note / Reason</label>
+              <input
+                type="text"
+                placeholder="e.g. Extra allowance / Festival top-up"
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', fontSize: '0.9rem', borderRadius: '6px', boxSizing: 'border-box' }}
+              />
+            </div>
+          </div>
+
+          <div className="modal-footer" style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <button type="button" className="btn btn-outline-primary" onClick={onClose} disabled={submitting}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={submitting || !amount}>
+              {submitting ? 'Adding...' : '➕ Add Allowance'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// --- RESET MEAL ALLOWANCE MODAL ---
+function ResetMealAllowanceModal({ staffId, staffName, token, onClose, onSuccess, showToast }) {
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleConfirmReset = async () => {
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/staff/${staffId}/meal-adjustment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ type: 'reset', note: 'Manual reset' })
+      });
+      if (res.ok) {
+        showToast(`Meal allowance cycle reset successfully for ${staffName}`, 'success');
+        onSuccess();
+        onClose();
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Failed to reset allowance', 'error');
+      }
+    } catch (e) {
+      showToast('Network error resetting allowance', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return createPortal(
+    <div className="modal-overlay active" style={{ zIndex: 1200 }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-card" style={{ maxWidth: '440px', width: '95%' }}>
+        <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            ↺ Reset Meal Allowance
+          </h3>
+          <button className="close-btn" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }}>&times;</button>
+        </div>
+
+        <div className="modal-body" style={{ padding: '16px 0' }}>
+          <p style={{ margin: '0 0 10px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
+            Are you sure you want to reset the meal allowance cycle for <strong>{staffName}</strong>?
+          </p>
+          <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '10px 12px', borderRadius: '6px', fontSize: '0.8rem', color: '#ef4444' }}>
+            ⚠️ This will clear current period usage and start a fresh period at the staff's base allowance limit.
+          </div>
+        </div>
+
+        <div className="modal-footer" style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          <button type="button" className="btn btn-outline-primary" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button type="button" className="btn btn-danger" onClick={handleConfirmReset} disabled={submitting}>
+            {submitting ? 'Resetting...' : '↺ Confirm Reset'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 // --- MEAL ALLOWANCE WIDGET ---
 function MealAllowanceWidget({ staffId, staffName, limit, autoReset, token, showToast, fetchStaff }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showLedger, setShowLedger] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
 
   const fetchUsage = () => {
     fetch(`${API_BASE}/staff/${staffId}/meal-usage`, { headers: { 'Authorization': `Bearer ${token}` } })
@@ -243,51 +423,6 @@ function MealAllowanceWidget({ staffId, staffName, limit, autoReset, token, show
   useEffect(() => {
     fetchUsage();
   }, [staffId, token, limit, autoReset]);
-
-  const handleAddAmount = async () => {
-    const amtStr = window.prompt('Enter additional amount to add for this period (₹):');
-    if (!amtStr) return;
-    const amt = parseFloat(amtStr);
-    if (isNaN(amt) || amt <= 0) {
-      showToast('Invalid amount', 'error');
-      return;
-    }
-    const note = window.prompt('Enter a note (optional):', 'Extra allowance');
-    
-    try {
-      const res = await fetch(`${API_BASE}/staff/${staffId}/meal-adjustment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ type: 'additional', amount: amt, note })
-      });
-      if (res.ok) {
-        showToast('Amount added successfully', 'success');
-        fetchUsage();
-        fetchStaff();
-      }
-    } catch (e) {
-      showToast('Failed to add amount', 'error');
-    }
-  };
-
-  const handleReset = async () => {
-    if (!window.confirm('Are you sure you want to manually reset the meal allowance? This will clear all current usage and start a new period.')) return;
-    
-    try {
-      const res = await fetch(`${API_BASE}/staff/${staffId}/meal-adjustment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ type: 'reset', note: 'Manual reset' })
-      });
-      if (res.ok) {
-        showToast('Allowance reset successfully', 'success');
-        fetchUsage();
-        fetchStaff();
-      }
-    } catch (e) {
-      showToast('Failed to reset allowance', 'error');
-    }
-  };
 
   if (loading) return <div style={{ fontSize: '0.8rem', color: '#666' }}>Loading allowance...</div>;
   if (!data) return null;
@@ -313,7 +448,7 @@ function MealAllowanceWidget({ staffId, staffName, limit, autoReset, token, show
         </span>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           <button
-            onClick={handleAddAmount}
+            onClick={() => setShowAddModal(true)}
             title="Add additional staff meal allowance"
             style={{
               background: '#2563eb',
@@ -333,7 +468,7 @@ function MealAllowanceWidget({ staffId, staffName, limit, autoReset, token, show
             + Add
           </button>
           <button
-            onClick={handleReset}
+            onClick={() => setShowResetModal(true)}
             title="Reset period usage back to full base limit"
             style={{
               background: '#475569',
@@ -374,6 +509,29 @@ function MealAllowanceWidget({ staffId, staffName, limit, autoReset, token, show
           </button>
         </div>
       </div>
+
+      {showAddModal && (
+        <AddMealAllowanceModal
+          staffId={staffId}
+          staffName={staffName}
+          data={data}
+          token={token}
+          onClose={() => setShowAddModal(false)}
+          onSuccess={() => { fetchUsage(); fetchStaff(); }}
+          showToast={showToast}
+        />
+      )}
+
+      {showResetModal && (
+        <ResetMealAllowanceModal
+          staffId={staffId}
+          staffName={staffName}
+          token={token}
+          onClose={() => setShowResetModal(false)}
+          onSuccess={() => { fetchUsage(); fetchStaff(); }}
+          showToast={showToast}
+        />
+      )}
 
       {showLedger && (
         <StaffMealLedgerModal
@@ -1592,6 +1750,7 @@ function App() {
   // Searching & Filtering States
   const [menuSearch, setMenuSearch] = useState('');
   const [menuCategoryFilter, setMenuCategoryFilter] = useState('All');
+  const [menuVendorFilter, setMenuVendorFilter] = useState('All');
   const [materialSearch, setMaterialSearch] = useState('');
   const [recipeSearch, setRecipeSearch] = useState('');
 
@@ -1852,6 +2011,7 @@ function App() {
   const [leaves, setLeaves] = useState([]);
   const [holidays, setHolidays] = useState([]);
   const [payroll, setPayroll] = useState([]);
+  const [breakdownModalState, setBreakdownModalState] = useState({ show: false, staffName: '', records: [] });
   const [staffMeals, setStaffMeals] = useState([]);
   const [staffPerformance, setStaffPerformance] = useState([]);
 
@@ -2072,7 +2232,7 @@ function App() {
   const [formMeal, setFormMeal] = useState({ staff_id: '', item_id: '', quantity: '1', price: '50', meal_date: new Date().toLocaleDateString('en-CA') });
   const [cancelModal, setCancelModal] = useState({ show: false, orderId: null, tokenNumber: null, pin: '', reason: '', step: 1 });
   const [showCashDrawerModal, setShowCashDrawerModal] = useState(false);
-  const [holidayModal, setHolidayModal] = useState({ show: false, name: '', date: '', description: '' });
+  const [holidayModal, setHolidayModal] = useState({ show: false, id: null, name: '', date: '', description: '' });
   const [currentCalendarMonth, setCurrentCalendarMonth] = useState(new Date());
   const [cashDrawer, setCashDrawer] = useState(null);
   const [isRushHour, setIsRushHour] = useState(false);
@@ -2080,7 +2240,7 @@ function App() {
   // Manual Attendance Logging
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
   const [formAttendanceManual, setFormAttendanceManual] = useState({
-    staff_id: '', shift_id: '', status: 'Present', notes: '', check_in: '', check_out: ''
+    staff_id: '', shift_id: '', status: 'Present', notes: '', date: '', check_in: '', check_out: ''
   });
 
   // Add/Edit Form Bindings
@@ -2562,6 +2722,92 @@ function App() {
     }
   };
 
+  const handleRemoveHoliday = async () => {
+    if (!holidayModal.id) return;
+    if (!confirm('Are you sure you want to remove this marked holiday?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/holidays/${holidayModal.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Holiday removed successfully!', 'success');
+        setHolidayModal({ show: false, id: null, name: '', date: '', description: '' });
+        fetchHolidays();
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Failed to remove holiday', 'error');
+      }
+    } catch (err) {
+      showToast('Network error removing holiday', 'error');
+    }
+  };
+
+  const fetchAttendanceBreakdown = async (staff_id, staff_name, month, year) => {
+    try {
+      const res = await fetch(`${API_BASE}/payroll/attendance-breakdown?staff_id=${staff_id}&month=${month}&year=${year}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Fetch failed');
+      
+      const { attendance, holidays, meals } = data;
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const calendar = [];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      for (let i = 1; i <= daysInMonth; i++) {
+        const d = new Date(year, month - 1, i, 12, 0, 0); // Noon to avoid timezone shift
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+        
+        let dayStatus = '-';
+        let checkIn = '-';
+        let checkOut = '-';
+        
+        const attRec = (attendance || []).find(a => {
+          const aDate = typeof a.attendance_date === 'string' ? a.attendance_date.split('T')[0] : '';
+          return aDate === dateStr;
+        });
+
+        if (attRec) {
+          dayStatus = attRec.status;
+          checkIn = attRec.check_in ? (attRec.check_in.split(' ')[1] || attRec.check_in) : '-';
+          checkOut = attRec.check_out ? (attRec.check_out.split(' ')[1] || attRec.check_out) : '-';
+        } else {
+          const holRec = (holidays || []).find(h => {
+            const hDate = typeof h.holiday_date === 'string' ? h.holiday_date.split('T')[0] : '';
+            return hDate === dateStr;
+          });
+
+          if (holRec) {
+            dayStatus = `Holiday (${holRec.name})`;
+          } else {
+            const dStart = new Date(year, month - 1, i);
+            if (dStart < today) dayStatus = 'Absent';
+          }
+        }
+        
+        const dayMeals = (meals || []).filter(m => {
+          const mDate = typeof m.meal_date === 'string' ? m.meal_date.split('T')[0] : '';
+          return mDate === dateStr;
+        });
+
+        const mealsDesc = dayMeals.length > 0 
+          ? dayMeals.map(m => `${m.quantity}x ${m.item_name}`).join(', ') 
+          : '-';
+          
+        calendar.push({
+          date: d,
+          status: dayStatus,
+          check_in: checkIn,
+          check_out: checkOut,
+          meals: mealsDesc
+        });
+      }
+
+      setBreakdownModalState({ show: false, staffId: staff_id, staffName: staff_name, records: calendar });
+    } catch (err) {
+      console.error('Failed to fetch attendance breakdown:', err);
+      showToast('Failed to fetch daily breakdown', 'error');
+    }
+  };
+
   const fetchPayroll = async (month, year) => {
     try {
       const res = await fetch(`${API_BASE}/payroll?month=${month}&year=${year}`);
@@ -2963,7 +3209,7 @@ function App() {
 
   const handleOpenStockAction = (matId = '') => {
     setFormStockAction({ material_id: matId, change_qty: '', log_type: 'Purchase', reason: '', responsible_person: '', cost_per_unit: '', _isNewMaterial: false, _newName: '', _newUnit: 'kg', _newMinStock: '0' });
-    setStockActionModal({ show: true });
+    setStockActionModal({ show: true, isRestockMode: !!matId });
   };
 
   const handleSaveStockAction = async (e) => {
@@ -3006,6 +3252,18 @@ function App() {
     if (!materialId) {
       showToast('Please select a material.', 'error');
       return;
+    }
+
+    if (!formStockAction.change_qty || isNaN(parseFloat(formStockAction.change_qty)) || parseFloat(formStockAction.change_qty) === 0) {
+      showToast('Please enter a valid Transaction Quantity greater than 0.', 'error');
+      return;
+    }
+
+    if (formStockAction.log_type === 'Purchase') {
+      if (formStockAction.cost_per_unit === '' || isNaN(parseFloat(formStockAction.cost_per_unit)) || parseFloat(formStockAction.cost_per_unit) < 0) {
+        showToast('Please enter a valid Unit Cost for this purchase.', 'error');
+        return;
+      }
     }
 
     let finalLogType = formStockAction.log_type;
@@ -3802,31 +4060,90 @@ function App() {
     }
   };
 
+  const handleManualStaffSelect = async (staffId) => {
+    setFormAttendanceManual(prev => ({ ...prev, staff_id: staffId, shift_id: '' }));
+    if (!staffId) return;
+
+    try {
+      // Find the Monday of the selected date's week to query roster
+      const d = new Date(selectedAttendanceDate);
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1); 
+      const monday = new Date(d.setDate(diff));
+      const weekStart = monday.toISOString().split('T')[0];
+
+      const res = await fetch(`${API_BASE}/roster?week_start=${weekStart}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const rosterEntry = data.find(r => r.staff_id === parseInt(staffId) && r.roster_date === selectedAttendanceDate && r.status !== 'Cancelled');
+        if (rosterEntry) {
+          setFormAttendanceManual(prev => ({ ...prev, shift_id: rosterEntry.shift_id.toString() }));
+        } else {
+          setFormAttendanceManual(prev => ({ ...prev, shift_id: 'none' })); // 'none' means Not Scheduled
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching roster for manual attendance', err);
+    }
+  };
+
   const handleSaveManualAttendance = async (e) => {
     e.preventDefault();
-    if (!formAttendanceManual.staff_id || !formAttendanceManual.status) {
-      showToast('Staff and Status are required.', 'error');
+    if (!formAttendanceManual.staff_id || !formAttendanceManual.status || !formAttendanceManual.date) {
+      showToast('Staff, Date, and Status are required.', 'error');
       return;
     }
 
+    const assignedShift = formAttendanceManual.shift_id && formAttendanceManual.shift_id !== 'none'
+      ? shifts.find(sh => sh.id === parseInt(formAttendanceManual.shift_id))
+      : null;
+
+    if (assignedShift && formAttendanceManual.check_in && formAttendanceManual.status !== 'Absent') {
+      const [h, m] = assignedShift.start_time.split(':').map(Number);
+      let totalMin = h * 60 + m - 15;
+      if (totalMin < 0) totalMin += 24 * 60;
+      const minH = Math.floor(totalMin / 60);
+      const minM = totalMin % 60;
+      const minCheckIn = `${String(minH).padStart(2, '0')}:${String(minM).padStart(2, '0')}`;
+
+      if (formAttendanceManual.check_in < minCheckIn) {
+        showToast(`Check-in time cannot be earlier than 15 minutes before shift start (${minCheckIn}).`, 'error');
+        return;
+      }
+    }
+
     try {
+      const attDate = formAttendanceManual.date;
+      const combinedCheckIn = formAttendanceManual.check_in ? `${attDate} ${formAttendanceManual.check_in}:00` : null;
+      let combinedCheckOut = formAttendanceManual.check_out ? `${attDate} ${formAttendanceManual.check_out}:00` : null;
+      let finalNotes = formAttendanceManual.notes || null;
+
+      if (formAttendanceManual.status !== 'Absent' && !formAttendanceManual.check_out) {
+        combinedCheckOut = `${attDate} 23:59:00`;
+        finalNotes = finalNotes ? `${finalNotes} (No Checkout)` : 'No Checkout';
+      }
+
       const res = await fetch(`${API_BASE}/attendance/check-in`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           staff_id: parseInt(formAttendanceManual.staff_id),
-          shift_id: formAttendanceManual.shift_id ? parseInt(formAttendanceManual.shift_id) : null,
+          shift_id: (formAttendanceManual.shift_id && formAttendanceManual.shift_id !== 'none') ? parseInt(formAttendanceManual.shift_id) : null,
           status: formAttendanceManual.status,
-          notes: formAttendanceManual.notes || null,
-          attendance_date: selectedAttendanceDate,
-          check_in: formAttendanceManual.check_in || null
+          notes: finalNotes,
+          attendance_date: attDate,
+          check_in: combinedCheckIn,
+          check_out: combinedCheckOut,
+          is_manual: true
         })
       });
 
       if (res.ok) {
         showToast('Attendance logged manually', 'success');
         setShowAttendanceForm(false);
-        setFormAttendanceManual({ staff_id: '', shift_id: '', status: 'Present', notes: '', check_in: '', check_out: '' });
+        setFormAttendanceManual({ staff_id: '', shift_id: '', status: 'Present', notes: '', date: '', check_in: '', check_out: '' });
         fetchAttendance(selectedAttendanceDate);
       } else {
         const err = await res.json();
@@ -3998,19 +4315,49 @@ function App() {
     }
   };
 
-  const handlePayPayroll = async (id) => {
+  const handleFinalizePayroll = async () => {
+    if (!confirm(`Are you sure you want to finalize the payroll for ${new Date(2026, payrollMonth - 1).toLocaleString(undefined, { month: 'long' })} ${payrollYear}? Once finalized, it cannot be regenerated or modified.`)) {
+      return;
+    }
     try {
-      const res = await fetch(`${API_BASE}/payroll/${id}/finalize`, {
-        method: 'PUT'
+      const res = await fetch(`${API_BASE}/payroll/finalize`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          month: parseInt(payrollMonth),
+          year: parseInt(payrollYear)
+        })
       });
       if (res.ok) {
-        showToast('Payroll record finalized and paid', 'success');
+        showToast('Payroll finalized and locked successfully', 'success');
         fetchPayroll(payrollMonth, payrollYear);
       } else {
-        showToast('Failed to finalize payroll', 'error');
+        const err = await res.json();
+        showToast(err.error || 'Failed to finalize payroll', 'error');
       }
     } catch (err) {
       showToast('Network error finalizing payroll', 'error');
+    }
+  };
+
+  const handlePayStaff = async (payrollId, staffName) => {
+    if (!confirm(`Are you sure you want to mark ${staffName}'s payroll as Paid?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/payroll/${payrollId}/pay`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (res.ok) {
+        showToast(`Payroll for ${staffName} marked as Paid`, 'success');
+        fetchPayroll(payrollMonth, payrollYear);
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Failed to mark payroll as paid', 'error');
+      }
+    } catch (err) {
+      showToast('Network error marking payroll as paid', 'error');
     }
   };
 
@@ -4269,16 +4616,13 @@ function App() {
     const staffMember = staff.find(s => s.id === parseInt(staffId));
     if (!staffMember) return;
 
-    // Check Meal Limit
+    // Check Meal Limit (Soft Limit)
     try {
       const res = await fetch(`${API_BASE}/staff/${staffId}/meal-usage`, { headers: { 'Authorization': `Bearer ${token}` } });
       const usageData = await res.json();
       
       if (!usageData.unlimited && cartSubtotal > usageData.remaining) {
-        showToast(`Staff Meal limit exceeded for ${staffMember.name}. Used ₹${usageData.used.toFixed(2)} of ₹${usageData.total_allowance.toFixed(2)}. Remaining: ₹${usageData.remaining.toFixed(2)}. Cart total: ₹${cartSubtotal.toFixed(2)}.`, 'error');
-        // Reset dropdown if possible
-        setSelectedStaffId('');
-        return;
+        showToast(`Staff Meal allowance exceeded for ${staffMember.name}. Remaining: ₹${usageData.remaining.toFixed(2)}. The excess amount will be deferred to payroll.`, 'warning');
       }
     } catch (e) {
       console.error('Error checking meal limit:', e);
@@ -4467,6 +4811,7 @@ function App() {
         setCart([]); // Clear cart
         handleClearDiscount();
         setShowSplitModal(false);
+        setPosPaymentMode('Cash'); // Reset payment mode to hide split configure button
         setPosCustomerId(''); // reset
         if (user.role !== 'Billing Staff') setPosCashierId(''); // reset only for Owner/Manager
         setPosIsUpsold(false); // reset
@@ -4541,8 +4886,13 @@ function App() {
     const matchSearch = item.name.toLowerCase().includes(menuSearch.toLowerCase()) || 
                         (item.description && item.description.toLowerCase().includes(menuSearch.toLowerCase()));
     const matchCategory = menuCategoryFilter === 'All' || item.category === menuCategoryFilter;
-    const matchVendor = selectedVendorId === 'all' || selectedVendorId === 'null' || item.vendor_id === parseInt(selectedVendorId);
-    return matchSearch && matchCategory && matchVendor;
+    const matchGlobalVendor = selectedVendorId === 'all' || selectedVendorId === 'null' || item.vendor_id === parseInt(selectedVendorId);
+    
+    let matchLocalVendor = true;
+    if (menuVendorFilter === 'Central') matchLocalVendor = item.vendor_id == null;
+    else if (menuVendorFilter !== 'All') matchLocalVendor = item.vendor_id === parseInt(menuVendorFilter);
+
+    return matchSearch && matchCategory && matchGlobalVendor && matchLocalVendor;
   });
 
   const filteredMaterials = materials.filter(mat => {
@@ -4940,20 +5290,6 @@ function App() {
           {activeTab === 'dashboard' && (
             <div className="view-panel active">
               
-              {/* Shift Controls Section */}
-              {user.role !== 'Staff' && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                  <h3 style={{ margin: 0, color: 'var(--text-main)' }}>Shift Controls</h3>
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <button className="btn btn-outline-success" onClick={() => { fetchCashDrawerStatus(); setShowCashDrawerModal(true); }}>
-                      Start Shift
-                    </button>
-                    <button className="btn btn-outline-danger" onClick={() => { fetchCashDrawerStatus(); setShowCashDrawerModal(true); }}>
-                      End Shift
-                    </button>
-                  </div>
-                </div>
-              )}
 
               <div className="stats-grid">
                 <div className="stats-card revenue-card">
@@ -5142,7 +5478,12 @@ function App() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <label style={{ fontWeight: 600 }}>Date:</label>
                         <input type="date" className="attendance-date-input" value={selectedAttendanceDate} onChange={e => setSelectedAttendanceDate(e.target.value)} />
-                        <button className="btn btn-primary" onClick={() => fetchAttendance(selectedAttendanceDate)}>Load</button>
+
+                        {holidays.find(h => (h.holiday_date || h.date || '').split('T')[0] === selectedAttendanceDate) && (
+                          <span style={{ backgroundColor: 'rgba(220, 53, 69, 0.1)', color: '#dc3545', padding: '6px 12px', borderRadius: '4px', fontWeight: '600', border: '1px solid rgba(220,53,69,0.3)', fontSize: '13px' }}>
+                            🔴 {holidays.find(h => (h.holiday_date || h.date || '').split('T')[0] === selectedAttendanceDate).name}
+                          </span>
+                        )}
                       </div>
                     </div>
                     
@@ -5230,7 +5571,7 @@ function App() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <label style={{ fontWeight: 600 }}>Roster Week starting (Monday):</label>
                         <input type="date" value={selectedRosterWeek} onChange={e => setSelectedRosterWeek(e.target.value)} onBlur={handleRosterWeekBlur} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
-                        <button className="btn btn-primary" onClick={() => fetchRoster(actualRosterWeek)}>Load</button>
+
                       </div>
                     </div>
                     <div className="table-container" style={{ marginTop: '20px' }}>
@@ -5457,11 +5798,21 @@ function App() {
                   <div>
                     <div className="holiday-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '15px', marginTop: '20px' }}>
                       {holidays.length > 0 ? holidays.map(h => (
-                        <div key={h.id} className="holiday-card" style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '10px', borderLeft: `4px solid ${h.type === 'National' ? 'var(--accent-danger)' : h.type === 'Regional' ? 'var(--accent-warning)' : 'var(--accent-success)'}` }}>
+                        <div 
+                          key={h.id} 
+                          className="holiday-card" 
+                          title={h.description || h.name}
+                          style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '10px', borderLeft: `4px solid ${h.type === 'National' ? 'var(--accent-danger)' : h.type === 'Regional' ? 'var(--accent-warning)' : 'var(--accent-success)'}` }}
+                        >
                           <h4 style={{ margin: '0 0 5px 0' }}>{h.name}</h4>
                           <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '8px' }}>
                             {new Date(h.holiday_date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                           </div>
+                          {h.description && (
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-light)', marginBottom: '8px', fontStyle: 'italic' }}>
+                              {h.description}
+                            </div>
+                          )}
                           <span className="badge badge-outline" style={{ fontSize: '0.75rem' }}>{h.type} Holiday</span>
                         </div>
                       )) : (
@@ -5490,7 +5841,7 @@ function App() {
                             ))}
                           </select>
                         </div>
-                        <button className="btn btn-primary" onClick={() => fetchPayroll(payrollMonth, payrollYear)}>Load Payslip</button>
+
                       </div>
                     </div>
 
@@ -5507,8 +5858,8 @@ function App() {
                             <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>{user.name}</div>
                             <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{user.role}</div>
                             <div style={{ marginTop: '5px' }}>
-                              <span className={`badge ${p.status === 'Finalized' ? 'badge-success' : 'badge-warning'}`}>
-                                {p.status === 'Finalized' ? 'Paid' : 'Draft'}
+                              <span className={`badge ${p.status === 'Paid' ? 'badge-success' : p.status === 'Finalized' ? 'badge-primary' : 'badge-warning'}`}>
+                                {p.status}
                               </span>
                             </div>
                           </div>
@@ -6107,6 +6458,19 @@ function App() {
                     <option value="Combos">Combos</option>
                     <option value="Specials">Specials</option>
                   </select>
+                  {!user?.vendor_id && (
+                    <select 
+                      value={menuVendorFilter}
+                      onChange={(e) => setMenuVendorFilter(e.target.value)}
+                      style={{ marginLeft: '10px' }}
+                    >
+                      <option value="All">All Stalls & Central</option>
+                      <option value="Central">Central Canteen Items</option>
+                      {vendors.map(v => (
+                        <option key={v.id} value={v.id}>{v.name} Items</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <button className="btn btn-primary" onClick={handleOpenAddMenu}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style={{width: 18, height: 18, marginRight: 6}}>
@@ -6735,9 +7099,6 @@ function App() {
             <div className="view-panel active">
                   <div className="view-header-bar">
                     <h3>Inventory Transaction Audit Trail</h3>
-                    <button className="btn btn-outline-primary" onClick={() => handleOpenStockAction('')}>
-                      New Purchase Entry / Stock Action
-                    </button>
                   </div>
                   
                   <div className="table-container">
@@ -6832,6 +7193,23 @@ function App() {
                                 <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#3b82f6', borderRadius: '4px', color: '#fff', fontWeight: 'bold' }}>
                                   🖥️ On Central POS
                                 </span>
+                              </div>
+                            )}
+                            {!user.vendor_id && (
+                              <div style={{ marginTop: '4px' }}>
+                                {order.order_source === 'QR' ? (
+                                  <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#8b5cf6', borderRadius: '4px', color: '#fff', fontWeight: 'bold' }}>
+                                    📱 QR Order
+                                  </span>
+                                ) : order.billing_staff_vendor_id === null ? (
+                                  <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#3b82f6', borderRadius: '4px', color: '#fff', fontWeight: 'bold' }}>
+                                    🖥️ Central POS
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#f59e0b', borderRadius: '4px', color: '#fff', fontWeight: 'bold' }}>
+                                    🏪 Stall POS
+                                  </span>
+                                )}
                               </div>
                             )}
                           </td>
@@ -7337,7 +7715,7 @@ function App() {
                       <div className="vendor-form-actions">
                         <button className="vendor-form-cancel" onClick={() => { setShowVendorForm(false); setFormVendor({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00' }); }}>Cancel</button>
                         <button className="vendor-form-save" onClick={async () => {
-                          if (!formVendor.name.trim()) { setToast({ show: true, message: 'Stall name is required', type: 'error' }); return; }
+                          if (!formVendor.name.trim()) { showToast('Stall name is required', 'error'); return; }
                           try {
                             const url = formVendor.id ? `${API_BASE}/vendors/${formVendor.id}` : `${API_BASE}/vendors`;
                             const method = formVendor.id ? 'PUT' : 'POST';
@@ -7347,13 +7725,13 @@ function App() {
                               commission_rate: parseFloat(formVendor.commission_rate) || 10, share_area: parseFloat(formVendor.share_area) || 10
                             })});
                             if (res.ok) {
-                              setToast({ show: true, message: formVendor.id ? 'Vendor updated successfully' : 'Vendor registered successfully', type: 'success' });
+                              showToast(formVendor.id ? 'Vendor updated successfully' : 'Vendor registered successfully', 'success');
                               setShowVendorForm(false);
                               setFormVendor({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00' });
                               fetchVendors();
                             } else { throw new Error('Failed'); }
                           } catch (err) {
-                            setToast({ show: true, message: 'Failed to save vendor', type: 'error' });
+                            showToast('Failed to save vendor', 'error');
                           }
                         }}>{formVendor.id ? 'Update Vendor' : 'Register Stall'}</button>
                       </div>
@@ -7385,11 +7763,11 @@ function App() {
                             try {
                               const res = await fetch(`${API_BASE}/vendors/${v.id}`, { method: 'DELETE' });
                               if (res.ok) {
-                                setToast({ show: true, message: 'Vendor deleted', type: 'success' });
+                                showToast('Vendor deleted', 'success');
                                 fetchVendors();
                                 fetchItems();
                               } else { throw new Error('Failed'); }
-                            } catch { setToast({ show: true, message: 'Failed to delete vendor', type: 'error' }); }
+                            } catch { showToast('Failed to delete vendor', 'error'); }
                           }}>🗑️ Delete</button>
                         </div>
                       </div>
@@ -7439,7 +7817,7 @@ function App() {
                       </div>
                       <button className="btn-calculate" onClick={async () => {
                         if (!costSplit.startDate || !costSplit.endDate || !costSplit.totalCost) {
-                          setToast({ show: true, message: 'Please fill all fields', type: 'error' }); return;
+                          showToast('Please fill all fields', 'error'); return;
                         }
                         try {
                           const payload = { startDate: costSplit.startDate, endDate: costSplit.endDate, totalCommonAreaCost: parseFloat(costSplit.totalCost), splitMethod: costSplit.method };
@@ -8061,6 +8439,7 @@ function App() {
                   ['leaves', '✉️ Leave Management'],
                   ['holidays', '🏖️ Holiday Calendar'],
                   ['payroll', '💰 Payroll Panel'],
+                  ['breakdown', '📊 Staff Tracker'],
                   ['performance', '📊 Performance']
                 ].map(([key, label]) => (
                   <button
@@ -8093,7 +8472,7 @@ function App() {
                       <div className="modal-card" style={{ maxWidth: '600px', width: '95%' }}>
                         <div className="modal-header">
                           <h3>{formStaff.id ? '✏️ Edit Staff Member' : '➕ Register New Staff Member'}</h3>
-                          <button className="close-btn" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Staff', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); }}>&times;</button>
+                          <button className="close-btn" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Helper', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); }}>&times;</button>
                         </div>
                         <form onSubmit={handleSaveStaff}>
                           <div className="modal-body">
@@ -8224,7 +8603,7 @@ function App() {
                             </div>
                           </div>
                           <div className="modal-footer" style={{ borderTop: '1px solid var(--border-light)', paddingTop: '15px' }}>
-                            <button type="button" className="btn btn-outline-primary" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Staff', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); }}>Cancel</button>
+                            <button type="button" className="btn btn-outline-primary" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Helper', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); }}>Cancel</button>
                             <button type="submit" className="btn btn-success">{formStaff.id ? 'Update Staff Info' : 'Add Staff'}</button>
                           </div>
                         </form>
@@ -8281,7 +8660,7 @@ function App() {
                       );
                     })}
 
-                    <div className="hr-add-card" onClick={() => { setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Staff', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); setShowStaffForm(true); }}>
+                    <div className="hr-add-card" onClick={() => { setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Helper', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); setShowStaffForm(true); }}>
                       <div className="add-icon">＋</div>
                       <span>Add Staff Member</span>
                     </div>
@@ -8584,8 +8963,16 @@ function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <label style={{ fontWeight: 600 }}>Select Date:</label>
                       <input type="date" value={selectedAttendanceDate} onChange={e => setSelectedAttendanceDate(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                      {holidays.find(h => (h.holiday_date || h.date || '').split('T')[0] === selectedAttendanceDate) && (
+                        <span style={{ backgroundColor: 'rgba(220, 53, 69, 0.1)', color: '#dc3545', padding: '6px 12px', borderRadius: '4px', fontWeight: '600', border: '1px solid rgba(220,53,69,0.3)', fontSize: '13px' }}>
+                          🔴 {holidays.find(h => (h.holiday_date || h.date || '').split('T')[0] === selectedAttendanceDate).name}
+                        </span>
+                      )}
                     </div>
-                    <button className="btn btn-outline-primary" onClick={() => setShowAttendanceForm(true)}>📝 Log Manual / Past Attendance</button>
+                    <button className="btn btn-outline-primary" onClick={() => {
+                      setFormAttendanceManual({ staff_id: '', shift_id: '', status: 'Present', notes: '', date: selectedAttendanceDate, check_in: '', check_out: '' });
+                      setShowAttendanceForm(true);
+                    }}>📝 Log Manual Attendance</button>
                   </div>
 
                   {/* Manual attendance dialog */}
@@ -8596,7 +8983,7 @@ function App() {
                         <div className="hr-form-grid">
                           <div className="hr-form-group">
                             <label>Staff Member *</label>
-                            <select required value={formAttendanceManual.staff_id} onChange={e => setFormAttendanceManual({ ...formAttendanceManual, staff_id: e.target.value })}>
+                            <select required value={formAttendanceManual.staff_id} onChange={e => handleManualStaffSelect(e.target.value)}>
                               <option value="">-- Select Staff --</option>
                               {staff.filter(s => s.is_active === 1 && s.exclude_from_attendance !== 1 && s.role !== 'Owner').map(s => (
                                 <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
@@ -8605,8 +8992,9 @@ function App() {
                           </div>
                           <div className="hr-form-group">
                             <label>Shift</label>
-                            <select value={formAttendanceManual.shift_id} onChange={e => setFormAttendanceManual({ ...formAttendanceManual, shift_id: e.target.value })}>
-                              <option value="">-- None / Select Shift --</option>
+                            <select value={formAttendanceManual.shift_id} disabled style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)' }}>
+                              <option value="">-- Select Staff First --</option>
+                              <option value="none">Not Scheduled</option>
                               {shifts.map(sh => (
                                 <option key={sh.id} value={sh.id}>{sh.name} ({sh.start_time})</option>
                               ))}
@@ -8622,8 +9010,56 @@ function App() {
                             </select>
                           </div>
                           <div className="hr-form-group">
-                            <label>Check-in Time (YYYY-MM-DD HH:mm:ss)</label>
-                            <input type="text" placeholder="Optional. e.g. 2026-06-10 09:05:00" value={formAttendanceManual.check_in} onChange={e => setFormAttendanceManual({ ...formAttendanceManual, check_in: e.target.value })} />
+                            <label>Date *</label>
+                            <input type="date" required value={formAttendanceManual.date || ''} disabled style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)' }} />
+                          </div>
+                          <div className="hr-form-group">
+                            {(() => {
+                              const assignedSh = formAttendanceManual.shift_id && formAttendanceManual.shift_id !== 'none'
+                                ? shifts.find(sh => sh.id === parseInt(formAttendanceManual.shift_id))
+                                : null;
+                              let minCheckInVal = undefined;
+                              if (assignedSh) {
+                                const [h, m] = assignedSh.start_time.split(':').map(Number);
+                                let totalMin = h * 60 + m - 15;
+                                if (totalMin < 0) totalMin += 24 * 60;
+                                const minH = Math.floor(totalMin / 60);
+                                const minM = totalMin % 60;
+                                minCheckInVal = `${String(minH).padStart(2, '0')}:${String(minM).padStart(2, '0')}`;
+                              }
+                              return (
+                                <>
+                                  <label>
+                                    Check-in Time
+                                    {minCheckInVal && (
+                                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '6px' }}>
+                                        (Earliest: {minCheckInVal})
+                                      </span>
+                                    )}
+                                  </label>
+                                  <input
+                                    type="time"
+                                    min={minCheckInVal}
+                                    value={formAttendanceManual.check_in || ''}
+                                    onChange={e => setFormAttendanceManual({ ...formAttendanceManual, check_in: e.target.value })}
+                                  />
+                                </>
+                              );
+                            })()}
+                          </div>
+                          <div className="hr-form-group">
+                            <label>
+                              Check-out Time
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '6px' }}>
+                                (Blank = 23:59:00 No Checkout)
+                              </span>
+                            </label>
+                            <input
+                              type="time"
+                              value={formAttendanceManual.check_out || ''}
+                              onChange={e => setFormAttendanceManual({ ...formAttendanceManual, check_out: e.target.value })}
+                              placeholder="Leave blank for No Checkout"
+                            />
                           </div>
                         </div>
                         <div className="hr-form-group" style={{ marginTop: '10px' }}>
@@ -8631,7 +9067,7 @@ function App() {
                           <input type="text" placeholder="e.g. Late due to public transit delay" value={formAttendanceManual.notes} onChange={e => setFormAttendanceManual({ ...formAttendanceManual, notes: e.target.value })} />
                         </div>
                         <div className="hr-form-actions" style={{ marginTop: '15px' }}>
-                          <button type="button" className="btn btn-outline-primary" onClick={() => { setShowAttendanceForm(false); setFormAttendanceManual({ staff_id: '', shift_id: '', status: 'Present', notes: '', check_in: '', check_out: '' }); }}>Cancel</button>
+                          <button type="button" className="btn btn-outline-primary" onClick={() => { setShowAttendanceForm(false); setFormAttendanceManual({ staff_id: '', shift_id: '', status: 'Present', notes: '', date: '', check_in: '', check_out: '' }); }}>Cancel</button>
                           <button type="submit" className="btn btn-success">Save Record</button>
                         </div>
                       </form>
@@ -8870,7 +9306,21 @@ function App() {
                         <label>Total Working Days</label>
                         <input type="number" value={payrollWorkingDays} onChange={e => setPayrollWorkingDays(e.target.value)} />
                       </div>
-                      <button className="btn btn-success" onClick={handleGeneratePayroll} style={{ height: '42px' }}>⚡ Generate Payroll Ledger</button>
+                      <button className="btn btn-success" onClick={handleGeneratePayroll} style={{ height: '42px' }}
+                        disabled={payroll.length > 0 && payroll.some(p => p.status === 'Finalized' || p.status === 'Paid')}
+                      >
+                        {payroll.length > 0 && payroll.every(p => p.status === 'Draft') ? '🔄 Regenerate Payroll' : '⚡ Generate Payroll Ledger'}
+                      </button>
+                      {payroll.length > 0 && payroll.some(p => p.status === 'Draft') && !payroll.some(p => p.status === 'Finalized' || p.status === 'Paid') && (
+                        <button className="btn btn-primary" onClick={handleFinalizePayroll} style={{ height: '42px' }}>
+                          🔒 Finalize Payroll
+                        </button>
+                      )}
+                      {payroll.length > 0 && payroll.some(p => p.status === 'Finalized' || p.status === 'Paid') && (
+                        <span className="badge" style={{ background: '#28a745', color: '#fff', padding: '8px 14px', fontSize: '0.82rem', height: '42px', display: 'flex', alignItems: 'center' }}>
+                          🔒 {payroll.every(p => p.status === 'Paid') ? 'All Paid' : 'Finalized'}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -8892,7 +9342,7 @@ function App() {
                           <th>Meals Cost</th>
                           <th>Net Payout</th>
                           <th>Status</th>
-                          <th>Bank Action</th>
+                          <th>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -8914,19 +9364,23 @@ function App() {
                             <td className="text-danger">−₹{parseFloat(p.meal_deduction).toFixed(2)}</td>
                             <td style={{ fontWeight: 700, color: 'var(--accent-success)' }}>₹{parseFloat(p.net_salary).toFixed(2)}</td>
                             <td>
-                              <span className={`badge ${p.status === 'Finalized' ? 'badge-success' : 'badge-warning'}`}>
-                                {p.status === 'Finalized' ? 'Paid' : 'Draft'}
+                              <span className={`badge ${p.status === 'Paid' ? 'badge-success' : p.status === 'Finalized' ? 'badge-primary' : 'badge-warning'}`}>
+                                {p.status}
                               </span>
                             </td>
                             <td>
-                              {p.status === 'Draft' ? (
-                                <button className="btn btn-success btn-small" onClick={() => handlePayPayroll(p.id)}>💳 Finalize & Pay</button>
-                              ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                {(p.status === 'Finalized' || p.status === 'Paid') && (
                                   <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                    Sent to A/C: {p.bank_account || 'Bank Transfer'}
+                                    A/C: {p.bank_account || 'Bank Transfer'}
                                   </span>
-                                  <button className="btn btn-outline-primary btn-small" onClick={() => {
+                                )}
+                                {p.status === 'Finalized' && (
+                                  <button className="btn btn-success btn-small" onClick={() => handlePayStaff(p.id, p.staff_name)}>
+                                    💳 Pay
+                                  </button>
+                                )}
+                                <button className="btn btn-outline-primary btn-small" onClick={() => {
                                     const printWin = window.open('', '_blank');
                                     printWin.document.write(`
                                       <html><head><title>Payslip - ${p.staff_name}</title>
@@ -8940,6 +9394,7 @@ function App() {
                                       <div class="header">
                                         <h2>Food Court & Canteen ERP</h2>
                                         <h3>Payslip for ${new Date(2026, payrollMonth - 1).toLocaleString(undefined, { month: 'long' })} ${payrollYear}</h3>
+                                        <p style="font-size:0.85rem; color:#888;">Status: ${p.status}</p>
                                       </div>
                                       <p><strong>Employee:</strong> ${p.staff_name}</p>
                                       <p><strong>Role:</strong> ${p.role}</p>
@@ -8973,8 +9428,7 @@ function App() {
                                     `);
                                     printWin.document.close();
                                   }}>📄 Payslip</button>
-                                </div>
-                              )}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -8985,6 +9439,138 @@ function App() {
                         )}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              )}
+
+
+
+              {/* ============ SUB-TAB: PAYROLL BREAKDOWN ============ */}
+              {hrSubTab === 'breakdown' && (
+                <div>
+                  <div className="hr-form-card" style={{ padding: '20px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <h4>📊 Staff Attendance &amp; Meal Tracker</h4>
+                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '15px' }}>
+                      Select a staff member and month to view their full attendance calendar with daily status and staff meal consumption.
+                    </p>
+                    <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                      <div className="hr-form-group" style={{ width: '220px' }}>
+                        <label>Staff Member</label>
+                        <select
+                          value={breakdownModalState.staffId || ''}
+                          onChange={e => {
+                            const stId = e.target.value;
+                            const stName = stId ? e.target.options[e.target.selectedIndex].text : '';
+                            setBreakdownModalState({ show: false, staffId: stId, staffName: stName, records: [] });
+                          }}
+                        >
+                          <option value="">-- Select Staff --</option>
+                          {staff.filter(s => s.is_active === 1 && s.role !== 'Owner').map(s => (
+                            <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="hr-form-group" style={{ width: '130px' }}>
+                        <label>Month</label>
+                        <select value={payrollMonth} onChange={e => setPayrollMonth(parseInt(e.target.value))}>
+                          {Array.from({ length: 12 }, (_, i) => (
+                            <option key={i + 1} value={i + 1}>{new Date(2026, i).toLocaleString(undefined, { month: 'long' })}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="hr-form-group" style={{ width: '100px' }}>
+                        <label>Year</label>
+                        <select value={payrollYear} onChange={e => setPayrollYear(parseInt(e.target.value))}>
+                          {[2025, 2026, 2027].map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        className="btn btn-primary"
+                        style={{ height: '42px' }}
+                        onClick={() => {
+                          if (!breakdownModalState.staffId) {
+                            showToast('Please select a staff member first', 'warning');
+                            return;
+                          }
+                          fetchAttendanceBreakdown(breakdownModalState.staffId, breakdownModalState.staffName, payrollMonth, payrollYear);
+                        }}
+                      >
+                        📋 Load Breakdown
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Results Table */}
+                  {breakdownModalState.records.length > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
+                      <h4 style={{ margin: 0 }}>
+                        📅 {breakdownModalState.staffName} — {new Date(payrollYear, payrollMonth - 1).toLocaleString(undefined, { month: 'long' })} {payrollYear}
+                      </h4>
+                      <div style={{ display: 'flex', gap: '10px', fontSize: '0.78rem', flexWrap: 'wrap' }}>
+                        <span><span className="badge bg-success">Present</span> {breakdownModalState.records.filter(r => r.status === 'Present').length}</span>
+                        <span><span className="badge bg-warning">Late</span> {breakdownModalState.records.filter(r => r.status === 'Late').length}</span>
+                        <span><span className="badge bg-info">Half-Day</span> {breakdownModalState.records.filter(r => r.status === 'Half-Day').length}</span>
+                        <span><span className="badge bg-danger">Absent</span> {breakdownModalState.records.filter(r => r.status === 'Absent').length}</span>
+                        <span><span className="badge" style={{ background: '#6f42c1', color: '#fff' }}>Holiday</span> {breakdownModalState.records.filter(r => r.status.startsWith('Holiday')).length}</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="table-container" style={{ marginTop: breakdownModalState.records.length === 0 ? '20px' : '0' }}>
+                    {breakdownModalState.records.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: '2.5rem', marginBottom: '10px' }}>📅</div>
+                        No records loaded. Select a staff member and click <strong>&quot;Load Breakdown&quot;</strong>.
+                      </div>
+                    ) : (
+                      <>
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th style={{ minWidth: '130px' }}>Date</th>
+                              <th style={{ minWidth: '140px' }}>Status</th>
+                              <th style={{ minWidth: '100px' }}>Check-in</th>
+                              <th style={{ minWidth: '100px' }}>Check-out</th>
+                              <th style={{ minWidth: '200px' }}>Staff Meal</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {breakdownModalState.records.map((r, i) => {
+                              const isHoliday = r.status.startsWith('Holiday');
+                              const isFuture = r.status === '-';
+                              const rowBg = isHoliday ? 'rgba(111,66,193,0.08)' : isFuture ? 'rgba(128,128,128,0.04)' : 'transparent';
+                              return (
+                                <tr key={i} style={{ background: rowBg }}>
+                                  <td>
+                                    <strong>{r.date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</strong>
+                                  </td>
+                                  <td>
+                                    {isHoliday ? (
+                                      <span className="badge" style={{ background: '#6f42c1', color: '#fff', whiteSpace: 'normal', lineHeight: '1.3', textAlign: 'center' }}>{r.status}</span>
+                                    ) : r.status === 'Absent' ? (
+                                      <span className="badge bg-danger">Absent</span>
+                                    ) : r.status === 'Late' ? (
+                                      <span className="badge bg-warning">Late</span>
+                                    ) : r.status === 'Half-Day' ? (
+                                      <span className="badge bg-info">Half-Day</span>
+                                    ) : r.status === 'Present' ? (
+                                      <span className="badge bg-success">Present</span>
+                                    ) : (
+                                      <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                    )}
+                                  </td>
+                                  <td>{r.check_in !== '-' ? r.check_in : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                                  <td>{r.check_out !== '-' ? r.check_out : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                                  <td>{r.meals !== '-' ? <div style={{ fontSize: '0.85rem', wordBreak: 'break-word', whiteSpace: 'normal', maxWidth: '300px' }}>{r.meals}</div> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -9105,7 +9691,7 @@ function App() {
                       </h3>
                       <button className="btn btn-outline-primary" onClick={() => setCurrentCalendarMonth(new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() + 1, 1))}>Next &gt;</button>
                     </div>
-                    <button className="btn btn-primary" onClick={() => setHolidayModal({ show: true, name: '', date: '', description: '' })}>+ Add Holiday</button>
+                    <button className="btn btn-primary" onClick={() => setHolidayModal({ show: true, id: null, name: '', date: '', description: '' })}>+ Add Holiday</button>
                   </div>
                   
                   <div className="calendar-grid-container">
@@ -9138,7 +9724,7 @@ function App() {
                           days.push(
                             <div 
                               key={dateStr}
-                              onClick={() => setHolidayModal({ show: true, name: holidayInfo ? holidayInfo.name : '', date: dateStr, description: '' })}
+                              onClick={() => setHolidayModal({ show: true, id: holidayInfo ? holidayInfo.id : null, name: holidayInfo ? holidayInfo.name : '', date: dateStr, description: holidayInfo ? (holidayInfo.description || '') : '' })}
                               style={{
                                 padding: '10px',
                                 minHeight: '90px',
@@ -9154,7 +9740,9 @@ function App() {
                             >
                               <div style={{ fontWeight: 'bold', marginBottom: '5px', color: isCurrentMonth ? 'inherit' : 'var(--text-muted)' }}>{currentDate.getDate()}</div>
                               {holidayInfo && (
-                                <div style={{
+                                <div 
+                                  title={holidayInfo.description || holidayInfo.name}
+                                  style={{
                                   backgroundColor: 'rgba(245, 158, 11, 0.15)',
                                   border: '1px solid rgba(245, 158, 11, 0.4)',
                                   color: '#f59e0b',
@@ -9835,11 +10423,11 @@ function App() {
 
       {/* Add Holiday Modal */}
       {holidayModal.show && (
-        <div className="modal-overlay active" onClick={e => { if (e.target === e.currentTarget) setHolidayModal({ show: false, name: '', date: '', description: '' }); }}>
+        <div className="modal-overlay active" onClick={e => { if (e.target === e.currentTarget) setHolidayModal({ show: false, id: null, name: '', date: '', description: '' }); }}>
           <div className="modal-card" style={{ maxWidth: '480px' }}>
             <div className="modal-header">
-              <h3>📅 Add Holiday</h3>
-              <button className="btn-close" onClick={() => setHolidayModal({ show: false, name: '', date: '', description: '' })}>×</button>
+              <h3>{holidayModal.id ? '📅 Edit / Remove Holiday' : '📅 Add Holiday'}</h3>
+              <button className="btn-close" onClick={() => setHolidayModal({ show: false, id: null, name: '', date: '', description: '' })}>×</button>
             </div>
             <div className="modal-body">
               <div className="form-group">
@@ -9874,7 +10462,12 @@ function App() {
               </div>
             </div>
             <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px 24px', borderTop: '1px solid var(--border-light)' }}>
-              <button className="btn btn-secondary" onClick={() => setHolidayModal({ show: false, name: '', date: '', description: '' })}>Cancel</button>
+              {holidayModal.id && (
+                <button className="btn btn-danger" style={{ marginRight: 'auto', background: 'transparent', color: 'var(--accent-danger)', border: '1px solid var(--accent-danger)' }} onClick={handleRemoveHoliday}>
+                  🗑️ Remove
+                </button>
+              )}
+              <button className="btn btn-secondary" onClick={() => setHolidayModal({ show: false, id: null, name: '', date: '', description: '' })}>Cancel</button>
               <button
                 className="btn btn-primary"
                 onClick={async () => {
@@ -9883,25 +10476,29 @@ function App() {
                     return;
                   }
                   try {
-                    const res = await fetch(`${API_BASE}/holidays`, {
-                      method: 'POST',
+                    const url = holidayModal.id 
+                      ? `${API_BASE}/holidays/${holidayModal.id}` 
+                      : `${API_BASE}/holidays`;
+                    const method = holidayModal.id ? 'PUT' : 'POST';
+                    const res = await fetch(url, {
+                      method,
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ name: holidayModal.name.trim(), holiday_date: holidayModal.date, description: holidayModal.description || '' })
                     });
                     if (res.ok) {
-                      showToast('Holiday added successfully!', 'success');
-                      setHolidayModal({ show: false, name: '', date: '', description: '' });
+                      showToast(holidayModal.id ? 'Holiday updated successfully!' : 'Holiday added successfully!', 'success');
+                      setHolidayModal({ show: false, id: null, name: '', date: '', description: '' });
                       fetchHolidays();
                     } else {
                       const err = await res.json();
-                      showToast(err.error || 'Failed to add holiday', 'error');
+                      showToast(err.error || 'Failed to save holiday', 'error');
                     }
                   } catch (err) {
-                    showToast('Network error adding holiday', 'error');
+                    showToast('Network error saving holiday', 'error');
                   }
                 }}
               >
-                Save Holiday
+                {holidayModal.id ? 'Update Holiday' : 'Save Holiday'}
               </button>
             </div>
           </div>
@@ -10138,7 +10735,7 @@ function App() {
         <div className="modal-overlay active">
           <div className="modal-card">
             <div className="modal-header">
-              <h3>Stock Ledger Transaction</h3>
+              <h3>{stockActionModal.isRestockMode ? `📦 Restock: ${materials.find(m => m.id === formStockAction.material_id)?.name || ''}` : '📦 Stock Ledger Transaction'}</h3>
               <button className="close-btn" onClick={() => setStockActionModal({ show: false })}>&times;</button>
             </div>
             <form onSubmit={handleSaveStockAction}>
@@ -10147,6 +10744,7 @@ function App() {
                 <select 
                   required={!formStockAction._isNewMaterial}
                   value={formStockAction._isNewMaterial ? '__NEW__' : formStockAction.material_id}
+                  disabled={stockActionModal.isRestockMode}
                   onChange={(e) => {
                     if (e.target.value === '__NEW__') {
                       setFormStockAction(prev => ({ ...prev, material_id: '', _isNewMaterial: true, _newName: '', _newUnit: 'kg', _newMinStock: '0' }));
@@ -10159,7 +10757,7 @@ function App() {
                   {materials.map((m, idx) => (
                     <option value={m.id} key={idx}>{m.name} ({m.unit})</option>
                   ))}
-                  <option value="__NEW__" style={{ fontWeight: 'bold' }}>＋ Add New Material</option>
+                  <option value="__NEW__" style={{ fontWeight: 'bold' }}>+ Add New Material</option>
                 </select>
               </div>
               {formStockAction._isNewMaterial && (
@@ -10217,6 +10815,7 @@ function App() {
                     min="0.001" 
                     required 
                     placeholder="Quantity"
+                    autoFocus={stockActionModal.isRestockMode}
                     value={formStockAction.change_qty}
                     onChange={(e) => setFormStockAction(prev => ({ ...prev, change_qty: e.target.value }))}
                   />
@@ -10225,6 +10824,7 @@ function App() {
                   <label>Transaction Type *</label>
                   <select 
                     value={formStockAction.log_type}
+                    disabled={stockActionModal.isRestockMode}
                     onChange={(e) => setFormStockAction(prev => ({ ...prev, log_type: e.target.value }))}
                   >
                     <option value="Purchase">Purchase (Restock - Add)</option>
@@ -11041,74 +11641,13 @@ function App() {
                 })()}
                 style={{ opacity: isPosCheckoutLoading ? 0.75 : 1 }}
               >
-                {isPosCheckoutLoading ? 'Processing...' : 'Checkout Splits'}
+                {isPosCheckoutLoading ? 'Processing...' : 'Place Split Order'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Cash Drawer Modal */}
-      {showCashDrawerModal && cashDrawer && (
-        <div className="modal-overlay active">
-          <div className="modal-card" style={{ maxWidth: '450px' }}>
-            <div className="modal-header">
-              <h3>💵 Cash Drawer Management</h3>
-              <button className="btn-close" onClick={() => setShowCashDrawerModal(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <div style={{ marginBottom: '15px' }}>
-                <span className={`badge ${cashDrawer.status === 'Open' ? 'badge-success' : 'badge-danger'}`}>
-                  Status: {cashDrawer.status}
-                </span>
-                <p style={{ marginTop: '10px' }}>System Cash Expected: <strong>₹{Number(cashDrawer.system_cash).toFixed(2)}</strong></p>
-              </div>
-
-              {cashDrawer.status !== 'Open' ? (
-                <div>
-                  <h4>Open Drawer</h4>
-                  <div className="form-group mt-3">
-                    <label>Opening Cash (Float)</label>
-                    <input type="number" id="drawer-open-cash" defaultValue="0" />
-                  </div>
-                  <div className="form-group mt-3">
-                    <label>Notes</label>
-                    <input type="text" id="drawer-open-notes" placeholder="e.g. Morning float from safe" />
-                  </div>
-                  <div className="form-actions mt-4">
-                    <button className="btn btn-success" onClick={() => {
-                      fetch(`${API_BASE}/cash-drawer/open`, {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ opening_cash: document.getElementById('drawer-open-cash').value, notes: document.getElementById('drawer-open-notes').value })
-                      }).then(() => { showToast('Drawer Opened', 'success'); fetchCashDrawerStatus(); });
-                    }}>Open Drawer</button>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <h4>Close Drawer (EOD)</h4>
-                  <div className="form-group mt-3">
-                    <label>Physical Cash Count</label>
-                    <input type="number" id="drawer-close-cash" defaultValue={cashDrawer.system_cash} />
-                  </div>
-                  <div className="form-group mt-3">
-                    <label>Notes</label>
-                    <input type="text" id="drawer-close-notes" placeholder="e.g. Handover to Manager" />
-                  </div>
-                  <div className="form-actions mt-4">
-                    <button className="btn btn-danger" onClick={() => {
-                      fetch(`${API_BASE}/cash-drawer/close`, {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ closing_cash: document.getElementById('drawer-close-cash').value, notes: document.getElementById('drawer-close-notes').value })
-                      }).then(() => { showToast('Drawer Closed', 'success'); fetchCashDrawerStatus(); });
-                    }}>Close Drawer</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ==========================================
            MODAL: COMBO BUILDER
@@ -11426,6 +11965,8 @@ function App() {
           </div>
         </div>
       )}
+
+
 
     </div>
   );

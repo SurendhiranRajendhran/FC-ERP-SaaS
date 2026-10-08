@@ -406,6 +406,7 @@ app.get('/api/dashboard', async (req, res) => {
          JOIN items i ON oi.item_id = i.id
          WHERE o.order_date BETWEEN ? AND ? 
            AND o.status != 'Cancelled'
+           AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal')
            AND i.vendor_id = ?`,
          [startStr, endStr, vId]
       );
@@ -437,11 +438,12 @@ app.get('/api/dashboard', async (req, res) => {
 
       // Top Selling Items for Vendor
       const [topSelling] = await pool.query(
-        `SELECT i.name, SUM(oi.quantity) as total_qty, SUM(oi.quantity * oi.price) as total_sales
+         `SELECT i.name, SUM(oi.quantity) as total_qty, SUM(oi.quantity * oi.price) as total_sales
          FROM order_items oi
          JOIN items i ON oi.item_id = i.id
          JOIN orders o ON oi.order_id = o.id
          WHERE o.status != 'Cancelled' AND i.vendor_id = ?
+           AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal')
          GROUP BY oi.item_id
          ORDER BY total_qty DESC
          LIMIT 5`,
@@ -466,8 +468,9 @@ app.get('/api/dashboard', async (req, res) => {
          JOIN items i ON oi.item_id = i.id
          WHERE o.order_date BETWEEN ? AND ? 
            AND o.status != 'Cancelled'
+           AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal')
            AND i.vendor_id IS NULL`,
-         [startStr, endStr]
+        [startStr, endStr]
       );
       salesResult = sales;
 
@@ -480,7 +483,7 @@ app.get('/api/dashboard', async (req, res) => {
          WHERE o.order_date BETWEEN ? AND ? 
            AND o.status IN ('Pending', 'Preparing', 'Ready')
            AND i.vendor_id IS NULL`,
-         [startStr, endStr]
+        [startStr, endStr]
       );
       pendingCount = pending[0].count;
 
@@ -498,7 +501,9 @@ app.get('/api/dashboard', async (req, res) => {
          FROM order_items oi
          JOIN items i ON oi.item_id = i.id
          JOIN orders o ON oi.order_id = o.id
-         WHERE o.status != 'Cancelled' AND i.vendor_id IS NULL
+         WHERE o.status != 'Cancelled' 
+           AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal')
+           AND i.vendor_id IS NULL
          GROUP BY oi.item_id
          ORDER BY total_qty DESC
          LIMIT 5`
@@ -515,7 +520,9 @@ app.get('/api/dashboard', async (req, res) => {
       const [sales] = await pool.query(
         `SELECT COUNT(id) as total_orders, IFNULL(SUM(total_amount), 0) as total_revenue, IFNULL(SUM(gst_amount), 0) as total_gst 
          FROM orders 
-         WHERE order_date BETWEEN ? AND ? AND status != 'Cancelled'`,
+         WHERE order_date BETWEEN ? AND ? 
+           AND status != 'Cancelled'
+           AND (discount_type IS NULL OR discount_type != 'StaffMeal')`,
         [startStr, endStr]
       );
       salesResult = sales;
@@ -545,6 +552,7 @@ app.get('/api/dashboard', async (req, res) => {
          JOIN items i ON oi.item_id = i.id
          JOIN orders o ON oi.order_id = o.id
          WHERE o.status != 'Cancelled'
+           AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal')
          GROUP BY oi.item_id
          ORDER BY total_qty DESC
          LIMIT 5`
@@ -1740,9 +1748,10 @@ app.post('/api/orders', async (req, res) => {
             orderSubtotal += p * parseInt(oi.quantity);
           }
         }
-        if (orderSubtotal > usageData.remaining) {
-          throw new Error(`Staff Meal limit exceeded. Used ₹${usageData.used.toFixed(2)} of ₹${usageData.total_allowance.toFixed(2)}. Remaining: ₹${usageData.remaining.toFixed(2)}. Cart total: ₹${orderSubtotal.toFixed(2)}.`);
-        }
+        // Removed hard block: Excess meal cost will now be deducted from their net salary during payroll.
+        // if (orderSubtotal > usageData.remaining) {
+        //   throw new Error(...);
+        // }
       }
     }
 
@@ -2767,7 +2776,7 @@ app.get('/api/vendors/performance', async (req, res) => {
       FROM vendors v
       LEFT JOIN items i ON v.id = i.vendor_id
       LEFT JOIN order_items oi ON i.id = oi.item_id
-      LEFT JOIN orders o ON oi.order_id = o.id AND o.status != 'Cancelled'
+      LEFT JOIN orders o ON oi.order_id = o.id AND o.status != 'Cancelled' AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal')
       GROUP BY v.id
       ORDER BY total_sales DESC
     `);
@@ -2816,7 +2825,7 @@ app.get('/api/vendors/performance/my-stats', async (req, res) => {
       FROM vendors v
       LEFT JOIN items i ON v.id = i.vendor_id
       LEFT JOIN order_items oi ON i.id = oi.item_id
-      LEFT JOIN orders o ON oi.order_id = o.id AND o.status != 'Cancelled' ${summaryDateClause}
+      LEFT JOIN orders o ON oi.order_id = o.id AND o.status != 'Cancelled' AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal') ${summaryDateClause}
       WHERE v.id = ?
       GROUP BY v.id
     `, [vendorId]);
@@ -2834,7 +2843,7 @@ app.get('/api/vendors/performance/my-stats', async (req, res) => {
       FROM orders o
       JOIN order_items oi ON o.id = oi.order_id
       JOIN items i ON oi.item_id = i.id
-      WHERE i.vendor_id = ? AND o.status != 'Cancelled' ${trendDateClause}
+      WHERE i.vendor_id = ? AND o.status != 'Cancelled' AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal') ${trendDateClause}
       GROUP BY DATE(o.order_date)
       ORDER BY date ASC
     `, [vendorId]);
@@ -2847,7 +2856,7 @@ app.get('/api/vendors/performance/my-stats', async (req, res) => {
       FROM order_items oi
       JOIN items i ON oi.item_id = i.id
       JOIN orders o ON oi.order_id = o.id
-      WHERE i.vendor_id = ? AND o.status != 'Cancelled' ${trendDateClause}
+      WHERE i.vendor_id = ? AND o.status != 'Cancelled' AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal') ${trendDateClause}
       GROUP BY i.id, i.name
       ORDER BY qty_sold DESC
       LIMIT 5
@@ -3475,13 +3484,13 @@ app.post('/api/staff', async (req, res) => {
         name, phone, email, password_hash, role, pay_type, daily_rate, monthly_salary,
         pf_enabled, esi_enabled, tds_percentage, bank_account, joined_at,
         exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance, vendor_id,
-        staff_meal_limit, staff_meal_auto_reset
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        staff_meal_limit, staff_meal_auto_reset, tenant_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name, phone, email, passwordHash, role, pay_type, daily_rate || 0, monthly_salary || 0,
         pf_enabled || 0, esi_enabled || 0, tds_percentage || 0.00, bank_account, joined_at,
         exclude_from_payroll || 0, exclude_from_roster || 0, exclude_from_attendance || 0, exclude_from_performance || 0,
-        assigned_vendor_id, staff_meal_limit || 0, staff_meal_auto_reset === false ? 0 : 1
+        assigned_vendor_id, staff_meal_limit || 0, staff_meal_auto_reset === false ? 0 : 1, req.user.tenant_id
       ]
     );
     res.status(201).json({
@@ -3889,21 +3898,87 @@ app.get('/api/attendance', async (req, res) => {
 
 // Check-in
 app.post('/api/attendance/check-in', async (req, res) => {
-  const { staff_id, shift_id, notes, attendance_date, check_in, status } = req.body;
+  const { staff_id, shift_id, notes, attendance_date, check_in, check_out, status } = req.body;
   if (!staff_id) {
     return res.status(400).json({ error: 'staff_id is required.' });
   }
 
   try {
     const now = new Date();
-    const attendanceDate = attendance_date || now.toISOString().split('T')[0];
+    const attendanceDate = attendance_date || formatLocalTimestamp(now).split(' ')[0];
     const checkInTime = check_in || formatLocalTimestamp(now);
-    const attStatus = status || 'Present';
+
+    const [staffRows] = await pool.query('SELECT vendor_id, tenant_id FROM staff WHERE id = ?', [staff_id]);
+    if (staffRows.length === 0) return res.status(404).json({ error: 'Staff member not found.' });
+    const staffInfo = staffRows[0];
+
+    // 1. Holiday Enforcement
+    let holidayQuery = 'SELECT name FROM holidays WHERE holiday_date = ? AND tenant_id = ? AND ';
+    let holidayParams = [attendanceDate, staffInfo.tenant_id];
+    if (staffInfo.vendor_id === null) {
+      holidayQuery += 'vendor_id IS NULL';
+    } else {
+      holidayQuery += 'vendor_id = ?';
+      holidayParams.push(staffInfo.vendor_id);
+    }
+    const [holidayRows] = await pool.query(holidayQuery, holidayParams);
+    
+    if (holidayRows.length > 0) {
+      return res.status(400).json({ error: `Cannot check in on a holiday: ${holidayRows[0].name}` });
+    }
+
+    let attStatus = status || 'Present';
+    let finalShiftId = shift_id || null;
+
+    // 2. Shift-Based Early / Late Detection
+    const [rosterRows] = await pool.query(`
+      SELECT sh.start_time, sr.shift_id 
+      FROM shift_roster sr
+      JOIN shifts sh ON sr.shift_id = sh.id
+      WHERE sr.staff_id = ? AND sr.roster_date = ?
+    `, [staff_id, attendanceDate]);
+
+    if (rosterRows.length > 0 && attStatus !== 'Absent' && attStatus !== 'Half-Day') {
+      finalShiftId = rosterRows[0].shift_id;
+      const shiftStartTime = rosterRows[0].start_time; // e.g. "13:00:00"
+      
+      const checkInDateObj = new Date(`${attendanceDate}T${checkInTime.split(' ')[1] || checkInTime}`);
+      const shiftDateObj = new Date(`${attendanceDate}T${shiftStartTime}`);
+      
+      const bufferMs = 15 * 60 * 1000;
+      const earlyAllowedMs = shiftDateObj.getTime() - bufferMs;
+      const lateThresholdMs = shiftDateObj.getTime() + bufferMs;
+
+      // 15-min early check-in prevention (enforced for both live and manual entries when shift is assigned)
+      if (checkInDateObj.getTime() < earlyAllowedMs) {
+        const earlyAllowedDate = new Date(earlyAllowedMs);
+        const pad = n => String(n).padStart(2, '0');
+        const earlyTimeFormatted = `${pad(earlyAllowedDate.getHours())}:${pad(earlyAllowedDate.getMinutes())}:${pad(earlyAllowedDate.getSeconds())}`;
+        return res.status(400).json({
+          error: `Check-in time cannot be earlier than 15 minutes before shift start (${earlyTimeFormatted}).`
+        });
+      }
+
+      if (checkInDateObj.getTime() > lateThresholdMs) {
+        attStatus = 'Late';
+      } else {
+        attStatus = 'Present';
+      }
+    }
+
+    let finalCheckOut = check_out || null;
+    let finalNotes = notes || null;
+
+    // If manual entry and checkout time was left blank (and not Absent), default to 23:59:00 with "No Checkout" note
+    if (req.body.is_manual && attStatus !== 'Absent' && !check_out) {
+      finalCheckOut = `${attendanceDate} 23:59:00`;
+      finalNotes = finalNotes ? `${finalNotes} (No Checkout)` : 'No Checkout';
+    }
 
     const [result] = await pool.query(
-      `INSERT INTO attendance (staff_id, attendance_date, check_in, shift_id, status, notes)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [staff_id, attendanceDate, checkInTime, shift_id || null, attStatus, notes || null]
+      `INSERT INTO attendance (staff_id, attendance_date, check_in, check_out, shift_id, status, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [staff_id, attendanceDate, checkInTime, finalCheckOut, finalShiftId, attStatus, finalNotes]
     );
 
     res.status(201).json({
@@ -3911,10 +3986,10 @@ app.post('/api/attendance/check-in', async (req, res) => {
       staff_id,
       attendance_date: attendanceDate,
       check_in: checkInTime,
-      check_out: null,
-      shift_id: shift_id || null,
+      check_out: finalCheckOut,
+      shift_id: finalShiftId,
       status: attStatus,
-      notes: notes || null
+      notes: finalNotes
     });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -3964,6 +4039,25 @@ app.put('/api/attendance/:id', async (req, res) => {
 
     const a = existing[0];
     const updateStatus = status !== undefined ? status : a.status;
+
+    // 3. Late Status Override Restriction
+    if (a.status === 'Late' && updateStatus === 'Present') {
+      const [staffRows] = await pool.query('SELECT vendor_id FROM staff WHERE id = ?', [a.staff_id]);
+      const staffVendorId = staffRows[0].vendor_id;
+      
+      if (staffVendorId === null) {
+        // Central staff -> only Central Admin (Owner)
+        if (req.user.role !== 'Owner') {
+          return res.status(403).json({ error: 'Only Central Admin can override Late status for Central Staff.' });
+        }
+      } else {
+        // Stall staff -> only respective Stall Manager
+        if (req.user.role !== 'Manager' || req.user.vendor_id !== staffVendorId) {
+          return res.status(403).json({ error: 'Only the respective Stall Manager can override Late status for their staff.' });
+        }
+      }
+    }
+
     const updateNotes = notes !== undefined ? notes : a.notes;
     const updateCheckIn = check_in !== undefined ? check_in : a.check_in;
     const updateCheckOut = check_out !== undefined ? check_out : a.check_out;
@@ -4249,6 +4343,58 @@ app.put('/api/leaves/:id/reject', async (req, res) => {
 // 14. PAYROLL API
 // ==========================================
 
+// Get attendance breakdown for a specific staff and payroll month
+app.get('/api/payroll/attendance-breakdown', async (req, res) => {
+  const { staff_id, month, year } = req.query;
+  if (!staff_id || !month || !year) {
+    return res.status(400).json({ error: 'staff_id, month, and year are required.' });
+  }
+
+  try {
+    const [staffInfo] = await pool.query('SELECT vendor_id, tenant_id FROM staff WHERE id = ?', [staff_id]);
+    if (staffInfo.length === 0) return res.status(404).json({ error: 'Staff not found' });
+    const vendorId = staffInfo[0].vendor_id;
+    const tenantId = staffInfo[0].tenant_id;
+
+    const [attendance] = await pool.query(`
+      SELECT 
+        DATE_FORMAT(attendance_date, '%Y-%m-%d') as attendance_date,
+        DATE_FORMAT(check_in, '%Y-%m-%d %H:%i:%s') as check_in,
+        DATE_FORMAT(check_out, '%Y-%m-%d %H:%i:%s') as check_out,
+        status, notes
+      FROM attendance
+      WHERE staff_id = ? AND MONTH(attendance_date) = ? AND YEAR(attendance_date) = ?
+    `, [staff_id, month, year]);
+
+    let holidayQuery = 'SELECT DATE_FORMAT(holiday_date, \'%Y-%m-%d\') as holiday_date, name FROM holidays WHERE MONTH(holiday_date) = ? AND YEAR(holiday_date) = ? AND tenant_id = ? AND ';
+    let holidayParams = [month, year, tenantId];
+    if (vendorId === null) {
+      holidayQuery += 'vendor_id IS NULL';
+    } else {
+      holidayQuery += 'vendor_id = ?';
+      holidayParams.push(vendorId);
+    }
+    const [holidays] = await pool.query(holidayQuery, holidayParams);
+
+    const [meals] = await pool.query(`
+      SELECT DATE_FORMAT(o.order_date, '%Y-%m-%d') as meal_date, oi.quantity, oi.price, i.name as item_name
+      FROM orders o
+      JOIN order_items oi ON o.id = oi.order_id
+      JOIN items i ON oi.item_id = i.id
+      WHERE o.customer_staff_id = ? 
+        AND o.discount_type = 'StaffMeal'
+        AND MONTH(o.order_date) = ? 
+        AND YEAR(o.order_date) = ?
+        AND o.status != 'Cancelled'
+    `, [staff_id, month, year]);
+
+    res.json({ attendance, holidays, meals });
+  } catch (error) {
+    console.error('Error fetching attendance breakdown:', error);
+    res.status(500).json({ error: 'Failed to fetch attendance breakdown' });
+  }
+});
+
 // Generate payroll for a given month/year
 app.post('/api/payroll/generate', async (req, res) => {
   const { month, year, working_days } = req.body;
@@ -4258,30 +4404,47 @@ app.post('/api/payroll/generate', async (req, res) => {
 
   const connection = await pool.getConnection();
   try {
+    let scopeQuery = '';
+    let scopeParams = [];
+    if (req.user.vendor_id) {
+      scopeQuery = ' AND s.vendor_id = ?';
+      scopeParams.push(req.user.vendor_id);
+    } else {
+      scopeQuery = ' AND (s.vendor_id IS NULL OR s.role = \'Manager\')';
+    }
+
+    const [existingFinalized] = await connection.query(`
+      SELECT COUNT(*) as count 
+      FROM payroll p 
+      JOIN staff s ON p.staff_id = s.id 
+      WHERE p.month = ? AND p.year = ? AND p.tenant_id = ? AND p.status = 'Finalized' ${scopeQuery}
+    `, [month, year, req.user.tenant_id, ...scopeParams]);
+
+    if (existingFinalized[0].count > 0) {
+      connection.release();
+      return res.status(400).json({ error: 'Payroll for this month has been finalized and is locked. It cannot be regenerated.' });
+    }
+
     await connection.beginTransaction();
 
-    // Fetch all active staff not excluded from payroll
-    const [staffList] = await connection.query('SELECT * FROM staff WHERE is_active = 1 AND exclude_from_payroll = 0');
+    const [staffList] = await connection.query(`
+      SELECT s.* FROM staff s
+      WHERE s.is_active = 1 AND s.exclude_from_payroll = 0 AND s.tenant_id = ? ${scopeQuery}
+    `, [req.user.tenant_id, ...scopeParams]);
+
     if (staffList.length === 0) {
+      await connection.rollback();
       connection.release();
       return res.status(400).json({ error: 'No active staff found for payroll.' });
     }
 
-    // Query holidays for the selected month to automatically reduce working days
-    const [holidaysResult] = await connection.query(`
-      SELECT COUNT(*) as count 
-      FROM holidays 
-      WHERE MONTH(holiday_date) = ? AND YEAR(holiday_date) = ?
-    `, [month, year]);
-    const holidayCount = holidaysResult[0].count;
-    
-    // Automatically reduce standard working days by the number of holidays in this month
-    const actualWorkingDays = Math.max(1, parseFloat(working_days) - holidayCount);
-
     const payrollRecords = [];
 
     for (const staff of staffList) {
-      // Get days present (Present + Late count as full, Half-Day counts as 0.5)
+      // 1. Expected working days for the month (as configured by the manager)
+      const expectedWorkingDays = Math.max(1, parseFloat(working_days));
+
+      // 2. Get days present (Present + Late count as full, Half-Day counts as 0.5)
       const [attSummary] = await connection.query(`
         SELECT
           IFNULL(SUM(CASE WHEN status IN ('Present', 'Late') THEN 1 WHEN status = 'Half-Day' THEN 0.5 ELSE 0 END), 0) as days_present
@@ -4294,10 +4457,11 @@ app.post('/api/payroll/generate', async (req, res) => {
       // Calculate gross salary
       let grossSalary = 0;
       if (staff.pay_type === 'monthly') {
-        grossSalary = parseFloat(staff.monthly_salary) * (daysPresent / actualWorkingDays);
+        const monthlyBase = parseFloat(staff.monthly_salary || 0);
+        grossSalary = monthlyBase * Math.min(1, daysPresent / expectedWorkingDays);
       } else {
         // daily
-        grossSalary = parseFloat(staff.daily_rate) * daysPresent;
+        grossSalary = parseFloat(staff.daily_rate || 0) * daysPresent;
       }
 
       // PF deduction (12% if enabled)
@@ -4321,7 +4485,22 @@ app.post('/api/payroll/generate', async (req, res) => {
           AND o.status != 'Cancelled'
       `, [staff.id, month, year]);
 
-      const mealDeduction = parseFloat(mealSum[0].total_meal_cost);
+      const totalMealCost = parseFloat(mealSum[0].total_meal_cost || 0);
+      const baseLimit = parseFloat(staff.staff_meal_limit || 0);
+
+      // Query extra allowance top-ups added for this staff in this payroll month/year
+      const [extraAdjustments] = await connection.query(`
+        SELECT IFNULL(SUM(amount), 0) as extra_allowance
+        FROM staff_meal_adjustments
+        WHERE staff_id = ? 
+          AND type = 'additional'
+          AND MONTH(created_at) = ? 
+          AND YEAR(created_at) = ?
+      `, [staff.id, month, year]);
+
+      const extraAllowance = parseFloat(extraAdjustments[0].extra_allowance || 0);
+      const effectiveMealLimit = baseLimit + extraAllowance;
+      const mealDeduction = baseLimit > 0 ? Math.max(0, totalMealCost - effectiveMealLimit) : 0;
 
       // Net salary
       const netSalary = grossSalary - pfDeduction - esiDeduction - tdsDeduction - mealDeduction;
@@ -4399,29 +4578,101 @@ app.get('/api/payroll', async (req, res) => {
   }
 });
 
-// Finalize a payroll record
-app.put('/api/payroll/:id/finalize', async (req, res) => {
-  const { id } = req.params;
+// Finalize all payroll records for a month (bulk lock)
+app.put('/api/payroll/finalize', async (req, res) => {
+  const { month, year } = req.body;
+  if (!month || !year) {
+    return res.status(400).json({ error: 'month and year are required.' });
+  }
 
   try {
-    const [existing] = await pool.query('SELECT * FROM payroll WHERE id = ?', [id]);
-    if (existing.length === 0) {
-      return res.status(404).json({ error: 'Payroll record not found' });
+    let scopeClause = '';
+    let scopeParams = [];
+    if (req.user.vendor_id) {
+      scopeClause = ' AND s.vendor_id = ?';
+      scopeParams.push(req.user.vendor_id);
+    } else {
+      scopeClause = ' AND (s.vendor_id IS NULL OR s.role = \'Manager\')';
     }
 
-    if (existing[0].status === 'Finalized') {
-      return res.status(400).json({ error: 'Payroll is already finalized.' });
+    // Check if there are any draft records to finalize
+    const [drafts] = await pool.query(`
+      SELECT COUNT(*) as count FROM payroll p
+      JOIN staff s ON p.staff_id = s.id
+      WHERE p.month = ? AND p.year = ? AND p.tenant_id = ? AND p.status = 'Draft' ${scopeClause}
+    `, [month, year, req.user.tenant_id, ...scopeParams]);
+
+    if (drafts[0].count === 0) {
+      return res.status(400).json({ error: 'No draft payroll records found for this month. Generate the payroll first.' });
     }
 
-    await pool.query('UPDATE payroll SET status = ? WHERE id = ?', ['Finalized', id]);
+    // Finalize all draft records for this scope
+    await pool.query(`
+      UPDATE payroll p
+      JOIN staff s ON p.staff_id = s.id
+      SET p.status = 'Finalized'
+      WHERE p.month = ? AND p.year = ? AND p.tenant_id = ? AND p.status = 'Draft' ${scopeClause}
+    `, [month, year, req.user.tenant_id, ...scopeParams]);
 
-    res.json({ success: true, message: 'Payroll finalized successfully' });
+    res.json({ success: true, message: `Payroll for ${month}/${year} has been finalized and locked.` });
   } catch (error) {
     console.error('Error finalizing payroll:', error);
     res.status(500).json({ error: 'Failed to finalize payroll' });
   }
 });
 
+// Mark payroll as Paid
+app.put('/api/payroll/:id/pay', async (req, res) => {
+  const { id } = req.params;
+  if (!req.user || !req.user.tenant_id) {
+    return res.status(401).json({ error: 'Unauthorized or missing tenant ID.' });
+  }
+  try {
+    try {
+      const [result] = await pool.query(`
+        UPDATE payroll
+        SET status = 'Paid'
+        WHERE id = ? AND tenant_id = ? AND status = 'Finalized'
+      `, [id, req.user.tenant_id]);
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'Payroll record not found or not in Finalized state.' });
+      }
+
+      res.json({ success: true, message: 'Payroll marked as Paid.' });
+    } catch (dbErr) {
+      // If enum does not support 'Paid', we alter the table and retry
+      if (dbErr.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' || dbErr.code === 'WARN_DATA_TRUNCATED' || (dbErr.message && dbErr.message.includes('status'))) {
+         await pool.query("ALTER TABLE payroll MODIFY COLUMN status ENUM('Draft','Finalized','Paid') DEFAULT 'Draft'");
+         const [retryResult] = await pool.query(`
+           UPDATE payroll
+           SET status = 'Paid'
+           WHERE id = ? AND tenant_id = ? AND status = 'Finalized'
+         `, [id, req.user.tenant_id]);
+         if (retryResult.affectedRows === 0) {
+           return res.status(404).json({ error: 'Payroll record not found or not in Finalized state.' });
+         }
+         return res.json({ success: true, message: 'Payroll marked as Paid.' });
+      } else if (dbErr.message && dbErr.message.includes('tenant_id')) {
+         // Fallback if tenant_id is somehow missing from payroll table
+         const [retryResult2] = await pool.query(`
+           UPDATE payroll p
+           JOIN staff s ON p.staff_id = s.id
+           SET p.status = 'Paid'
+           WHERE p.id = ? AND s.tenant_id = ? AND p.status = 'Finalized'
+         `, [id, req.user.tenant_id]);
+         if (retryResult2.affectedRows === 0) {
+           return res.status(404).json({ error: 'Payroll record not found or not in Finalized state.' });
+         }
+         return res.json({ success: true, message: 'Payroll marked as Paid.' });
+      }
+      throw dbErr;
+    }
+  } catch (error) {
+    console.error('Error marking payroll as paid:', error);
+    res.status(500).json({ error: 'Failed to mark payroll as paid: ' + error.message });
+  }
+});
 
 // ==========================================
 // 15. STAFF MEALS API
@@ -4975,7 +5226,7 @@ app.get('/api/reports/sales', async (req, res) => {
         FROM orders o
         JOIN order_items oi ON o.id = oi.order_id
         JOIN items i ON oi.item_id = i.id
-        WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled' AND i.vendor_id = ?`;
+        WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled' AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal') AND i.vendor_id = ?`;
       salesParams = [startStr, endStr, vId];
     } else {
       salesQuery = `
@@ -4983,7 +5234,7 @@ app.get('/api/reports/sales', async (req, res) => {
                IFNULL(SUM(total_amount), 0) as total_revenue,
                IFNULL(SUM(gst_amount), 0) as total_gst
         FROM orders
-        WHERE order_date BETWEEN ? AND ? AND status != 'Cancelled'`;
+        WHERE order_date BETWEEN ? AND ? AND status != 'Cancelled' AND (discount_type IS NULL OR discount_type != 'StaffMeal')`;
       salesParams = [startStr, endStr];
     }
 
@@ -5002,7 +5253,7 @@ app.get('/api/reports/sales', async (req, res) => {
         FROM order_items oi
         JOIN items i ON oi.item_id = i.id
         JOIN orders o ON oi.order_id = o.id
-        WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled' AND i.vendor_id = ?
+        WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled' AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal') AND i.vendor_id = ?
         GROUP BY oi.item_id
         ORDER BY qty DESC`;
       itemParams = [startStr, endStr, vId];
@@ -5012,7 +5263,7 @@ app.get('/api/reports/sales', async (req, res) => {
         FROM order_items oi
         JOIN items i ON oi.item_id = i.id
         JOIN orders o ON oi.order_id = o.id
-        WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled'
+        WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled' AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal')
         GROUP BY oi.item_id
         ORDER BY qty DESC`;
       itemParams = [startStr, endStr];
@@ -5028,14 +5279,14 @@ app.get('/api/reports/sales', async (req, res) => {
         FROM orders o
         JOIN order_items oi ON o.id = oi.order_id
         JOIN items i ON oi.item_id = i.id
-        WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled' AND i.vendor_id = ?
+        WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled' AND (o.discount_type IS NULL OR o.discount_type != 'StaffMeal') AND i.vendor_id = ?
         GROUP BY o.payment_mode`;
       payParams = [startStr, endStr, vId];
     } else {
       payQuery = `
         SELECT payment_mode, COUNT(id) as count, SUM(total_amount) as amount
         FROM orders
-        WHERE order_date BETWEEN ? AND ? AND status != 'Cancelled'
+        WHERE order_date BETWEEN ? AND ? AND status != 'Cancelled' AND (discount_type IS NULL OR discount_type != 'StaffMeal')
         GROUP BY payment_mode`;
       payParams = [startStr, endStr];
     }
@@ -6719,20 +6970,44 @@ app.get('/api/holidays', async (req, res) => {
 
 // Add holiday (scoped by vendor_id)
 app.post('/api/holidays', async (req, res) => {
-  const { holiday_date, name, is_recurring } = req.body;
+  const { holiday_date, name, is_recurring, description } = req.body;
   if (!holiday_date || !name) {
     return res.status(400).json({ error: 'holiday_date and name are required.' });
   }
   try {
     const assignedVendorId = req.user.vendor_id || null;
     await pool.query(
-      'INSERT INTO holidays (holiday_date, name, is_recurring, vendor_id) VALUES (?, ?, ?, ?)',
-      [holiday_date, name, is_recurring ? 1 : 0, assignedVendorId]
+      'INSERT INTO holidays (holiday_date, name, is_recurring, vendor_id, description) VALUES (?, ?, ?, ?, ?)',
+      [holiday_date, name, is_recurring ? 1 : 0, assignedVendorId, description || null]
     );
     res.status(201).json({ success: true, message: 'Holiday added successfully.' });
   } catch (error) {
     console.error('Error adding holiday:', error);
     res.status(500).json({ error: 'Failed to add holiday' });
+  }
+});
+
+// Update holiday (scoped by vendor_id)
+app.put('/api/holidays/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, holiday_date, description } = req.body;
+  if (!holiday_date || !name) {
+    return res.status(400).json({ error: 'holiday_date and name are required.' });
+  }
+  try {
+    let query, params;
+    if (req.user.vendor_id) {
+      query = 'UPDATE holidays SET name = ?, holiday_date = ?, description = ? WHERE id = ? AND vendor_id = ?';
+      params = [name, holiday_date, description || null, id, req.user.vendor_id];
+    } else {
+      query = 'UPDATE holidays SET name = ?, holiday_date = ?, description = ? WHERE id = ? AND vendor_id IS NULL';
+      params = [name, holiday_date, description || null, id];
+    }
+    await pool.query(query, params);
+    res.json({ success: true, message: 'Holiday updated successfully.' });
+  } catch (error) {
+    console.error('Error updating holiday:', error);
+    res.status(500).json({ error: 'Failed to update holiday' });
   }
 });
 
@@ -7519,6 +7794,101 @@ app.put('/api/superadmin/tenants/:id/integrations', authenticateToken, authorize
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api')) {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
+});
+
+// ==========================================
+// Scheduled Jobs
+// ==========================================
+const cron = require('node-cron');
+
+// 1. Run every hour to mark absent staff whose shift has ended
+cron.schedule('0 * * * *', async () => {
+  try {
+    const [tenants] = await pool.query('SELECT id FROM tenants');
+    for (const t of tenants) {
+      const now = new Date();
+      // Format as YYYY-MM-DD
+      const dateStr = formatLocalTimestamp(now).split(' ')[0];
+      const currentTimeStr = formatLocalTimestamp(now).split(' ')[1]; // HH:mm:ss
+
+      const d = new Date(dateStr);
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const weekStart = new Date(d.setDate(diff)).toISOString().split('T')[0];
+      const dayOfWeek = new Date(dateStr).getDay();
+
+      // Find staff who have a shift that ended BEFORE now, and who don't have attendance today
+      const [absentCandidates] = await pool.query(`
+        SELECT s.id as staff_id, s.vendor_id, sh.end_time, sh.id as shift_id, t.id as tenant_id
+        FROM shift_roster sr
+        JOIN shifts sh ON sr.shift_id = sh.id
+        JOIN staff s ON sr.staff_id = s.id
+        WHERE sr.roster_date = ? AND s.tenant_id = ? 
+          AND s.is_active = 1 AND s.exclude_from_attendance = 0
+          AND sh.end_time <= ?
+          AND NOT EXISTS (
+            SELECT 1 FROM attendance a WHERE a.staff_id = s.id AND a.attendance_date = ?
+          )
+      `, [dateStr, t.id, currentTimeStr, dateStr]);
+
+      for (const c of absentCandidates) {
+        // Check if today is a holiday for this staff
+        let holidayQuery = 'SELECT 1 FROM holidays WHERE holiday_date = ? AND tenant_id = ? AND ';
+        let holidayParams = [dateStr, c.tenant_id];
+        if (c.vendor_id === null) {
+          holidayQuery += 'vendor_id IS NULL';
+        } else {
+          holidayQuery += 'vendor_id = ?';
+          holidayParams.push(c.vendor_id);
+        }
+        const [holidayRows] = await pool.query(holidayQuery, holidayParams);
+        
+        if (holidayRows.length === 0) {
+          // Mark absent
+          await pool.query(
+            `INSERT IGNORE INTO attendance (staff_id, attendance_date, check_in, check_out, shift_id, status, notes)
+             VALUES (?, ?, ?, NULL, ?, 'Absent', 'Auto-marked: No check-in recorded by end of shift')`,
+            [c.staff_id, dateStr, formatLocalTimestamp(new Date()), c.shift_id]
+          );
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Auto-absent cron job error:', error);
+  }
+});
+
+// 2. Auto-Checkout Job: Run at 23:59:00 every day to auto-close any unclosed punches
+cron.schedule('59 23 * * *', async () => {
+  try {
+    const now = new Date();
+    const dateStr = formatLocalTimestamp(now).split(' ')[0];
+
+    const [openPunches] = await pool.query(`
+      SELECT id, notes, DATE_FORMAT(attendance_date, '%Y-%m-%d') as attendance_date 
+      FROM attendance 
+      WHERE check_out IS NULL 
+        AND status IN ('Present', 'Late', 'Half-Day')
+        AND attendance_date <= ?
+    `, [dateStr]);
+
+    for (const record of openPunches) {
+      const targetCheckOut = `${record.attendance_date} 23:59:00`;
+      const updatedNotes = record.notes 
+        ? `${record.notes} (No Checkout)` 
+        : 'No Checkout';
+
+      await pool.query(
+        `UPDATE attendance SET check_out = ?, notes = ? WHERE id = ?`,
+        [targetCheckOut, updatedNotes, record.id]
+      );
+    }
+    if (openPunches.length > 0) {
+      console.log(`[Attendance] Auto-closed ${openPunches.length} open check-ins at 23:59:00.`);
+    }
+  } catch (error) {
+    console.error('Auto-checkout cron job error:', error);
   }
 });
 
