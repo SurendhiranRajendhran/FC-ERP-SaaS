@@ -1159,7 +1159,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                 </div>
                 <div style={saStyles.formGroup}>
                   <label style={saStyles.formLabel}>Owner Email</label>
-                  <input style={saStyles.formInput} type="email" required value={formParams.email}
+                  <input style={saStyles.formInput} type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" required value={formParams.email}
                     onChange={e => setFormParams({...formParams, email: e.target.value})}
                     placeholder="owner@example.com"
                     onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
@@ -1220,7 +1220,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                 </div>
                 <div style={saStyles.formGroup}>
                   <label style={saStyles.formLabel}>Owner Email</label>
-                  <input style={saStyles.formInput} type="email" required value={editFormParams.email}
+                  <input style={saStyles.formInput} type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" required value={editFormParams.email}
                     onChange={e => setEditFormParams({...editFormParams, email: e.target.value})}
                     onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
                     onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
@@ -1389,7 +1389,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                 <div style={saStyles.formGroup}>
                   <label style={saStyles.formLabel}>Assign Login Email</label>
                   <input
-                    type="email"
+                    type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)"
                     style={saStyles.formInput}
                     value={customEmail}
                     onChange={e => setCustomEmail(e.target.value)}
@@ -1496,7 +1496,7 @@ function LoginScreen({ onLogin }) {
           <div className="form-group">
             <label>Email Address</label>
             <input 
-              type="email" 
+              type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" 
               value={email} 
               onChange={e => setEmail(e.target.value)} 
               placeholder="admin@foodcourt.com"
@@ -1724,7 +1724,6 @@ function App() {
   const [inventorySubTab, setInventorySubTab] = useState('materials');
 
   // Runtimes and Clock
-  const [liveTime, setLiveTime] = useState(new Date().toLocaleTimeString());
 
   // Database Data States
   const [items, setItems] = useState([]);
@@ -2252,14 +2251,6 @@ function App() {
   const [formMenu, setFormMenu] = useState({ id: '', name: '', category: 'Breakfast', price: '', gst_rate: '5', image_url: '', description: '', vendor_id: '' });
   const [formMaterial, setFormMaterial] = useState({ id: '', name: '', unit: 'kg', min_stock: '5', stock_level: '0' });
   const [formStockAction, setFormStockAction] = useState({ material_id: '', change_qty: '', log_type: 'Purchase', reason: '', responsible_person: '', cost_per_unit: '' });
-
-  // Live Timer
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setLiveTime(new Date().toLocaleTimeString());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Click outside listener for recipe Clone and Template dropdowns
   useEffect(() => {
@@ -5211,11 +5202,10 @@ function App() {
                 </select>
               </div>
             )}
-            <div class="session-timer">
-              <span>{liveTime}</span>
-            </div>
             <div class="tenant-selector">
-              <span class="tenant-badge">Central Canteen</span>
+              <span class="tenant-badge">
+                {!user?.vendor_id ? 'Central Canteen' : (vendors.find(v => v.id === user.vendor_id)?.name || 'Stall Dashboard')}
+              </span>
             </div>
           </div>
         </header>
@@ -5276,11 +5266,11 @@ function App() {
               </div>
               <div className="form-group">
                 <label>Phone Number</label>
-                <input type="text" className="form-control" value={customerForm.phone} onChange={e => setCustomerForm({...customerForm, phone: e.target.value})} required />
+                <input type="tel" pattern="^\+?\d{10,15}$" title="Phone number must contain 10-15 digits" className="form-control" value={customerForm.phone} onChange={e => setCustomerForm({...customerForm, phone: e.target.value})} required />
               </div>
               <div className="form-group">
                 <label>Email (Optional)</label>
-                <input type="email" className="form-control" value={customerForm.email} onChange={e => setCustomerForm({...customerForm, email: e.target.value})} />
+                <input type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" className="form-control" value={customerForm.email} onChange={e => setCustomerForm({...customerForm, email: e.target.value})} />
               </div>
               <button type="submit" className="btn btn-primary btn-block">Register Customer</button>
             </form>
@@ -7698,7 +7688,7 @@ function App() {
                         </div>
                         <div className="vendor-form-group">
                           <label>GSTIN</label>
-                          <input type="text" placeholder="15-digit GSTIN" value={formVendor.gstin} onChange={e => setFormVendor({ ...formVendor, gstin: e.target.value })} />
+                          <input type="text" pattern="^[0-9]{2}[a-zA-Z]{5}[0-9]{4}[a-zA-Z]{1}[1-9a-zA-Z]{1}[zZ][0-9a-zA-Z]{1}$" title="Enter a valid 15-character GSTIN" placeholder="15-digit GSTIN" value={formVendor.gstin} onChange={e => setFormVendor({ ...formVendor, gstin: e.target.value })} />
                         </div>
                         <div className="vendor-form-group">
                           <label>Bank Account</label>
@@ -7706,7 +7696,7 @@ function App() {
                         </div>
                         <div className="vendor-form-group">
                           <label>Contact Phone</label>
-                          <input type="text" placeholder="10-digit mobile" value={formVendor.contact} onChange={e => setFormVendor({ ...formVendor, contact: e.target.value })} />
+                          <input type="tel" pattern="^\+?\d{10,15}$" title="Phone number must contain 10-15 digits" placeholder="10-digit mobile" value={formVendor.contact} onChange={e => setFormVendor({ ...formVendor, contact: e.target.value })} />
                         </div>
                         <div className="vendor-form-group">
                           <label>Commission Rate (%)</label>
@@ -8488,11 +8478,11 @@ function App() {
                               </div>
                               <div className="hr-form-group">
                                 <label>Phone</label>
-                                <input type="text" placeholder="e.g. 9876543210" value={formStaff.phone} onChange={e => setFormStaff({ ...formStaff, phone: e.target.value })} />
+                                <input type="tel" pattern="^\+?\d{10,15}$" title="Phone number must contain 10-15 digits" placeholder="e.g. 9876543210" value={formStaff.phone} onChange={e => setFormStaff({ ...formStaff, phone: e.target.value })} />
                               </div>
                               <div className="hr-form-group">
                                 <label>Email</label>
-                                <input type="email" placeholder="e.g. rahul@example.com" value={formStaff.email} onChange={e => setFormStaff({ ...formStaff, email: e.target.value })} />
+                                <input type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" placeholder="e.g. rahul@example.com" value={formStaff.email} onChange={e => setFormStaff({ ...formStaff, email: e.target.value })} />
                               </div>
                               <div className="hr-form-group">
                                 <label>Password (for Login)</label>
@@ -10922,11 +10912,11 @@ function App() {
               </div>
               <div className="form-row">
                 <div className="form-group col"><label>Contact Person</label><input type="text" value={formSupplier.contact_person} onChange={(e) => setFormSupplier({...formSupplier, contact_person: e.target.value})} /></div>
-                <div className="form-group col"><label>Phone</label><input type="text" value={formSupplier.phone} onChange={(e) => setFormSupplier({...formSupplier, phone: e.target.value})} /></div>
+                <div className="form-group col"><label>Phone</label><input type="tel" pattern="^\+?\d{10,15}$" title="Phone number must contain 10-15 digits" value={formSupplier.phone} onChange={(e) => setFormSupplier({...formSupplier, phone: e.target.value})} /></div>
               </div>
               <div className="form-row">
-                <div className="form-group col"><label>Email</label><input type="email" value={formSupplier.email} onChange={(e) => setFormSupplier({...formSupplier, email: e.target.value})} /></div>
-                <div className="form-group col"><label>GST No</label><input type="text" value={formSupplier.gst_no} onChange={(e) => setFormSupplier({...formSupplier, gst_no: e.target.value})} /></div>
+                <div className="form-group col"><label>Email</label><input type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" value={formSupplier.email} onChange={(e) => setFormSupplier({...formSupplier, email: e.target.value})} /></div>
+                <div className="form-group col"><label>GST No</label><input type="text" pattern="^[0-9]{2}[a-zA-Z]{5}[0-9]{4}[a-zA-Z]{1}[1-9a-zA-Z]{1}[zZ][0-9a-zA-Z]{1}$" title="Enter a valid 15-character GSTIN" value={formSupplier.gst_no} onChange={(e) => setFormSupplier({...formSupplier, gst_no: e.target.value})} /></div>
               </div>
               <div className="form-row">
                 <div className="form-group col"><label>Address</label><input type="text" value={formSupplier.address} onChange={(e) => setFormSupplier({...formSupplier, address: e.target.value})} /></div>
@@ -11175,8 +11165,8 @@ function App() {
                         style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)', marginBottom: '8px' }}
                       />
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                        <input type="text" placeholder="Phone" value={formPurchaseSupplierDetails.contact_phone} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, contact_phone: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
-                        <input type="email" placeholder="Email" value={formPurchaseSupplierDetails.email} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, email: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                        <input type="tel" pattern="^\+?\d{10,15}$" title="Phone number must contain 10-15 digits" placeholder="Phone" value={formPurchaseSupplierDetails.contact_phone} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, contact_phone: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                        <input type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" placeholder="Email" value={formPurchaseSupplierDetails.email} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, email: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
                       </div>
                       <input type="text" placeholder="Payment Terms (e.g. Net 30, Cash)" value={formPurchaseSupplierDetails.payment_terms} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, payment_terms: e.target.value }))} style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
                     </div>

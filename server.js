@@ -39,6 +39,62 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Auto-trim whitespace from all string fields in request body
+app.use((req, res, next) => {
+  if (req.body && typeof req.body === 'object') {
+    const trimStrings = (obj) => {
+      for (const key of Object.keys(obj)) {
+        if (typeof obj[key] === 'string') {
+          obj[key] = obj[key].trim();
+        } else if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+          trimStrings(obj[key]);
+        }
+      }
+    };
+    trimStrings(req.body);
+  }
+  next();
+});
+
+// Global strict input validation middleware
+app.use((req, res, next) => {
+  if (req.body && typeof req.body === 'object') {
+    const emailRegex = /^[^s@]+@[^s@]+.[^s@]+$/;
+    const phoneRegex = /^\+?\d{10,15}$/;
+    const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i;
+
+    const emailFields = ['email', 'owner_email', 'custom_email'];
+    const phoneFields = ['phone', 'customer_phone', 'contact'];
+    const gstFields = ['gstin', 'gst_no'];
+
+    for (const key of Object.keys(req.body)) {
+      const val = req.body[key];
+      if (!val || typeof val !== 'string') continue;
+
+      if (emailFields.includes(key)) {
+        if (!emailRegex.test(val)) {
+          return res.status(400).json({ error: `Invalid ${key} format. Please enter a valid email address.` });
+        }
+      }
+      if (phoneFields.includes(key)) {
+        const cleanPhone = val.replace(/[\s-]/g, '');
+        if (!phoneRegex.test(cleanPhone)) {
+          return res.status(400).json({ error: `Invalid ${key} format. Phone must contain 10-15 digits.` });
+        }
+        req.body[key] = cleanPhone;
+      }
+      if (gstFields.includes(key)) {
+        if (!gstRegex.test(val)) {
+          return res.status(400).json({ error: `Invalid ${key} format. Please enter a valid 15-character GSTIN.` });
+        }
+        req.body[key] = val.toUpperCase();
+      }
+    }
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API: Return server LAN IP for QR code generation
@@ -58,6 +114,35 @@ const pool = mysql.createPool({
 });
 
 crm.setPool(pool);
+
+// ==========================================
+// AUTOMATIC SCHEMA MIGRATIONS (Ensure Live & Local sync)
+// ==========================================
+(async () => {
+  try {
+    const conn = await pool.getConnection();
+    
+    // 1. Fix missing columns in registrations table
+    const [tables] = await conn.query("SHOW TABLES LIKE 'registrations'");
+    if (tables.length > 0) {
+      const [revCols] = await conn.query("SHOW COLUMNS FROM registrations LIKE 'reviewed_at'");
+      if (revCols.length === 0) {
+        await conn.query("ALTER TABLE registrations ADD COLUMN reviewed_at TIMESTAMP NULL DEFAULT NULL AFTER created_at");
+        console.log("Migration: Added reviewed_at column to registrations table.");
+      }
+      
+      const [tenCols] = await conn.query("SHOW COLUMNS FROM registrations LIKE 'tenant_id'");
+      if (tenCols.length === 0) {
+        await conn.query("ALTER TABLE registrations ADD COLUMN tenant_id INT NULL DEFAULT NULL AFTER reviewed_at");
+        console.log("Migration: Added tenant_id column to registrations table.");
+      }
+    }
+    
+    conn.release();
+  } catch (err) {
+    console.error("Migration error on startup:", err.message);
+  }
+})();
 
 // ==========================================
 // SAAS MULTI-TENANT QUERY ISOLATION WRAPPER
