@@ -60,7 +60,7 @@ app.use((req, res, next) => {
 // Global strict input validation middleware
 app.use((req, res, next) => {
   if (req.body && typeof req.body === 'object') {
-    const emailRegex = /^[^s@]+@[^s@]+.[^s@]+$/;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phoneRegex = /^\+?\d{10,15}$/;
     const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i;
 
