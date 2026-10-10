@@ -56,6 +56,15 @@ export default function Navbar() {
       <nav className="lp-nav">
         <a href="/" className="lp-nav-logo">
           <span>❖</span> FC-ERP
+          <span style={{ 
+            fontSize: '0.65rem', 
+            backgroundColor: 'rgba(59, 130, 246, 0.2)', 
+            color: '#60a5fa', 
+            padding: '2px 6px', 
+            borderRadius: '12px', 
+            fontWeight: '600',
+            letterSpacing: '0.5px'
+          }}>v1.1.2</span>
         </a>
         <div className="lp-nav-links">
           <a href="/" className={`lp-nav-link ${currentPath === '/' ? 'active' : ''}`}>Platform</a>

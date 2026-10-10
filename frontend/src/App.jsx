@@ -863,7 +863,18 @@ function SuperAdminDashboard({ user, onLogout }) {
             <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
           </svg>
           <div>
-            <p style={saStyles.logoTitle}>ERP</p>
+            <p style={{...saStyles.logoTitle, display: 'flex', alignItems: 'center', gap: '6px', margin: 0}}>
+              ERP
+              <span style={{ 
+                fontSize: '0.65rem', 
+                backgroundColor: 'rgba(139, 92, 246, 0.2)', 
+                color: '#c4b5fd', 
+                padding: '2px 6px', 
+                borderRadius: '12px', 
+                fontWeight: '600',
+                letterSpacing: '0.5px'
+              }}>v1.1.2</span>
+            </p>
             <p style={saStyles.logoSub}>SaaS Control Panel</p>
           </div>
         </div>
@@ -1485,10 +1496,21 @@ function LoginScreen({ onLogin }) {
       <div className="login-card">
         <div className="login-header">
           <h1>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="32" height="32">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="32" height="32" style={{ verticalAlign: 'middle', marginRight: '8px' }}>
               <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
             </svg>
-            Food Court ERP
+            <span style={{ verticalAlign: 'middle' }}>Food Court ERP</span>
+            <span style={{ 
+              fontSize: '0.65rem', 
+              backgroundColor: 'rgba(59, 130, 246, 0.2)', 
+              color: '#60a5fa', 
+              padding: '2px 6px', 
+              borderRadius: '12px', 
+              fontWeight: '600',
+              letterSpacing: '0.5px',
+              marginLeft: '12px',
+              verticalAlign: 'middle'
+            }}>v1.1.2</span>
           </h1>
           <p>Login to your account</p>
         </div>
@@ -4926,8 +4948,19 @@ function App() {
             <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
           </svg>
           <div className="logo-text">
-            <h1>ERP</h1>
-            <span>Canteen ERP</span>
+            <h1 style={{ display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+              ERP
+              <span style={{ 
+                fontSize: '0.65rem', 
+                backgroundColor: 'rgba(59, 130, 246, 0.2)', 
+                color: '#60a5fa', 
+                padding: '2px 6px', 
+                borderRadius: '12px', 
+                fontWeight: '600',
+                letterSpacing: '0.5px'
+              }}>v1.1.2</span>
+            </h1>
+            <span style={{ marginTop: '2px', display: 'block' }}>Canteen ERP</span>
           </div>
         </div>
 

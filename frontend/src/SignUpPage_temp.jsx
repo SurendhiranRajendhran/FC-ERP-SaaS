@@ -84,7 +84,20 @@ export default function SignUpPage() {
       <div style={styles.card}>
         {!success ? (
           <>
-            <div style={styles.logo}>🍽️ FC-ERP</div>
+            <div style={styles.logo}>
+              <span style={{ verticalAlign: 'middle' }}>🍽️ FC-ERP</span>
+              <span style={{ 
+                fontSize: '0.65rem', 
+                backgroundColor: 'rgba(59, 130, 246, 0.2)', 
+                color: '#60a5fa', 
+                padding: '2px 6px', 
+                borderRadius: '12px', 
+                fontWeight: '600',
+                letterSpacing: '0.5px',
+                marginLeft: '12px',
+                verticalAlign: 'middle'
+              }}>v1.1.2</span>
+            </div>
             <div style={styles.subtitle}>Register your Food Court</div>
             <form onSubmit={handleSubmit}>
               <div style={styles.formGroup}>
