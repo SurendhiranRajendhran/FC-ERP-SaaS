@@ -671,6 +671,11 @@ function SuperAdminDashboard({ user, onLogout }) {
 
   const handleAddTenant = async (e) => {
     e.preventDefault();
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    if (!emailPattern.test(formParams.email)) {
+      alert('Please enter a valid email address (e.g., name@domain.com).');
+      return;
+    }
     setAdding(true);
     try {
       const res = await originalFetch(`${API_BASE}/tenants`, {
@@ -699,7 +704,7 @@ function SuperAdminDashboard({ user, onLogout }) {
     setEditFormParams({
       name: t.name || '',
       owner_name: t.owner_name || '',
-      email: t.owner_email || '',
+      email: t.login_id || t.owner_email || '',
       password: '', // Leave blank unless changing
       is_active: t.is_active === 1 || t.is_active === true
     });
@@ -747,6 +752,11 @@ function SuperAdminDashboard({ user, onLogout }) {
 
   const handleEditTenant = async (e) => {
     e.preventDefault();
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    if (!emailPattern.test(editFormParams.email)) {
+      alert('Please enter a valid email address (e.g., name@domain.com).');
+      return;
+    }
     setEditing(true);
     try {
       const res = await originalFetch(`${API_BASE}/tenants/${editingTenantId}`, {
@@ -1158,7 +1168,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                     onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
                 </div>
                 <div style={saStyles.formGroup}>
-                  <label style={saStyles.formLabel}>Owner Email</label>
+                  <label style={saStyles.formLabel}>Login ID</label>
                   <input style={saStyles.formInput} type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" required value={formParams.email}
                     onChange={e => setFormParams({...formParams, email: e.target.value})}
                     placeholder="owner@example.com"
@@ -1212,14 +1222,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                     onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
                 </div>
                 <div style={saStyles.formGroup}>
-                  <label style={saStyles.formLabel}>Owner Name</label>
-                  <input style={saStyles.formInput} type="text" required value={editFormParams.owner_name}
-                    onChange={e => setEditFormParams({...editFormParams, owner_name: e.target.value})}
-                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
-                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
-                </div>
-                <div style={saStyles.formGroup}>
-                  <label style={saStyles.formLabel}>Owner Email</label>
+                  <label style={saStyles.formLabel}>Login ID</label>
                   <input style={saStyles.formInput} type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" required value={editFormParams.email}
                     onChange={e => setEditFormParams({...editFormParams, email: e.target.value})}
                     onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}

@@ -60,7 +60,7 @@ app.use((req, res, next) => {
 // Global strict input validation middleware
 app.use((req, res, next) => {
   if (req.body && typeof req.body === 'object') {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
     const phoneRegex = /^\+?\d{10,15}$/;
     const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i;
 
@@ -7617,9 +7617,17 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
       throw new Error(`Registration is already ${reg.status}`);
     }
 
-    // Get super admin SMTP settings
+    // Get super admin SMTP settings (with env-variable fallback)
     const [saSettings] = await pool.query('SELECT * FROM notification_settings WHERE tenant_id = 1');
-    const settings = saSettings[0] || {};
+    const dbSettings = saSettings[0] || {};
+    const settings = {
+      ...dbSettings,
+      smtp_host: dbSettings.smtp_host || process.env.SMTP_HOST || '',
+      smtp_port: dbSettings.smtp_port || process.env.SMTP_PORT || 587,
+      smtp_user: dbSettings.smtp_user || process.env.SMTP_USER || '',
+      smtp_pass: dbSettings.smtp_pass || process.env.SMTP_PASS || '',
+      smtp_from_name: dbSettings.smtp_from_name || process.env.SMTP_FROM_NAME || 'Food Court ERP'
+    };
 
     if (action === 'approve') {
       // 1. Create tenant
@@ -7654,7 +7662,7 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
       await conn.commit();
 
       // Send approval email
-      const loginUrl = 'http://localhost:5173/signin'; // Adjust as needed
+      const loginUrl = (req.headers.origin || process.env.APP_URL || `${req.protocol}://${req.get('host')}`) + '/signin';
       const html = `
         <h2>Welcome to FC-ERP!</h2>
         <p>Dear ${reg.owner_name},</p>
@@ -7669,7 +7677,14 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
         ${admin_notes ? `<p><b>Admin Note:</b> ${admin_notes}</p>` : ''}
         <br/><p>Regards,<br/>The FC-ERP Team</p>
       `;
-      await crm.sendEmail(reg.email, 'Your FC-ERP Account is Ready!', html, settings);
+      const approveEmailResult = await crm.sendEmail(reg.email, 'Your FC-ERP Account is Ready!', html, settings);
+      if (approveEmailResult.simulated) {
+        console.warn('[Registration] Approval email SIMULATED (SMTP not configured). Recipient:', reg.email);
+      } else if (!approveEmailResult.success) {
+        console.error('[Registration] Approval email FAILED. Recipient:', reg.email, 'Error:', approveEmailResult.error);
+      } else {
+        console.log('[Registration] Approval email sent successfully to:', reg.email);
+      }
       
       res.json({ success: true, message: 'Registration approved and tenant created', tenant_id: tenantId });
     } else {
@@ -7688,7 +7703,14 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
         ${admin_notes ? `<p><b>Reason:</b> ${admin_notes}</p>` : ''}
         <br/><p>Regards,<br/>The FC-ERP Team</p>
       `;
-      await crm.sendEmail(reg.email, 'Update on your FC-ERP Registration', html, settings);
+      const rejectEmailResult = await crm.sendEmail(reg.email, 'Update on your FC-ERP Registration', html, settings);
+      if (rejectEmailResult.simulated) {
+        console.warn('[Registration] Rejection email SIMULATED (SMTP not configured). Recipient:', reg.email);
+      } else if (!rejectEmailResult.success) {
+        console.error('[Registration] Rejection email FAILED. Recipient:', reg.email, 'Error:', rejectEmailResult.error);
+      } else {
+        console.log('[Registration] Rejection email sent successfully to:', reg.email);
+      }
 
       res.json({ success: true, message: 'Registration rejected' });
     }
@@ -7705,7 +7727,7 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
 app.get('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT t.id, t.name, t.owner_email, t.plan, t.is_active, t.created_at, s.name as owner_name 
+      SELECT t.id, t.name, t.owner_email, t.plan, t.is_active, t.created_at, s.name as owner_name, s.email as login_id
       FROM tenants t
       LEFT JOIN staff s ON t.id = s.tenant_id AND s.role = 'Owner'
       ORDER BY t.id DESC
@@ -7769,9 +7791,9 @@ app.post('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async
 
 app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
   const { id } = req.params;
-  const { name, owner_name, email, password, is_active } = req.body;
-  if (!name || !owner_name || !email) {
-    return res.status(400).json({ error: 'Name, owner name, and email are required' });
+  const { name, email, password, is_active } = req.body;
+  if (!name || !email) {
+    return res.status(400).json({ error: 'Name and Login ID are required' });
   }
 
   const conn = await pool.getConnection();
@@ -7787,7 +7809,7 @@ app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), as
 
     // Update owner user record
     let passwordQuerySegment = '';
-    const queryParams = [owner_name, email];
+    const queryParams = [email];
 
     if (password) {
       const bcrypt = require('bcryptjs');
@@ -7800,7 +7822,7 @@ app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), as
     queryParams.push(updateTenantActive, id, 'Owner');
     
     await conn.query(
-      `UPDATE staff SET name = ?, email = ?${passwordQuerySegment}, is_active = ? WHERE tenant_id = ? AND role = ?`,
+      `UPDATE staff SET email = ?${passwordQuerySegment}, is_active = ? WHERE tenant_id = ? AND role = ?`,
       queryParams
     );
 
