@@ -137,6 +137,27 @@ crm.setPool(pool);
         console.log("Migration: Added tenant_id column to registrations table.");
       }
     }
+
+    // 2. Ensure Super Admin (tenant_id = 1) has active SMTP settings in notification_settings
+    const [nsTables] = await conn.query("SHOW TABLES LIKE 'notification_settings'");
+    if (nsTables.length > 0) {
+      const [rows] = await conn.query("SELECT * FROM notification_settings WHERE tenant_id = 1");
+      if (rows.length === 0) {
+        await conn.query(
+          `INSERT INTO notification_settings 
+           (tenant_id, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from_name) 
+           VALUES (1, 'smtp.hostinger.com', 465, 'info@radinfotec.com', 'Ranjith@1521', 'Radinfotec ERP')`
+        );
+        console.log("Migration: Seeded default Super Admin notification_settings.");
+      } else if (!rows[0].smtp_host || !rows[0].smtp_user) {
+        await conn.query(
+          `UPDATE notification_settings 
+           SET smtp_host = 'smtp.hostinger.com', smtp_port = 465, smtp_user = 'info@radinfotec.com', smtp_pass = 'Ranjith@1521', smtp_from_name = 'Radinfotec ERP' 
+           WHERE tenant_id = 1`
+        );
+        console.log("Migration: Updated Super Admin notification_settings with default Hostinger credentials.");
+      }
+    }
     
     conn.release();
   } catch (err) {
@@ -7617,16 +7638,19 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
       throw new Error(`Registration is already ${reg.status}`);
     }
 
-    // Get super admin SMTP settings (with env-variable fallback)
-    const [saSettings] = await pool.query('SELECT * FROM notification_settings WHERE tenant_id = 1');
+    // Get super admin SMTP settings (with smart multi-tier fallback)
+    let [saSettings] = await pool.query('SELECT * FROM notification_settings WHERE tenant_id = 1 AND smtp_host != ""');
+    if (saSettings.length === 0) {
+      [saSettings] = await pool.query('SELECT * FROM notification_settings WHERE smtp_host != "" AND smtp_user != "" LIMIT 1');
+    }
     const dbSettings = saSettings[0] || {};
     const settings = {
       ...dbSettings,
-      smtp_host: dbSettings.smtp_host || process.env.SMTP_HOST || '',
-      smtp_port: dbSettings.smtp_port || process.env.SMTP_PORT || 587,
-      smtp_user: dbSettings.smtp_user || process.env.SMTP_USER || '',
-      smtp_pass: dbSettings.smtp_pass || process.env.SMTP_PASS || '',
-      smtp_from_name: dbSettings.smtp_from_name || process.env.SMTP_FROM_NAME || 'Food Court ERP'
+      smtp_host: dbSettings.smtp_host || process.env.SMTP_HOST || 'smtp.hostinger.com',
+      smtp_port: Number(dbSettings.smtp_port) || Number(process.env.SMTP_PORT) || 465,
+      smtp_user: dbSettings.smtp_user || process.env.SMTP_USER || 'info@radinfotec.com',
+      smtp_pass: dbSettings.smtp_pass || process.env.SMTP_PASS || 'Ranjith@1521',
+      smtp_from_name: dbSettings.smtp_from_name || process.env.SMTP_FROM_NAME || 'Radinfotec ERP'
     };
 
     if (action === 'approve') {
@@ -7686,7 +7710,13 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
         console.log('[Registration] Approval email sent successfully to:', reg.email);
       }
       
-      res.json({ success: true, message: 'Registration approved and tenant created', tenant_id: tenantId });
+      res.json({ 
+        success: true, 
+        message: 'Registration approved and tenant created', 
+        tenant_id: tenantId,
+        email_sent: !!approveEmailResult.success,
+        email_error: approveEmailResult.error || null
+      });
     } else {
       // Reject
       await conn.query(
@@ -7712,7 +7742,12 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
         console.log('[Registration] Rejection email sent successfully to:', reg.email);
       }
 
-      res.json({ success: true, message: 'Registration rejected' });
+      res.json({ 
+        success: true, 
+        message: 'Registration rejected',
+        email_sent: !!rejectEmailResult.success,
+        email_error: rejectEmailResult.error || null
+      });
     }
   } catch (error) {
     await conn.rollback();
@@ -7890,9 +7925,52 @@ app.put('/api/superadmin/tenants/:id/integrations', authenticateToken, authorize
     }
     if (updates.length === 0) return res.json({ success: true, message: 'No changes' });
     vals.push(req.params.id);
+    await pool.query('INSERT IGNORE INTO notification_settings (tenant_id) VALUES (?)', [req.params.id]);
     await pool.query(`UPDATE notification_settings SET ${updates.join(',')} WHERE tenant_id=?`, vals);
     res.json({ success: true, message: 'Integrations saved' });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// -- Super Admin Test Email --
+app.post('/api/superadmin/test-email', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
+  try {
+    const { to } = req.body;
+    if (!to) return res.status(400).json({ error: 'Recipient email is required' });
+
+    let [saSettings] = await pool.query('SELECT * FROM notification_settings WHERE tenant_id = 1 AND smtp_host != ""');
+    if (saSettings.length === 0) {
+      [saSettings] = await pool.query('SELECT * FROM notification_settings WHERE smtp_host != "" AND smtp_user != "" LIMIT 1');
+    }
+    const dbSettings = saSettings[0] || {};
+    const settings = {
+      ...dbSettings,
+      smtp_host: dbSettings.smtp_host || process.env.SMTP_HOST || 'smtp.hostinger.com',
+      smtp_port: Number(dbSettings.smtp_port) || Number(process.env.SMTP_PORT) || 465,
+      smtp_user: dbSettings.smtp_user || process.env.SMTP_USER || 'info@radinfotec.com',
+      smtp_pass: dbSettings.smtp_pass || process.env.SMTP_PASS || 'Ranjith@1521',
+      smtp_from_name: dbSettings.smtp_from_name || process.env.SMTP_FROM_NAME || 'Radinfotec ERP'
+    };
+
+    const html = `
+      <h2>FC-ERP SMTP Test</h2>
+      <p>Congratulations! Your Food Court ERP email system is working properly.</p>
+      <ul>
+        <li><b>SMTP Host:</b> ${settings.smtp_host}</li>
+        <li><b>Port:</b> ${settings.smtp_port}</li>
+        <li><b>Sender:</b> ${settings.smtp_user}</li>
+        <li><b>Timestamp:</b> ${new Date().toLocaleString('en-IN')}</li>
+      </ul>
+      <p>Regards,<br/>FC-ERP System</p>
+    `;
+
+    const result = await crm.sendEmail(to, '?? FC-ERP SMTP Test Email', html, settings);
+    if (!result.success) {
+      return res.status(400).json({ error: result.error || 'Failed to send test email. Check SMTP settings.' });
+    }
+    res.json({ success: true, message: `Test email sent successfully to ${to}!` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==========================================

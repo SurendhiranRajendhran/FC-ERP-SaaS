@@ -93,21 +93,32 @@ async function sendSMS(phone, message, settings) {
 // ─── Send Email via SMTP ────────────────────────────────────────────────────
 async function sendEmail(to, subject, html, settings) {
   if (!settings.smtp_host || !settings.smtp_user) {
+    console.warn('[CRM sendEmail] Missing smtp_host or smtp_user in settings. Operating in simulated mode.');
     return { success: false, simulated: true };
   }
   try {
+    const port = Number(settings.smtp_port) || 587;
+    const isSecure = port === 465;
     const transporter = nodemailer.createTransport({
       host: settings.smtp_host,
-      port: settings.smtp_port || 587,
-      secure: settings.smtp_port === 465,
-      auth: { user: settings.smtp_user, pass: settings.smtp_pass }
+      port: port,
+      secure: isSecure,
+      auth: { user: settings.smtp_user, pass: settings.smtp_pass },
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000,
+      tls: {
+        rejectUnauthorized: false
+      }
     });
     await transporter.sendMail({
       from: `"${settings.smtp_from_name || 'Food Court ERP'}" <${settings.smtp_user}>`,
       to, subject, html
     });
+    console.log(`[CRM sendEmail] Email successfully sent to ${to}`);
     return { success: true };
   } catch (e) {
+    console.error(`[CRM sendEmail Error] Failed to send email to ${to}:`, e.message);
     return { success: false, error: e.message };
   }
 }

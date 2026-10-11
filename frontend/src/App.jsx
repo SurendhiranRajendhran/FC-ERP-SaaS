@@ -619,7 +619,13 @@ function SuperAdminDashboard({ user, onLogout }) {
         r.id === reviewingRegId ? { ...r, status: newStatus, reviewed_at: new Date().toISOString() } : r
       ));
       
-      alert(data.message);
+      let feedback = data.message;
+      if (data.email_sent === true) {
+        feedback += '\n\nNotification email sent successfully!';
+      } else if (data.email_sent === false) {
+        feedback += '\n\nNote: Notification email could not be sent (' + (data.email_error || 'SMTP delivery issue') + '). Please verify System SMTP Settings.';
+      }
+      alert(feedback);
       setShowReviewModal(false);
       setAdminNotes('');
       setCustomPassword('');
@@ -644,6 +650,30 @@ function SuperAdminDashboard({ user, onLogout }) {
   const [integrationTenant, setIntegrationTenant] = useState(null);
   const [integrationForm, setIntegrationForm] = useState({});
   const [savingIntegrations, setSavingIntegrations] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
+
+  const handleTestEmail = async () => {
+    const to = prompt('Enter email address to send a test message:');
+    if (!to || !to.trim()) return;
+    setTestingEmail(true);
+    try {
+      const res = await originalFetch(API_BASE + '/superadmin/test-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + localStorage.getItem('token')
+        },
+        body: JSON.stringify({ to: to.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send test email');
+      alert('? ' + data.message);
+    } catch (err) {
+      alert('? Test email failed: ' + err.message);
+    } finally {
+      setTestingEmail(false);
+    }
+  };
 
   const [editing, setEditing] = useState(false);
   const [showAddPassword, setShowAddPassword] = useState(false);
@@ -956,11 +986,31 @@ function SuperAdminDashboard({ user, onLogout }) {
           <div style={saStyles.tableCard}>
             <div style={saStyles.tableHeader}>
               <h3 style={saStyles.tableTitle}>Registered Food Courts</h3>
-              <button style={saStyles.addBtn} onClick={() => setShowAddModal(true)}
+              <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
+                <button 
+                  type="button"
+                  onClick={() => openIntegrationsModal({ id: 1, name: 'System / Super Admin' })}
+                  style={{
+                    background: 'rgba(59,130,246,0.12)',
+                    color: '#60a5fa',
+                    border: '1px solid rgba(59,130,246,0.25)',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.84rem',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                  ?? System SMTP Settings
+                </button>
+                <button style={saStyles.addBtn} onClick={() => setShowAddModal(true)}
                 onMouseEnter={e => { e.target.style.transform = 'translateY(-1px)'; e.target.style.boxShadow = '0 6px 20px rgba(139,92,246,0.4)'; }}
                 onMouseLeave={e => { e.target.style.transform = 'translateY(0)'; e.target.style.boxShadow = '0 4px 15px rgba(139,92,246,0.3)'; }}>
                 + Add New Food Court
               </button>
+              </div>
             </div>
 
             {loading ? (
@@ -1347,6 +1397,9 @@ function SuperAdminDashboard({ user, onLogout }) {
               </div>
 
               <div style={saStyles.modalActions}>
+                <button type="button" onClick={handleTestEmail} disabled={testingEmail} style={{...saStyles.cancelBtn, color: '#38bdf8', borderColor: 'rgba(56,189,248,0.3)', marginRight: 'auto'}}>
+                  {testingEmail ? 'Sending...' : '?? Send Test Email'}
+                </button>
                 <button type="button" style={saStyles.cancelBtn} onClick={() => setShowIntegrations(false)}>Cancel</button>
                 <button type="button" style={saStyles.submitBtn(savingIntegrations)} disabled={savingIntegrations} onClick={handleSaveIntegrations}>
                   {savingIntegrations ? 'Saving...' : 'Save Integrations'}
