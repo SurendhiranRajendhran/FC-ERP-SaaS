@@ -2313,6 +2313,38 @@ function App() {
   const [showMealForm, setShowMealForm] = useState(false);
   const [formMeal, setFormMeal] = useState({ staff_id: '', item_id: '', quantity: '1', price: '50', meal_date: new Date().toLocaleDateString('en-CA') });
   const [cancelModal, setCancelModal] = useState({ show: false, orderId: null, tokenNumber: null, pin: '', reason: '', step: 1 });
+  const [cancelModalVerifying, setCancelModalVerifying] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+
+  const handleVerifyCancelPin = async () => {
+    const enteredPin = cancelModal.pin ? cancelModal.pin.trim() : '';
+    if (!enteredPin) {
+      showToast('Please enter Manager PIN', 'error');
+      return;
+    }
+    setCancelModalVerifying(true);
+    try {
+      const res = await fetch(`${API_BASE}/orders/${cancelModal.orderId}/verify-cancel-pin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ pin: enteredPin })
+      });
+      const data = await res.json();
+      if (res.ok && data.valid) {
+        showToast(`PIN Verified for ${data.stall_name || 'Counter'}`, 'success');
+        setCancelModal(prev => ({ ...prev, step: 2 }));
+      } else {
+        showToast(data.error || 'Invalid Manager PIN for this counter/stall', 'error');
+      }
+    } catch (err) {
+      showToast('Failed to verify PIN: ' + err.message, 'error');
+    } finally {
+      setCancelModalVerifying(false);
+    }
+  };
   const [showCashDrawerModal, setShowCashDrawerModal] = useState(false);
   const [holidayModal, setHolidayModal] = useState({ show: false, id: null, name: '', date: '', description: '' });
   const [currentCalendarMonth, setCurrentCalendarMonth] = useState(new Date());
@@ -6026,9 +6058,6 @@ function App() {
                           <button className="clear-search" onClick={() => setPosSearch('')}>×</button>
                         )}
                       </div>
-                      <button className="btn btn-outline-primary btn-small" onClick={() => { fetchCashDrawerStatus(); setShowCashDrawerModal(true); }} style={{ padding: '6px 10px', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
-                        💵 Drawer
-                      </button>
                       <button className={`btn btn-small ${isRushHour ? 'btn-danger' : 'btn-outline-primary'}`} onClick={() => setIsRushHour(!isRushHour)} style={{ padding: '6px 10px', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
                         ⚡ {isRushHour ? 'Rush ON' : 'Rush'}
                       </button>
@@ -10255,7 +10284,7 @@ function App() {
                         <div className="form-row" style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
                           <div className="form-group" style={{ flex: 1, minWidth: '150px' }}>
                             <label>Physical Cash</label>
-                            <input type="number" id="recon-physical-cash" defaultValue="" placeholder="Count cash in drawer" />
+                            <input type="number" id="recon-physical-cash" defaultValue="" placeholder="Enter total cash counted" />
                           </div>
                           <div className="form-group" style={{ flex: 1, minWidth: '150px' }}>
                             <label>UPI Settlement</label>
@@ -10605,33 +10634,35 @@ function App() {
                   </p>
                   <div className="form-group">
                     <label>Enter Manager PIN</label>
-                    <input type="password" autoFocus placeholder="****" value={cancelModal.pin} onChange={e => setCancelModal({ ...cancelModal, pin: e.target.value })} onKeyDown={(e) => {
-                      if(e.key === 'Enter') {
-                        const enteredPin = cancelModal.pin.trim();
-                        if (enteredPin === '1234' || enteredPin === '0000') {
-                          setCancelModal({ ...cancelModal, step: 2 });
-                        } else {
-                          showToast('Invalid Manager PIN', 'error');
+                    <input
+                      type="password"
+                      autoFocus
+                      placeholder="****"
+                      value={cancelModal.pin}
+                      onChange={e => setCancelModal({ ...cancelModal, pin: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleVerifyCancelPin();
                         }
-                      }
-                    }} style={{ fontSize: '24px', letterSpacing: '5px', textAlign: 'center' }} />
+                      }}
+                      style={{ fontSize: '24px', letterSpacing: '5px', textAlign: 'center' }}
+                    />
                   </div>
                   <div className="form-actions" style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                     <button className="btn btn-outline-primary" onClick={() => setCancelModal({ show: false, orderId: null, tokenNumber: null, pin: '', reason: '', step: 1 })}>Abort</button>
-                    <button className="btn btn-primary" onClick={() => {
-                      const enteredPin = cancelModal.pin.trim();
-                      if (enteredPin === '1234' || enteredPin === '0000') {
-                        setCancelModal({ ...cancelModal, step: 2 });
-                      } else {
-                        showToast('Invalid Manager PIN', 'error');
-                      }
-                    }}>Verify PIN</button>
+                    <button
+                      className="btn btn-primary"
+                      disabled={cancelModalVerifying || !cancelModal.pin}
+                      onClick={handleVerifyCancelPin}
+                    >
+                      {cancelModalVerifying ? 'Verifying...' : 'Verify PIN'}
+                    </button>
                   </div>
                 </>
               ) : (
                 <>
                   <div className="alert alert-warning" style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--accent-danger)', padding: '10px', borderRadius: '6px', marginBottom: '15px' }}>
-                    <strong>Refund Required:</strong> Please ensure the cash drawer is updated or the digital refund is initiated via the POS terminal.
+                    <strong>Refund Required:</strong> Please ensure the refund is issued to the customer via cash or digital payment.
                   </div>
                   <div className="form-group">
                     <label>Reason for Cancellation *</label>
@@ -10645,21 +10676,39 @@ function App() {
                     </select>
                   </div>
                   <div className="form-actions" style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                    <button className="btn btn-outline-primary" onClick={() => setCancelModal({ show: false, orderId: null, tokenNumber: null, pin: '', reason: '', step: 1 })}>Abort</button>
-                    <button className="btn btn-danger" disabled={!cancelModal.reason} onClick={() => {
+                    <button className="btn btn-outline-primary" disabled={isCancelling} onClick={() => setCancelModal({ show: false, orderId: null, tokenNumber: null, pin: '', reason: '', step: 1 })}>Abort</button>
+                    <button className="btn btn-danger" disabled={!cancelModal.reason || isCancelling} onClick={() => {
+                      setIsCancelling(true);
                       fetch(`${API_BASE}/orders/${cancelModal.orderId}/status`, {
                         method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ status: 'Cancelled', cancellation_reason: cancelModal.reason })
-                      }).then(() => {
-                        showToast('Order Cancelled and Stock Reversed', 'success');
-                        setCancelModal({ show: false, orderId: null, tokenNumber: null, pin: '', reason: '', step: 1 });
-                        if (activeTab === 'kds') fetchKdsOrders();
-                        if (activeTab === 'orders') fetchPastOrders();
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        },
+                        body: JSON.stringify({
+                          status: 'Cancelled',
+                          cancellation_reason: cancelModal.reason,
+                          pin: cancelModal.pin
+                        })
+                      }).then(async res => {
+                        setIsCancelling(false);
+                        if (res.ok) {
+                          showToast('Order Cancelled and Stock Reversed', 'success');
+                          const cancelledId = cancelModal.orderId;
+                          setCancelModal({ show: false, orderId: null, tokenNumber: null, pin: '', reason: '', step: 1 });
+                          // Optimistically update local pastOrders state immediately
+                          setPastOrders(prev => (prev || []).map(o => o.id === cancelledId ? { ...o, status: 'Cancelled' } : o));
+                          if (activeTab === 'kds') fetchKdsOrders();
+                          fetchOrders();
+                        } else {
+                          const errData = await res.json().catch(() => ({}));
+                          showToast(errData.error || 'Failed to cancel order', 'error');
+                        }
                       }).catch(err => {
-                        showToast('Failed to cancel order', 'error');
+                        setIsCancelling(false);
+                        showToast('Failed to cancel order: ' + err.message, 'error');
                       });
-                    }}>Confirm Cancellation</button>
+                    }}>{isCancelling ? 'Cancelling Order...' : 'Confirm Cancellation'}</button>
                   </div>
                 </>
               )}

@@ -158,6 +158,93 @@ crm.setPool(pool);
         console.log("Migration: Updated Super Admin notification_settings with default Hostinger credentials.");
       }
     }
+
+    // 3. Ensure coupons table has vendor_id column
+    const [cTables] = await conn.query("SHOW TABLES LIKE 'coupons'");
+    if (cTables.length > 0) {
+      const [vCols] = await conn.query("SHOW COLUMNS FROM coupons LIKE 'vendor_id'");
+      if (vCols.length === 0) {
+        await conn.query("ALTER TABLE coupons ADD COLUMN vendor_id INT NULL DEFAULT NULL AFTER min_order_amount, ADD KEY (vendor_id)");
+        console.log("Migration: Added vendor_id column and index to coupons table.");
+      }
+    } else {
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS coupons (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          code VARCHAR(50) NOT NULL UNIQUE,
+          discount_type ENUM('Percentage', 'Fixed') NOT NULL,
+          value DECIMAL(10,2) NOT NULL,
+          min_order_amount DECIMAL(10,2) DEFAULT 0.00,
+          vendor_id INT NULL DEFAULT NULL,
+          is_active TINYINT(1) DEFAULT 1,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          KEY (vendor_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+      console.log("Migration: Created coupons table.");
+    }
+
+    // 4. Ensure holidays table has description column
+    const [hTables] = await conn.query("SHOW TABLES LIKE 'holidays'");
+    if (hTables.length > 0) {
+      const [descCols] = await conn.query("SHOW COLUMNS FROM holidays LIKE 'description'");
+      if (descCols.length === 0) {
+        await conn.query("ALTER TABLE holidays ADD COLUMN description TEXT NULL DEFAULT NULL");
+        console.log("Migration: Added description column to holidays table.");
+      }
+    }
+
+    // 5. Ensure staff table has staff_meal_limit and staff_meal_auto_reset
+    const [sTables] = await conn.query("SHOW TABLES LIKE 'staff'");
+    if (sTables.length > 0) {
+      const [mealCols] = await conn.query("SHOW COLUMNS FROM staff LIKE 'staff_meal_limit'");
+      if (mealCols.length === 0) {
+        await conn.query("ALTER TABLE staff ADD COLUMN staff_meal_limit DECIMAL(10,2) NULL DEFAULT 0.00, ADD COLUMN staff_meal_auto_reset TINYINT(1) NULL DEFAULT 1");
+        console.log("Migration: Added staff_meal columns to staff table.");
+      }
+    }
+
+    // 6. Ensure staff_meal_adjustments table exists
+    const [smaTables] = await conn.query("SHOW TABLES LIKE 'staff_meal_adjustments'");
+    if (smaTables.length === 0) {
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS staff_meal_adjustments (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          staff_id INT NOT NULL,
+          type ENUM('additional', 'reset') NOT NULL,
+          amount DECIMAL(10,2) DEFAULT 0.00,
+          note VARCHAR(255) DEFAULT NULL,
+          created_by INT DEFAULT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          tenant_id INT DEFAULT NULL,
+          KEY (staff_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+      console.log("Migration: Created staff_meal_adjustments table.");
+    }
+
+    // 7. Standardize non-standard item GST rates (e.g. 2%, 2.5%, 3% entered by mistake -> 5.00%)
+    await conn.query("UPDATE items SET gst_rate = 5.00 WHERE gst_rate IN (2.00, 2.50, 3.00)");
+
+    // 8. Ensure cancel_pin column exists on vendors table
+    const [vTables] = await conn.query("SHOW TABLES LIKE 'vendors'");
+    if (vTables.length > 0) {
+      const [pinCols] = await conn.query("SHOW COLUMNS FROM vendors LIKE 'cancel_pin'");
+      if (pinCols.length === 0) {
+        await conn.query("ALTER TABLE vendors ADD COLUMN cancel_pin VARCHAR(10) NULL DEFAULT NULL");
+        console.log("Migration: Added cancel_pin column to vendors table.");
+      }
+    }
+
+    // 9. Ensure central_cancel_pin column exists on tenants table
+    const [tTables] = await conn.query("SHOW TABLES LIKE 'tenants'");
+    if (tTables.length > 0) {
+      const [cpinCols] = await conn.query("SHOW COLUMNS FROM tenants LIKE 'central_cancel_pin'");
+      if (cpinCols.length === 0) {
+        await conn.query("ALTER TABLE tenants ADD COLUMN central_cancel_pin VARCHAR(10) NULL DEFAULT NULL");
+        console.log("Migration: Added central_cancel_pin column to tenants table.");
+      }
+    }
     
     conn.release();
   } catch (err) {
@@ -2102,13 +2189,24 @@ app.post('/api/orders', async (req, res) => {
     // 7. PRE-FORMATTED PRINT RECEIPTS (KOT & BILL)
     // ==========================================
     
+    const formattedReceiptDate = today.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+
     // Thermal Bill Layout
     let billPrint = `
 ========================================
          CAMPUS CANTEEN BILL            
 ========================================
 Token No: ${tokenNumber}
-Date: ${today.toLocaleString()}
+Date: ${formattedReceiptDate}
 Order ID: #${orderId}
 Payment: ${payment_mode}
 ----------------------------------------
@@ -2160,7 +2258,7 @@ Total Net:              ₹${finalPayable.toFixed(2).padStart(15, ' ')}
          KITCHEN ORDER TICKET           
 ========================================
 Token No: ${tokenNumber}
-Date: ${today.toLocaleString()}
+Date: ${formattedReceiptDate}
 Order ID: #${orderId}
 Source: ${order_source}
 Customer: ${customer_name || 'N/A'}
@@ -2472,6 +2570,105 @@ app.put('/api/kds/orders/:id/ready', async (req, res) => {
   }
 });
 
+// ==========================================
+// ORDER CANCELLATION PIN HELPERS
+// ==========================================
+async function getOrderOriginatingVendor(orderId) {
+  const [rows] = await pool.query(`
+    SELECT o.id, o.token_number, o.billing_staff_id, s.vendor_id as billing_staff_vendor_id, o.tenant_id
+    FROM orders o
+    LEFT JOIN staff s ON o.billing_staff_id = s.id
+    WHERE o.id = ?
+  `, [orderId]);
+
+  if (rows.length === 0) return null;
+  const order = rows[0];
+
+  // 1. If billed by a staff member linked to a stall
+  if (order.billing_staff_vendor_id !== null && order.billing_staff_vendor_id !== undefined) {
+    return { type: 'vendor', vendor_id: order.billing_staff_vendor_id, tenant_id: order.tenant_id };
+  }
+
+  // 2. If billed by a Central counter staff member (vendor_id is null)
+  if (order.billing_staff_id !== null && order.billing_staff_id !== undefined) {
+    return { type: 'central', vendor_id: null, tenant_id: order.tenant_id };
+  }
+
+  // 3. If billing_staff_id is null (e.g. QR orders), inspect items
+  const [items] = await pool.query(`
+    SELECT DISTINCT i.vendor_id
+    FROM order_items oi
+    JOIN items i ON oi.item_id = i.id
+    WHERE oi.order_id = ?
+  `, [orderId]);
+
+  if (items.length === 1 && items[0].vendor_id !== null && items[0].vendor_id !== undefined) {
+    return { type: 'vendor', vendor_id: items[0].vendor_id, tenant_id: order.tenant_id };
+  }
+
+  return { type: 'central', vendor_id: null, tenant_id: order.tenant_id };
+}
+
+async function verifyOrderCancelPin(orderId, enteredPin) {
+  const cleanPin = String(enteredPin || '').trim();
+  if (!cleanPin) {
+    return { valid: false, error: 'Manager PIN is required.' };
+  }
+
+  const origin = await getOrderOriginatingVendor(orderId);
+  if (!origin) {
+    return { valid: false, error: 'Order not found.' };
+  }
+
+  if (origin.type === 'vendor') {
+    const [vRows] = await pool.query('SELECT id, name, cancel_pin FROM vendors WHERE id = ?', [origin.vendor_id]);
+    if (vRows.length === 0) {
+      return { valid: false, error: 'Originating stall not found.' };
+    }
+    const vendor = vRows[0];
+    const expectedPin = vendor.cancel_pin || '0000';
+    if (cleanPin === expectedPin || (expectedPin === '0000' && cleanPin === '1234')) {
+      return { valid: true, stall_name: vendor.name, vendor_id: vendor.id, type: 'vendor' };
+    }
+    return { valid: false, error: `Invalid Manager PIN for ${vendor.name}.` };
+  } else {
+    // Central Counter
+    let expectedPin = '0000';
+    if (origin.tenant_id) {
+      const [tRows] = await pool.query('SELECT id, name, central_cancel_pin FROM tenants WHERE id = ?', [origin.tenant_id]);
+      if (tRows.length > 0 && tRows[0].central_cancel_pin) {
+        expectedPin = tRows[0].central_cancel_pin;
+      }
+    } else {
+      const [tRows] = await pool.query('SELECT central_cancel_pin FROM tenants WHERE central_cancel_pin IS NOT NULL LIMIT 1');
+      if (tRows.length > 0 && tRows[0].central_cancel_pin) {
+        expectedPin = tRows[0].central_cancel_pin;
+      }
+    }
+
+    if (cleanPin === expectedPin || (expectedPin === '0000' && cleanPin === '1234')) {
+      return { valid: true, stall_name: 'Central Counter', vendor_id: null, type: 'central' };
+    }
+    return { valid: false, error: 'Invalid Manager PIN for Central Counter.' };
+  }
+}
+
+// Verify Manager PIN for Order Cancellation
+app.post('/api/orders/:id/verify-cancel-pin', async (req, res) => {
+  const { id } = req.params;
+  const { pin } = req.body;
+  try {
+    const result = await verifyOrderCancelPin(id, pin);
+    if (result.valid) {
+      return res.json({ valid: true, stall_name: result.stall_name });
+    }
+    return res.status(400).json({ valid: false, error: result.error });
+  } catch (error) {
+    console.error('Error verifying cancel PIN:', error);
+    return res.status(500).json({ error: 'Failed to verify Manager PIN' });
+  }
+});
+
 // Update order status (Pending → Preparing → Ready → Completed)
 app.put('/api/orders/:id/status', async (req, res) => {
   const { id } = req.params;
@@ -2490,11 +2687,20 @@ app.put('/api/orders/:id/status', async (req, res) => {
 
     // Enforce valid transitions
     const currentStatus = existing[0].status;
+
+    // Idempotent: If already Cancelled and requested to be Cancelled, return success immediately
+    if (currentStatus === 'Cancelled') {
+      if (status === 'Cancelled') {
+        return res.json({ success: true, message: 'Order is already cancelled' });
+      }
+      return res.status(400).json({ error: 'Cannot update an already cancelled order.' });
+    }
+
     const allowedTransitions = {
       'Pending': ['Preparing', 'Cancelled'],
       'Preparing': ['Ready', 'Cancelled'],
       'Ready': ['Completed', 'Cancelled'],
-      'Completed': [],
+      'Completed': ['Cancelled'],
       'Cancelled': []
     };
 
@@ -2505,6 +2711,12 @@ app.put('/api/orders/:id/status', async (req, res) => {
     }
 
     if (status === 'Cancelled') {
+      const { pin } = req.body;
+      const pinResult = await verifyOrderCancelPin(id, pin);
+      if (!pinResult.valid) {
+        return res.status(400).json({ error: pinResult.error || 'Valid Manager PIN is required to cancel this order.' });
+      }
+
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
@@ -5044,7 +5256,7 @@ app.post('/api/coupons', async (req, res) => {
       return res.status(400).json({ error: 'This coupon code already exists.' });
     }
     console.error('Error creating coupon:', error);
-    res.status(500).json({ error: 'Failed to create coupon' });
+    res.status(500).json({ error: error.sqlMessage || error.message || 'Failed to create coupon' });
   }
 });
 
@@ -5077,7 +5289,7 @@ app.put('/api/coupons/:id', async (req, res) => {
       return res.status(400).json({ error: 'This coupon code already exists.' });
     }
     console.error('Error updating coupon:', error);
-    res.status(500).json({ error: 'Failed to update coupon' });
+    res.status(500).json({ error: error.sqlMessage || error.message || 'Failed to update coupon' });
   }
 });
 
@@ -5131,6 +5343,144 @@ app.delete('/api/coupons/:id', async (req, res) => {
   } catch (error) {
     console.error('Error deleting coupon:', error);
     res.status(500).json({ error: 'Failed to delete coupon' });
+  }
+});
+
+// ==========================================
+// CANCELLATION PIN MANAGEMENT API
+// ==========================================
+
+// Get Cancellation PIN(s) for the current user
+app.get('/api/cancellation-pins', async (req, res) => {
+  try {
+    const userVendorId = req.user.vendor_id || null;
+    const isOwnerOrAdmin = ['Owner', 'Super Admin'].includes(req.user.role) || (!userVendorId && req.user.role === 'Manager');
+
+    if (userVendorId) {
+      // Stall Manager: only return their stall's PIN
+      const [rows] = await pool.query('SELECT id, name, stall_number, cancel_pin FROM vendors WHERE id = ?', [userVendorId]);
+      if (rows.length === 0) return res.status(404).json({ error: 'Stall not found.' });
+      const v = rows[0];
+      return res.json({
+        mode: 'stall',
+        stall: {
+          id: v.id,
+          name: v.name,
+          stall_number: v.stall_number,
+          cancel_pin: v.cancel_pin || '0000',
+          is_custom: !!v.cancel_pin
+        }
+      });
+    }
+
+    if (isOwnerOrAdmin) {
+      // Central Admin / Owner: return Central Counter PIN + all stalls
+      let centralPin = '0000';
+      let isCentralCustom = false;
+      const tenantId = req.user.tenant_id;
+      if (tenantId) {
+        const [tRows] = await pool.query('SELECT id, name, central_cancel_pin FROM tenants WHERE id = ?', [tenantId]);
+        if (tRows.length > 0 && tRows[0].central_cancel_pin) {
+          centralPin = tRows[0].central_cancel_pin;
+          isCentralCustom = true;
+        }
+      } else {
+        const [tRows] = await pool.query('SELECT central_cancel_pin FROM tenants WHERE central_cancel_pin IS NOT NULL LIMIT 1');
+        if (tRows.length > 0 && tRows[0].central_cancel_pin) {
+          centralPin = tRows[0].central_cancel_pin;
+          isCentralCustom = true;
+        }
+      }
+
+      const [stalls] = await pool.query('SELECT id, name, stall_number, cancel_pin FROM vendors ORDER BY name');
+      return res.json({
+        mode: 'central',
+        central: {
+          cancel_pin: centralPin,
+          is_custom: isCentralCustom
+        },
+        stalls: stalls.map(s => ({
+          id: s.id,
+          name: s.name,
+          stall_number: s.stall_number,
+          cancel_pin: s.cancel_pin || '0000',
+          is_custom: !!s.cancel_pin
+        }))
+      });
+    }
+
+    return res.status(403).json({ error: 'Unauthorized to view cancellation PINs.' });
+  } catch (error) {
+    console.error('Error fetching cancellation PINs:', error);
+    res.status(500).json({ error: 'Failed to fetch cancellation PINs' });
+  }
+});
+
+// Stall Manager (or Central Admin) updates a Stall's Cancellation PIN
+app.put('/api/cancellation-pins/stall', async (req, res) => {
+  try {
+    const { vendor_id, pin } = req.body;
+    const userVendorId = req.user.vendor_id || null;
+    const isOwnerOrAdmin = ['Owner', 'Super Admin'].includes(req.user.role) || (!userVendorId && req.user.role === 'Manager');
+
+    let targetVendorId;
+    if (userVendorId) {
+      targetVendorId = userVendorId;
+    } else if (isOwnerOrAdmin && vendor_id) {
+      targetVendorId = parseInt(vendor_id);
+    } else {
+      return res.status(400).json({ error: 'Vendor ID is required.' });
+    }
+
+    const cleanPin = String(pin || '').trim();
+    if (!/^\d{4,6}$/.test(cleanPin)) {
+      return res.status(400).json({ error: 'Cancellation PIN must be 4 to 6 numeric digits.' });
+    }
+
+    const [vCheck] = await pool.query('SELECT id, name FROM vendors WHERE id = ?', [targetVendorId]);
+    if (vCheck.length === 0) return res.status(404).json({ error: 'Stall not found.' });
+
+    await pool.query('UPDATE vendors SET cancel_pin = ? WHERE id = ?', [cleanPin, targetVendorId]);
+    res.json({
+      success: true,
+      message: `Cancellation PIN updated for ${vCheck[0].name}`,
+      pin: cleanPin,
+      stall_name: vCheck[0].name
+    });
+  } catch (error) {
+    console.error('Error updating stall cancellation PIN:', error);
+    res.status(500).json({ error: 'Failed to update cancellation PIN' });
+  }
+});
+
+// Central Admin updates Central Counter Cancellation PIN
+app.put('/api/cancellation-pins/central', async (req, res) => {
+  try {
+    const isOwnerOrAdmin = ['Owner', 'Super Admin'].includes(req.user.role) || (!req.user.vendor_id && req.user.role === 'Manager');
+    if (!isOwnerOrAdmin) {
+      return res.status(403).json({ error: 'Only Central Admin can configure Central Counter PIN.' });
+    }
+
+    const cleanPin = String(req.body.pin || '').trim();
+    if (!/^\d{4,6}$/.test(cleanPin)) {
+      return res.status(400).json({ error: 'Cancellation PIN must be 4 to 6 numeric digits.' });
+    }
+
+    const tenantId = req.user.tenant_id;
+    if (tenantId) {
+      await pool.query('UPDATE tenants SET central_cancel_pin = ? WHERE id = ?', [cleanPin, tenantId]);
+    } else {
+      await pool.query('UPDATE tenants SET central_cancel_pin = ? LIMIT 1', [cleanPin]);
+    }
+
+    res.json({
+      success: true,
+      message: 'Central Counter Cancellation PIN updated successfully',
+      pin: cleanPin
+    });
+  } catch (error) {
+    console.error('Error updating central cancellation PIN:', error);
+    res.status(500).json({ error: 'Failed to update Central Counter PIN' });
   }
 });
 
