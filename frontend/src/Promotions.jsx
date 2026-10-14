@@ -79,6 +79,21 @@ function Promotions({ user }) {
 
   const handleSubmitCoupon = async (e) => {
     e.preventDefault();
+    const val = parseFloat(form.value) || 0;
+    if (form.discount_type === 'Percentage' && (val <= 0 || val > 100)) {
+      alert('Percentage discount must be between 1% and 100%.');
+      return;
+    }
+    if (form.discount_type === 'Fixed' && val <= 0) {
+      alert('Fixed discount must be greater than 0.');
+      return;
+    }
+    const minOrder = parseFloat(form.min_order_amount) || 0;
+    if (minOrder < 0) {
+      alert('Minimum order amount cannot be negative.');
+      return;
+    }
+
     try {
       const url = editingId ? `${API_BASE}/coupons/${editingId}` : `${API_BASE}/coupons`;
       const method = editingId ? 'PUT' : 'POST';
@@ -88,8 +103,8 @@ function Promotions({ user }) {
         headers: getHeaders(),
         body: JSON.stringify({
           ...form,
-          value: parseFloat(form.value) || 0,
-          min_order_amount: parseFloat(form.min_order_amount) || 0
+          value: val,
+          min_order_amount: minOrder
         })
       });
       if (res.ok) {
@@ -355,7 +370,7 @@ function Promotions({ user }) {
                 </div>
                 <div>
                   <label className="form-label" style={{ display: 'block', marginBottom: '5px' }}>Discount Value *</label>
-                  <input required type="number" min="1" step="0.01" className="input-field" placeholder={form.discount_type === 'Percentage' ? 'e.g. 15' : 'e.g. 50'} value={form.value} onChange={e => setForm({...form, value: e.target.value})} />
+                  <input required type="number" min="1" max={form.discount_type === 'Percentage' ? 100 : undefined} step="0.01" className="input-field" placeholder={form.discount_type === 'Percentage' ? 'e.g. 15 (Max 100)' : 'e.g. 50'} value={form.value} onChange={e => setForm({...form, value: e.target.value})} />
                 </div>
                 <div>
                   <label className="form-label" style={{ display: 'block', marginBottom: '5px' }}>Min. Order Amount (₹)</label>

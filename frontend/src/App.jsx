@@ -2247,6 +2247,9 @@ function App() {
         setCustomerForm({ name: '', phone: '', email: '' });
         fetchCustomers();
         if (reportsSubTab === 'customer-analytics') fetchReportData('customer-analytics');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error || 'Failed to register customer', 'error');
       }
     } catch (err) { showToast('Error registering customer', 'error'); }
   };
@@ -3937,6 +3940,14 @@ function App() {
       return;
     }
 
+    if (formStaff.bank_account && formStaff.bank_account.trim()) {
+      const cleanBank = formStaff.bank_account.trim().replace(/[\s-]/g, '');
+      if (!/^\d{9,18}$/.test(cleanBank)) {
+        showToast('Bank Account must contain 9 to 18 digits (numbers only).', 'error');
+        return;
+      }
+    }
+
     try {
       const url = formStaff.id ? `${API_BASE}/staff/${formStaff.id}` : `${API_BASE}/staff`;
       const method = formStaff.id ? 'PUT' : 'POST';
@@ -4039,6 +4050,16 @@ function App() {
       return;
     }
 
+    const timeRegex = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+    if (!timeRegex.test(formShift.start_time.trim())) {
+      showToast('Start Time must be in valid 24-hour HH:MM or HH:MM:SS format.', 'error');
+      return;
+    }
+    if (!timeRegex.test(formShift.end_time.trim())) {
+      showToast('End Time must be in valid 24-hour HH:MM or HH:MM:SS format.', 'error');
+      return;
+    }
+
     try {
       const url = formShift.id ? `${API_BASE}/shifts/${formShift.id}` : `${API_BASE}/shifts`;
       const method = formShift.id ? 'PUT' : 'POST';
@@ -4054,7 +4075,8 @@ function App() {
         setFormShift({ id: '', name: '', start_time: '09:00:00', end_time: '17:00:00' });
         fetchShifts();
       } else {
-        showToast('Failed to save shift', 'error');
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error || 'Failed to save shift', 'error');
       }
     } catch (err) {
       showToast('Network error saving shift', 'error');
@@ -4228,7 +4250,7 @@ function App() {
 
       if (formAttendanceManual.status !== 'Absent' && !formAttendanceManual.check_out) {
         combinedCheckOut = `${attDate} 23:59:00`;
-        finalNotes = finalNotes ? `${finalNotes} (No Checkout)` : 'No Checkout';
+        finalNotes = finalNotes ? `${finalNotes} (Not Checked Out Manually)` : 'Not Checked Out Manually';
       }
 
       const res = await fetch(`${API_BASE}/attendance/check-in`, {
@@ -5663,9 +5685,20 @@ function App() {
                                 <td>{a.check_in ? new Date(a.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                                 <td>{a.check_out ? new Date(a.check_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                                 <td>
-                                  <span className={`badge ${a.status === 'Present' ? 'badge-success' : a.status === 'Absent' ? 'badge-danger' : 'badge-warning'}`}>
-                                    {a.status}
-                                  </span>
+                                  {(() => {
+                                    const displayStatus = a.status && a.status.trim() !== '' ? a.status : 'Present';
+                                    const badgeClass =
+                                      displayStatus === 'Present' ? 'badge-success' :
+                                      displayStatus === 'Late' ? 'badge-warning' :
+                                      displayStatus === 'Missed Shift' ? 'badge-missed-shift' :
+                                      displayStatus === 'Half-Day' ? 'badge-category' :
+                                      displayStatus === 'Absent' ? 'badge-danger' : 'badge-category';
+                                    return (
+                                      <span className={`badge ${badgeClass}`} style={{ whiteSpace: 'nowrap' }}>
+                                        {displayStatus}
+                                      </span>
+                                    );
+                                  })()}
                                 </td>
                                 <td>{a.notes || '—'}</td>
                               </tr>
@@ -7809,8 +7842,20 @@ function App() {
                           <input type="text" pattern="^[0-9]{2}[a-zA-Z]{5}[0-9]{4}[a-zA-Z]{1}[1-9a-zA-Z]{1}[zZ][0-9a-zA-Z]{1}$" title="Enter a valid 15-character GSTIN" placeholder="15-digit GSTIN" value={formVendor.gstin} onChange={e => setFormVendor({ ...formVendor, gstin: e.target.value })} />
                         </div>
                         <div className="vendor-form-group">
-                          <label>Bank Account</label>
-                          <input type="text" placeholder="Account number" value={formVendor.bank_account} onChange={e => setFormVendor({ ...formVendor, bank_account: e.target.value })} />
+                          <label>Bank Account Number</label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="^\d{9,18}$"
+                            maxLength={18}
+                            title="Bank account number must contain 9 to 18 digits (numbers only)"
+                            placeholder="e.g. 123456789012"
+                            value={formVendor.bank_account || ''}
+                            onChange={e => {
+                              const val = e.target.value.replace(/\D/g, '');
+                              setFormVendor({ ...formVendor, bank_account: val });
+                            }}
+                          />
                         </div>
                         <div className="vendor-form-group">
                           <label>Contact Phone</label>
@@ -7829,6 +7874,13 @@ function App() {
                         <button className="vendor-form-cancel" onClick={() => { setShowVendorForm(false); setFormVendor({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00' }); }}>Cancel</button>
                         <button className="vendor-form-save" onClick={async () => {
                           if (!formVendor.name.trim()) { showToast('Stall name is required', 'error'); return; }
+                          if (formVendor.bank_account && formVendor.bank_account.trim()) {
+                            const cleanBank = formVendor.bank_account.trim().replace(/[\s-]/g, '');
+                            if (!/^\d{9,18}$/.test(cleanBank)) {
+                              showToast('Bank Account must contain 9 to 18 digits (numbers only).', 'error');
+                              return;
+                            }
+                          }
                           try {
                             const url = formVendor.id ? `${API_BASE}/vendors/${formVendor.id}` : `${API_BASE}/vendors`;
                             const method = formVendor.id ? 'PUT' : 'POST';
@@ -7842,9 +7894,12 @@ function App() {
                               setShowVendorForm(false);
                               setFormVendor({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00' });
                               fetchVendors();
-                            } else { throw new Error('Failed'); }
+                            } else {
+                              const errData = await res.json().catch(() => ({}));
+                              showToast(errData.error || 'Failed to save vendor', 'error');
+                            }
                           } catch (err) {
-                            showToast('Failed to save vendor', 'error');
+                            showToast(err.message || 'Failed to save vendor', 'error');
                           }
                         }}>{formVendor.id ? 'Update Vendor' : 'Register Stall'}</button>
                       </div>
@@ -8639,8 +8694,20 @@ function App() {
                                 <input type="number" step="0.1" placeholder="e.g. 1.0" value={formStaff.tds_percentage} onChange={e => setFormStaff({ ...formStaff, tds_percentage: e.target.value })} />
                               </div>
                               <div className="hr-form-group">
-                                <label>Bank Account</label>
-                                <input type="text" placeholder="Account Number & IFSC" value={formStaff.bank_account} onChange={e => setFormStaff({ ...formStaff, bank_account: e.target.value })} />
+                                <label>Bank Account Number</label>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="^\d{9,18}$"
+                                  maxLength={18}
+                                  title="Bank account number must contain 9 to 18 digits (numbers only)"
+                                  placeholder="e.g. 123456789012"
+                                  value={formStaff.bank_account || ''}
+                                  onChange={e => {
+                                    const val = e.target.value.replace(/\D/g, '');
+                                    setFormStaff({ ...formStaff, bank_account: val });
+                                  }}
+                                />
                               </div>
                               {user.vendor_id ? (
                                 <div className="hr-form-group" style={{ background: 'rgba(139,92,246,0.08)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(139,92,246,0.2)' }}>
@@ -8795,11 +8862,11 @@ function App() {
                         <div className="hr-form-row" style={{ display: 'flex', gap: '15px' }}>
                           <div className="hr-form-group" style={{ flex: 1 }}>
                             <label>Start Time (HH:MM:SS) *</label>
-                            <input type="text" required placeholder="e.g. 06:00:00" value={formShift.start_time} onChange={e => setFormShift({ ...formShift, start_time: e.target.value })} />
+                            <input type="text" required pattern="^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$" title="Valid 24-hour format: HH:MM or HH:MM:SS" placeholder="e.g. 06:00:00" value={formShift.start_time} onChange={e => setFormShift({ ...formShift, start_time: e.target.value })} />
                           </div>
                           <div className="hr-form-group" style={{ flex: 1 }}>
                             <label>End Time (HH:MM:SS) *</label>
-                            <input type="text" required placeholder="e.g. 14:00:00" value={formShift.end_time} onChange={e => setFormShift({ ...formShift, end_time: e.target.value })} />
+                            <input type="text" required pattern="^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$" title="Valid 24-hour format: HH:MM or HH:MM:SS" placeholder="e.g. 14:00:00" value={formShift.end_time} onChange={e => setFormShift({ ...formShift, end_time: e.target.value })} />
                           </div>
                         </div>
                         <div className="hr-form-actions" style={{ marginTop: '15px' }}>
@@ -9118,6 +9185,7 @@ function App() {
                             <select value={formAttendanceManual.status} onChange={e => setFormAttendanceManual({ ...formAttendanceManual, status: e.target.value })}>
                               <option value="Present">Present</option>
                               <option value="Late">Late</option>
+                              <option value="Missed Shift">Missed Shift</option>
                               <option value="Half-Day">Half-Day</option>
                               <option value="Absent">Absent</option>
                             </select>
@@ -9250,15 +9318,22 @@ function App() {
                               <td>{a.shift_name || '—'}</td>
                               <td style={{ fontSize: '0.8rem' }}>{a.check_in ? new Date(a.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                               <td style={{ fontSize: '0.8rem' }}>{a.check_out ? new Date(a.check_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                              <td>
-                                <span className={`badge ${
-                                  a.status === 'Present' ? 'badge-success' :
-                                  a.status === 'Late' ? 'badge-warning' :
-                                  a.status === 'Half-Day' ? 'badge-category' : 'badge-danger'
-                                }`}>
-                                  {a.status}
-                                </span>
-                              </td>
+                                <td>
+                                  {(() => {
+                                    const displayStatus = a.status && a.status.trim() !== '' ? a.status : 'Present';
+                                    const badgeClass =
+                                      displayStatus === 'Present' ? 'badge-success' :
+                                      displayStatus === 'Late' ? 'badge-warning' :
+                                      displayStatus === 'Missed Shift' ? 'badge-missed-shift' :
+                                      displayStatus === 'Half-Day' ? 'badge-category' :
+                                      displayStatus === 'Absent' ? 'badge-danger' : 'badge-category';
+                                    return (
+                                      <span className={`badge ${badgeClass}`} style={{ whiteSpace: 'nowrap' }}>
+                                        {displayStatus}
+                                      </span>
+                                    );
+                                  })()}
+                                </td>
                               <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.notes || '—'}</td>
                             </tr>
                           ))}
@@ -9624,6 +9699,7 @@ function App() {
                       <div style={{ display: 'flex', gap: '10px', fontSize: '0.78rem', flexWrap: 'wrap' }}>
                         <span><span className="badge bg-success">Present</span> {breakdownModalState.records.filter(r => r.status === 'Present').length}</span>
                         <span><span className="badge bg-warning">Late</span> {breakdownModalState.records.filter(r => r.status === 'Late').length}</span>
+                        <span><span className="badge" style={{ background: '#e65100', color: '#fff' }}>Missed Shift</span> {breakdownModalState.records.filter(r => r.status === 'Missed Shift').length}</span>
                         <span><span className="badge bg-info">Half-Day</span> {breakdownModalState.records.filter(r => r.status === 'Half-Day').length}</span>
                         <span><span className="badge bg-danger">Absent</span> {breakdownModalState.records.filter(r => r.status === 'Absent').length}</span>
                         <span><span className="badge" style={{ background: '#6f42c1', color: '#fff' }}>Holiday</span> {breakdownModalState.records.filter(r => r.status.startsWith('Holiday')).length}</span>
@@ -9664,6 +9740,8 @@ function App() {
                                       <span className="badge" style={{ background: '#6f42c1', color: '#fff', whiteSpace: 'normal', lineHeight: '1.3', textAlign: 'center' }}>{r.status}</span>
                                     ) : r.status === 'Absent' ? (
                                       <span className="badge bg-danger">Absent</span>
+                                    ) : r.status === 'Missed Shift' ? (
+                                      <span className="badge" style={{ background: '#e65100', color: '#fff' }}>Missed Shift</span>
                                     ) : r.status === 'Late' ? (
                                       <span className="badge bg-warning">Late</span>
                                     ) : r.status === 'Half-Day' ? (
@@ -11036,7 +11114,10 @@ function App() {
                   method, headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(payload)
                 });
-                if (!res.ok) throw new Error('Failed to save supplier');
+                if (!res.ok) {
+                  const errData = await res.json().catch(() => ({}));
+                  throw new Error(errData.error || 'Failed to save supplier');
+                }
                 showToast(`Supplier ${supplierModal.mode === 'edit' ? 'updated' : 'added'}`, 'success');
                 fetchSuppliers();
                 setSupplierModal({ show: false, mode: 'add', data: null });

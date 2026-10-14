@@ -63,10 +63,16 @@ app.use((req, res, next) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
     const phoneRegex = /^\+?\d{10,15}$/;
     const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i;
+    const bankRegex = /^\d{9,18}$/;
+    const timeRegex = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+    const pinRegex = /^\d{4,8}$/;
 
     const emailFields = ['email', 'owner_email', 'custom_email'];
-    const phoneFields = ['phone', 'customer_phone', 'contact'];
+    const phoneFields = ['phone', 'customer_phone', 'contact', 'contact_phone'];
     const gstFields = ['gstin', 'gst_no'];
+    const bankFields = ['bank_account', 'account_number', 'bank_account_no'];
+    const timeFields = ['start_time', 'end_time'];
+    const pinFields = ['cancel_pin', 'manager_pin', 'pin'];
 
     for (const key of Object.keys(req.body)) {
       const val = req.body[key];
@@ -89,6 +95,51 @@ app.use((req, res, next) => {
           return res.status(400).json({ error: `Invalid ${key} format. Please enter a valid 15-character GSTIN.` });
         }
         req.body[key] = val.toUpperCase();
+      }
+      if (bankFields.includes(key)) {
+        const cleanBank = val.replace(/[\s-]/g, '');
+        if (!bankRegex.test(cleanBank)) {
+          return res.status(400).json({ error: `Invalid ${key} format. Bank account number must contain 9 to 18 numeric digits.` });
+        }
+        req.body[key] = cleanBank;
+      }
+      if (timeFields.includes(key)) {
+        if (!timeRegex.test(val)) {
+          return res.status(400).json({ error: `Invalid ${key} format. Time must be in valid HH:MM or HH:MM:SS format.` });
+        }
+      }
+      if (pinFields.includes(key)) {
+        const cleanPin = val.replace(/\s/g, '');
+        if (!pinRegex.test(cleanPin)) {
+          return res.status(400).json({ error: `Invalid ${key} format. PIN must contain 4 to 8 numeric digits.` });
+        }
+        req.body[key] = cleanPin;
+      }
+    }
+
+    // Validate numeric non-negative fields
+    const nonNegativeNumericFields = [
+      'daily_rate', 'monthly_salary', 'tds_percentage', 'staff_meal_limit',
+      'price', 'unit_cost', 'cost_per_unit', 'min_stock', 'min_order_amount',
+      'commission_rate', 'share_area'
+    ];
+    for (const numKey of nonNegativeNumericFields) {
+      if (req.body[numKey] !== undefined && req.body[numKey] !== null && req.body[numKey] !== '') {
+        const numVal = parseFloat(req.body[numKey]);
+        if (isNaN(numVal) || numVal < 0) {
+          return res.status(400).json({ error: `Invalid ${numKey}. Must be a valid non-negative number.` });
+        }
+      }
+    }
+
+    // Validate strictly positive numeric fields
+    const positiveNumericFields = ['change_qty', 'stock_change'];
+    for (const posKey of positiveNumericFields) {
+      if (req.body[posKey] !== undefined && req.body[posKey] !== null && req.body[posKey] !== '') {
+        const numVal = parseFloat(req.body[posKey]);
+        if (isNaN(numVal) || numVal <= 0) {
+          return res.status(400).json({ error: `Invalid ${posKey}. Must be a positive number greater than 0.` });
+        }
       }
     }
   }
@@ -244,6 +295,14 @@ crm.setPool(pool);
         await conn.query("ALTER TABLE tenants ADD COLUMN central_cancel_pin VARCHAR(10) NULL DEFAULT NULL");
         console.log("Migration: Added central_cancel_pin column to tenants table.");
       }
+    }
+
+    // 10. Ensure attendance table supports 'Missed Shift' status and heal empty statuses
+    const [attTables] = await conn.query("SHOW TABLES LIKE 'attendance'");
+    if (attTables.length > 0) {
+      await conn.query("ALTER TABLE attendance MODIFY COLUMN status ENUM('Present','Absent','Late','Half-Day','Missed Shift') DEFAULT 'Present'");
+      await conn.query("UPDATE attendance SET status = 'Missed Shift' WHERE status = '' OR status IS NULL");
+      console.log("Migration: Ensured attendance status column includes 'Missed Shift' and healed empty status records.");
     }
     
     conn.release();
@@ -3547,7 +3606,7 @@ app.get('/api/staff/performance', async (req, res) => {
       LEFT JOIN (
         SELECT staff_id,
           COUNT(*) as total_records,
-          SUM(CASE WHEN status IN ('Present', 'Late') THEN 1 WHEN status = 'Half-Day' THEN 0.5 ELSE 0 END) as days_present,
+          SUM(CASE WHEN status IN ('Present', 'Late') THEN 1 WHEN status IN ('Half-Day', 'Missed Shift') THEN 0.5 ELSE 0 END) as days_present,
           SUM(CASE WHEN status = 'Late' THEN 1 ELSE 0 END) as late_days
         FROM attendance
         WHERE attendance_date BETWEEN ? AND ?
@@ -4250,15 +4309,16 @@ app.post('/api/attendance/check-in', async (req, res) => {
 
     // 2. Shift-Based Early / Late Detection
     const [rosterRows] = await pool.query(`
-      SELECT sh.start_time, sr.shift_id 
+      SELECT sh.start_time, sh.end_time, sr.shift_id 
       FROM shift_roster sr
       JOIN shifts sh ON sr.shift_id = sh.id
       WHERE sr.staff_id = ? AND sr.roster_date = ?
     `, [staff_id, attendanceDate]);
 
-    if (rosterRows.length > 0 && attStatus !== 'Absent' && attStatus !== 'Half-Day') {
+    if (rosterRows.length > 0 && attStatus !== 'Absent' && attStatus !== 'Half-Day' && attStatus !== 'Missed Shift') {
       finalShiftId = rosterRows[0].shift_id;
-      const shiftStartTime = rosterRows[0].start_time; // e.g. "13:00:00"
+      const shiftStartTime = rosterRows[0].start_time; // e.g. "09:00:00"
+      const shiftEndTime = rosterRows[0].end_time;     // e.g. "13:00:00"
       
       const checkInDateObj = new Date(`${attendanceDate}T${checkInTime.split(' ')[1] || checkInTime}`);
       const shiftDateObj = new Date(`${attendanceDate}T${shiftStartTime}`);
@@ -4266,6 +4326,11 @@ app.post('/api/attendance/check-in', async (req, res) => {
       const bufferMs = 15 * 60 * 1000;
       const earlyAllowedMs = shiftDateObj.getTime() - bufferMs;
       const lateThresholdMs = shiftDateObj.getTime() + bufferMs;
+
+      // Calculate half-shift threshold for Missed Shift detection
+      const shiftEndDateObj = new Date(`${attendanceDate}T${shiftEndTime}`);
+      const shiftDurationMs = shiftEndDateObj.getTime() - shiftDateObj.getTime();
+      const halfShiftThresholdMs = shiftDateObj.getTime() + (shiftDurationMs / 2);
 
       // 15-min early check-in prevention (enforced for both live and manual entries when shift is assigned)
       if (checkInDateObj.getTime() < earlyAllowedMs) {
@@ -4277,7 +4342,10 @@ app.post('/api/attendance/check-in', async (req, res) => {
         });
       }
 
-      if (checkInDateObj.getTime() > lateThresholdMs) {
+      // Missed Shift: check-in after half the shift duration has elapsed
+      if (checkInDateObj.getTime() >= halfShiftThresholdMs) {
+        attStatus = 'Missed Shift';
+      } else if (checkInDateObj.getTime() > lateThresholdMs) {
         attStatus = 'Late';
       } else {
         attStatus = 'Present';
@@ -4287,10 +4355,10 @@ app.post('/api/attendance/check-in', async (req, res) => {
     let finalCheckOut = check_out || null;
     let finalNotes = notes || null;
 
-    // If manual entry and checkout time was left blank (and not Absent), default to 23:59:00 with "No Checkout" note
+    // If manual entry and checkout time was left blank (and not Absent), default to 23:59:00 with "Not Checked Out Manually" note
     if (req.body.is_manual && attStatus !== 'Absent' && !check_out) {
       finalCheckOut = `${attendanceDate} 23:59:00`;
-      finalNotes = finalNotes ? `${finalNotes} (No Checkout)` : 'No Checkout';
+      finalNotes = finalNotes ? `${finalNotes} (Not Checked Out Manually)` : 'Not Checked Out Manually';
     }
 
     const [result] = await pool.query(
@@ -4358,20 +4426,20 @@ app.put('/api/attendance/:id', async (req, res) => {
     const a = existing[0];
     const updateStatus = status !== undefined ? status : a.status;
 
-    // 3. Late Status Override Restriction
-    if (a.status === 'Late' && updateStatus === 'Present') {
+    // 3. Late & Missed Shift Status Override Restriction
+    if ((a.status === 'Late' || a.status === 'Missed Shift') && updateStatus === 'Present') {
       const [staffRows] = await pool.query('SELECT vendor_id FROM staff WHERE id = ?', [a.staff_id]);
       const staffVendorId = staffRows[0].vendor_id;
       
       if (staffVendorId === null) {
         // Central staff -> only Central Admin (Owner)
         if (req.user.role !== 'Owner') {
-          return res.status(403).json({ error: 'Only Central Admin can override Late status for Central Staff.' });
+          return res.status(403).json({ error: 'Only Central Admin can override Late or Missed Shift status for Central Staff.' });
         }
       } else {
         // Stall staff -> only respective Stall Manager
         if (req.user.role !== 'Manager' || req.user.vendor_id !== staffVendorId) {
-          return res.status(403).json({ error: 'Only the respective Stall Manager can override Late status for their staff.' });
+          return res.status(403).json({ error: 'Only the respective Stall Manager can override Late or Missed Shift status for their staff.' });
         }
       }
     }
@@ -4416,7 +4484,8 @@ app.get('/api/attendance/summary', async (req, res) => {
         SUM(CASE WHEN status = 'Present' THEN 1 ELSE 0 END) as present_days,
         SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) as absent_days,
         SUM(CASE WHEN status = 'Late' THEN 1 ELSE 0 END) as late_days,
-        SUM(CASE WHEN status = 'Half-Day' THEN 1 ELSE 0 END) as half_days
+        SUM(CASE WHEN status = 'Half-Day' THEN 1 ELSE 0 END) as half_days,
+        SUM(CASE WHEN status = 'Missed Shift' THEN 1 ELSE 0 END) as missed_shift_days
       FROM attendance
       WHERE staff_id = ? AND MONTH(attendance_date) = ? AND YEAR(attendance_date) = ?
     `, [staff_id, month, year]);
@@ -4762,10 +4831,10 @@ app.post('/api/payroll/generate', async (req, res) => {
       // 1. Expected working days for the month (as configured by the manager)
       const expectedWorkingDays = Math.max(1, parseFloat(working_days));
 
-      // 2. Get days present (Present + Late count as full, Half-Day counts as 0.5)
+      // 2. Get days present (Present + Late count as full, Half-Day and Missed Shift count as 0.5)
       const [attSummary] = await connection.query(`
         SELECT
-          IFNULL(SUM(CASE WHEN status IN ('Present', 'Late') THEN 1 WHEN status = 'Half-Day' THEN 0.5 ELSE 0 END), 0) as days_present
+          IFNULL(SUM(CASE WHEN status IN ('Present', 'Late') THEN 1 WHEN status IN ('Half-Day', 'Missed Shift') THEN 0.5 ELSE 0 END), 0) as days_present
         FROM attendance
         WHERE staff_id = ? AND MONTH(attendance_date) = ? AND YEAR(attendance_date) = ?
       `, [staff.id, month, year]);
@@ -8404,15 +8473,15 @@ cron.schedule('59 23 * * *', async () => {
       SELECT id, notes, DATE_FORMAT(attendance_date, '%Y-%m-%d') as attendance_date 
       FROM attendance 
       WHERE check_out IS NULL 
-        AND status IN ('Present', 'Late', 'Half-Day')
+        AND status IN ('Present', 'Late', 'Half-Day', 'Missed Shift')
         AND attendance_date <= ?
     `, [dateStr]);
 
     for (const record of openPunches) {
       const targetCheckOut = `${record.attendance_date} 23:59:00`;
       const updatedNotes = record.notes 
-        ? `${record.notes} (No Checkout)` 
-        : 'No Checkout';
+        ? `${record.notes} (Not Checked Out Manually)` 
+        : 'Not Checked Out Manually';
 
       await pool.query(
         `UPDATE attendance SET check_out = ?, notes = ? WHERE id = ?`,
@@ -8429,8 +8498,18 @@ cron.schedule('59 23 * * *', async () => {
 
 // Start Server — listen on all interfaces so mobile devices can connect
 const LAN_IP = getLanIp();
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`ERP Backend running successfully on http://localhost:${PORT}`);
   console.log(`📱 QR Menu accessible at: http://${LAN_IP}:${PORT}/menu`);
   console.log(`   (Share this URL with phones on the same Wi-Fi network)`);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ Error: Port ${PORT} is already in use by another running process.`);
+    console.error(`👉 Solution: Close the other process occupying port ${PORT} or run: Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force\n`);
+    process.exit(1);
+  } else {
+    console.error('Server error:', err);
+  }
 });
