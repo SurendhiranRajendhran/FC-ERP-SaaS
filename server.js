@@ -321,7 +321,7 @@ const tenantTables = [
   'holidays', 'customers', 'customer_feedback', 'daily_reconciliation',
   'stock_logs', 'suppliers', 'vendor_settlements', 'broadcast_campaigns',
   'cash_drawer', 'notification_logs', 'vendor_common_expenses', 'overheads', 'central_settlements',
-  'stock_transfers', 'notification_settings'
+  'notification_settings'
 ];
 
 function getTableIdentifier(sql, tableName) {
@@ -1138,343 +1138,6 @@ app.delete('/api/raw-materials/:id', async (req, res) => {
     res.json({ success: true, message: 'Raw material deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete raw material' });
-  }
-});
-
-
-// ==========================================
-// STOCK TRANSFERS & ALLOCATION API
-// ==========================================
-
-// Get all stock transfers
-app.get('/api/stock-transfers', async (req, res) => {
-  try {
-    let query = `
-      SELECT t.*, t.transfer_date as created_at, m.name as material_name, m.unit as material_unit,
-             vf.name as from_vendor_name, vt.name as to_vendor_name
-      FROM stock_transfers t
-      JOIN raw_materials m ON t.material_id = m.id
-      LEFT JOIN vendors vf ON t.from_vendor_id = vf.id
-      LEFT JOIN vendors vt ON t.to_vendor_id = vt.id
-    `;
-    let params = [];
-
-    // Filter by vendor if Stall Manager
-    let vendor_id = req.query.vendor_id;
-    if (req.user && req.user.vendor_id) {
-      vendor_id = req.user.vendor_id;
-    }
-
-    if (vendor_id && vendor_id !== 'null') {
-      query += ' WHERE t.from_vendor_id = ? OR t.to_vendor_id = ?';
-      params.push(parseInt(vendor_id), parseInt(vendor_id));
-    }
-
-    query += ' ORDER BY t.transfer_date DESC';
-
-    const [rows] = await pool.query(query, params);
-    res.json(rows);
-  } catch (error) {
-    console.error('Error fetching stock transfers:', error);
-    res.status(500).json({ error: 'Failed to fetch stock transfers.' });
-  }
-});
-
-// Request or execute a stock transfer
-app.post('/api/stock-transfers', async (req, res) => {
-  const { material_id, quantity, from_vendor_id, to_vendor_id, requested_by, status } = req.body;
-  
-  if (!material_id || !quantity || quantity <= 0) {
-    return res.status(400).json({ error: 'material_id and positive quantity are required.' });
-  }
-
-  let final_from = from_vendor_id === undefined ? null : (from_vendor_id ? parseInt(from_vendor_id) : null);
-  let final_to = to_vendor_id === undefined ? null : (to_vendor_id ? parseInt(to_vendor_id) : null);
-  let final_status = status || 'Requested';
-
-  // Stall Managers can only request/send transfers involving their own stall
-  if (req.user && req.user.vendor_id) {
-    if (final_from !== req.user.vendor_id && final_to !== req.user.vendor_id) {
-      return res.status(403).json({ error: 'Forbidden: You can only request transfers for your own stall.' });
-    }
-    final_status = 'Requested'; // Force to requested
-  }
-
-  const connection = await pool.getConnection();
-  try {
-    await connection.beginTransaction();
-
-    // Verify material exists at source
-    const [sourceMat] = await connection.query(
-      'SELECT id, name, unit, stock_level, min_stock, supplier_id, cost_per_unit, vendor_id FROM raw_materials WHERE id = ?',
-      [material_id]
-    );
-
-    if (sourceMat.length === 0) {
-      throw new Error('Source material not found.');
-    }
-
-    const [insertResult] = await connection.query(
-      'INSERT INTO stock_transfers (from_vendor_id, to_vendor_id, material_id, quantity, status, requested_by, tenant_id, material_name, unit, qty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [final_from, final_to, material_id, quantity, final_status, requested_by || (req.user ? req.user.name : 'System'), req.user ? req.user.tenant_id : null, sourceMat[0].name, sourceMat[0].unit, quantity]
-    );
-
-    const transferId = insertResult.insertId;
-
-    if (final_status === 'Completed') {
-      const source = sourceMat[0];
-      
-      let actualSourceMatId = material_id;
-      let actualSourceMat = source;
-
-      // If the request specifies a different from_vendor_id than where the material_id lives
-      // we need to look it up by name in the correct from_vendor location.
-      if (source.vendor_id !== final_from) {
-        const [actualSource] = await connection.query(
-          'SELECT id, name, unit, stock_level, min_stock, supplier_id, cost_per_unit, vendor_id FROM raw_materials WHERE LOWER(name) = LOWER(?) AND (vendor_id = ? OR (vendor_id IS NULL AND ? IS NULL))',
-          [source.name.trim(), final_from, final_from]
-        );
-        if (actualSource.length === 0) {
-          let fromNameStr = final_from ? `Stall #${final_from}` : 'Central Warehouse';
-          throw new Error(`Naming conflict: Could not find material named "${source.name}" in ${fromNameStr}. Please ensure material names match exactly.`);
-        }
-        actualSourceMat = actualSource[0];
-        actualSourceMatId = actualSourceMat.id;
-      }
-
-      if (parseFloat(actualSourceMat.stock_level) < parseFloat(quantity)) {
-        throw new Error(`Insufficient stock in source inventory for "${actualSourceMat.name}". Available: ${actualSourceMat.stock_level}, Required: ${quantity}`);
-      }
-
-      // Deduct from source
-      await connection.query(
-        'UPDATE raw_materials SET stock_level = stock_level - ? WHERE id = ?',
-        [quantity, actualSourceMatId]
-      );
-
-      // Get vendor names for logs
-      let fromName = 'Central Warehouse';
-      if (final_from) {
-        const [fv] = await connection.query('SELECT name FROM vendors WHERE id = ?', [final_from]);
-        if (fv.length > 0) fromName = fv[0].name;
-      }
-      let toName = 'Central Warehouse';
-      if (final_to) {
-        const [tv] = await connection.query('SELECT name FROM vendors WHERE id = ?', [final_to]);
-        if (tv.length > 0) toName = tv[0].name;
-      }
-
-      // Log source deduction
-      await connection.query(
-        "INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id, tenant_id) VALUES (?, ?, 'Transfer Out', ?, ?, ?)",
-        [actualSourceMatId, -quantity, `Transfer to ${toName} (Ref #${transferId})`, final_from, req.user ? req.user.tenant_id : null]
-      );
-
-      // Add to target
-      const [targetMat] = await connection.query(
-        'SELECT id FROM raw_materials WHERE LOWER(name) = LOWER(?) AND (vendor_id = ? OR (vendor_id IS NULL AND ? IS NULL))',
-        [source.name.trim(), final_to, final_to]
-      );
-
-      let targetMatId;
-      if (targetMat.length > 0) {
-        targetMatId = targetMat[0].id;
-        await connection.query(
-          'UPDATE raw_materials SET stock_level = stock_level + ? WHERE id = ?',
-          [quantity, targetMatId]
-        );
-      } else {
-        const [newMatResult] = await connection.query(
-          'INSERT INTO raw_materials (name, unit, stock_level, min_stock, supplier_id, vendor_id, cost_per_unit) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [source.name.trim(), source.unit, quantity, source.min_stock, source.supplier_id, final_to, source.cost_per_unit]
-        );
-        targetMatId = newMatResult.insertId;
-      }
-
-      // Log target addition
-      await connection.query(
-        "INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id, tenant_id) VALUES (?, ?, 'Transfer In', ?, ?, ?)",
-        [targetMatId, quantity, `Transfer from ${fromName} (Ref #${transferId})`, final_to, req.user ? req.user.tenant_id : null]
-      );
-    }
-
-    await connection.commit();
-    res.status(201).json({ success: true, transfer_id: transferId, status: final_status });
-
-  } catch (error) {
-    await connection.rollback();
-    console.error('Error initiating stock transfer:', error);
-    res.status(500).json({ error: error.message || 'Failed to initiate stock transfer.' });
-  } finally {
-    connection.release();
-  }
-});
-
-// Update stock transfer status (Approve, Reject, Complete)
-app.put('/api/stock-transfers/:id', async (req, res) => {
-  const { id } = req.params;
-  const { status, approved_by, rejection_reason } = req.body;
-
-  if (!status || !['Approved', 'Rejected', 'Completed'].includes(status)) {
-    return res.status(400).json({ error: 'Invalid status. Must be Approved, Rejected, or Completed.' });
-  }
-
-  const connection = await pool.getConnection();
-  try {
-    await connection.beginTransaction();
-
-    const [transfers] = await connection.query(
-      'SELECT * FROM stock_transfers WHERE id = ? FOR UPDATE',
-      [id]
-    );
-
-    if (transfers.length === 0) {
-      throw new Error('Stock transfer request not found.');
-    }
-
-    const transfer = transfers[0];
-
-    // Stall Managers security check
-    if (req.user && req.user.vendor_id) {
-      if (status === 'Completed' || status === 'Approved') {
-        if (transfer.to_vendor_id !== req.user.vendor_id && transfer.from_vendor_id !== req.user.vendor_id) {
-          throw new Error('Forbidden: You cannot approve/complete this transfer.');
-        }
-      } else if (status === 'Rejected') {
-        if (transfer.to_vendor_id !== req.user.vendor_id && transfer.from_vendor_id !== req.user.vendor_id) {
-          throw new Error('Forbidden: You cannot reject this transfer.');
-        }
-      }
-    }
-
-    if (status === 'Completed' && transfer.status !== 'Completed') {
-      // Find the material associated with the transfer request
-      const [reqMat] = await connection.query(
-        'SELECT * FROM raw_materials WHERE id = ? FOR UPDATE',
-        [transfer.material_id]
-      );
-
-      if (reqMat.length === 0) {
-        throw new Error('Requested material not found.');
-      }
-
-      const reqMaterial = reqMat[0];
-      
-      // Determine if the requested material belongs to the source (from_vendor) or target (to_vendor)
-      const reqMatVendorId = reqMaterial.vendor_id;
-      let isSourceMaterial = false;
-      
-      // reqMatVendorId can be null (Central) or a vendor ID
-      if (reqMatVendorId === transfer.from_vendor_id) {
-        isSourceMaterial = true;
-      } else if (reqMatVendorId === transfer.to_vendor_id) {
-        isSourceMaterial = false;
-      } else {
-        // Fallback: assume it is the source
-        isSourceMaterial = true;
-      }
-
-      let sourceMatId, targetMatId;
-      let source, target;
-
-      if (isSourceMaterial) {
-        sourceMatId = reqMaterial.id;
-        source = reqMaterial;
-
-        // Find target by name
-        const [tMat] = await connection.query(
-          'SELECT * FROM raw_materials WHERE LOWER(name) = LOWER(?) AND (vendor_id = ? OR (vendor_id IS NULL AND ? IS NULL))',
-          [reqMaterial.name.trim(), transfer.to_vendor_id, transfer.to_vendor_id]
-        );
-        if (tMat.length > 0) {
-          target = tMat[0];
-          targetMatId = target.id;
-        }
-      } else {
-        targetMatId = reqMaterial.id;
-        target = reqMaterial;
-
-        // Find source by name
-        const [sMat] = await connection.query(
-          'SELECT * FROM raw_materials WHERE LOWER(name) = LOWER(?) AND (vendor_id = ? OR (vendor_id IS NULL AND ? IS NULL)) FOR UPDATE',
-          [reqMaterial.name.trim(), transfer.from_vendor_id, transfer.from_vendor_id]
-        );
-        
-        if (sMat.length > 0) {
-          source = sMat[0];
-          sourceMatId = source.id;
-        } else {
-          // If names don't match, we cannot deduct from source
-          let fromName = transfer.from_vendor_id ? `Stall #${transfer.from_vendor_id}` : 'Central Warehouse';
-          throw new Error(`Naming conflict: Could not find material named "${reqMaterial.name}" in ${fromName}. Please ensure material names match exactly.`);
-        }
-      }
-
-      if (parseFloat(source.stock_level) < parseFloat(transfer.quantity)) {
-        throw new Error(`Insufficient stock in source inventory for "${source.name}". Available: ${source.stock_level}, Required: ${transfer.quantity}`);
-      }
-
-      // Deduct from source
-      await connection.query(
-        'UPDATE raw_materials SET stock_level = stock_level - ? WHERE id = ?',
-        [transfer.quantity, sourceMatId]
-      );
-
-      // Get vendor names for logs
-      let fromName = 'Central Warehouse';
-      if (transfer.from_vendor_id) {
-        const [fv] = await connection.query('SELECT name FROM vendors WHERE id = ?', [transfer.from_vendor_id]);
-        if (fv.length > 0) fromName = fv[0].name;
-      }
-      let toName = 'Central Warehouse';
-      if (transfer.to_vendor_id) {
-        const [tv] = await connection.query('SELECT name FROM vendors WHERE id = ?', [transfer.to_vendor_id]);
-        if (tv.length > 0) toName = tv[0].name;
-      }
-
-      // Log source deduction
-      await connection.query(
-        "INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id, tenant_id) VALUES (?, ?, 'Transfer Out', ?, ?, ?)",
-        [sourceMatId, -transfer.quantity, `Transfer to ${toName} (Ref #${id})`, transfer.from_vendor_id, req.user ? req.user.tenant_id : null]
-      );
-
-      // Add to target
-      if (targetMatId) {
-        await connection.query(
-          'UPDATE raw_materials SET stock_level = stock_level + ? WHERE id = ?',
-          [transfer.quantity, targetMatId]
-        );
-      } else {
-        // Create it in the target location
-        const [newMatResult] = await connection.query(
-          'INSERT INTO raw_materials (name, unit, stock_level, min_stock, supplier_id, vendor_id, cost_per_unit) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [source.name.trim(), source.unit, transfer.quantity, source.min_stock, source.supplier_id, transfer.to_vendor_id, source.cost_per_unit]
-        );
-        targetMatId = newMatResult.insertId;
-      }
-
-      // Log target addition
-      await connection.query(
-        "INSERT INTO stock_logs (material_id, change_qty, log_type, reason, vendor_id, tenant_id) VALUES (?, ?, 'Transfer In', ?, ?, ?)",
-        [targetMatId, transfer.quantity, `Transfer from ${fromName} (Ref #${id})`, transfer.to_vendor_id, req.user ? req.user.tenant_id : null]
-      );
-    }
-
-    // Update status in stock_transfers
-    await connection.query(
-      'UPDATE stock_transfers SET status = ?, approved_by = ?, rejection_reason = ? WHERE id = ?',
-      [status, approved_by || (req.user ? req.user.name : 'System'), rejection_reason || null, id]
-    );
-
-    await connection.commit();
-    res.json({ success: true, message: `Transfer status updated to ${status}.` });
-
-  } catch (error) {
-    await connection.rollback();
-    console.error('Error updating stock transfer:', error);
-    res.status(500).json({ error: error.message || 'Failed to update stock transfer.' });
-  } finally {
-    connection.release();
   }
 });
 
@@ -4361,6 +4024,22 @@ app.post('/api/attendance/check-in', async (req, res) => {
       finalNotes = finalNotes ? `${finalNotes} (Not Checked Out Manually)` : 'Not Checked Out Manually';
     }
 
+    // Check for Short Shift (< 1 hour duration) for entries with check_out provided
+    if (finalCheckOut && attStatus !== 'Absent' && (!finalNotes || !finalNotes.includes('Not Checked Out Manually'))) {
+      const cIn = new Date(checkInTime);
+      const cOut = new Date(finalCheckOut);
+      if (!isNaN(cIn.getTime()) && !isNaN(cOut.getTime())) {
+        const diffMs = cOut.getTime() - cIn.getTime();
+        if (diffMs >= 0 && diffMs < 3600000) {
+          const shortShiftTag = diffMs < 60000 
+            ? `Short Shift (${Math.max(1, Math.round(diffMs / 1000))}s)` 
+            : `Short Shift (${Math.max(1, Math.round(diffMs / 60000))}m)`;
+          if (!finalNotes) finalNotes = shortShiftTag;
+          else if (!finalNotes.includes('Short Shift')) finalNotes = `${finalNotes} (${shortShiftTag})`;
+        }
+      }
+    }
+
     const [result] = await pool.query(
       `INSERT INTO attendance (staff_id, attendance_date, check_in, check_out, shift_id, status, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -4403,9 +4082,38 @@ app.put('/api/attendance/:id/check-out', async (req, res) => {
     const now = new Date();
     const checkOutTime = formatLocalTimestamp(now);
 
-    await pool.query('UPDATE attendance SET check_out = ? WHERE id = ?', [checkOutTime, id]);
+    // Calculate duration worked between check_in and check_out
+    let checkInDate = new Date(existing[0].check_in);
+    if (isNaN(checkInDate.getTime()) && existing[0].check_in) {
+      checkInDate = new Date(String(existing[0].check_in).replace(' ', 'T'));
+    }
 
-    res.json({ success: true, message: 'Check-out recorded', check_out: checkOutTime });
+    let updatedNotes = existing[0].notes || null;
+    let shortShiftTag = null;
+
+    if (!isNaN(checkInDate.getTime())) {
+      const diffMs = Math.max(0, now.getTime() - checkInDate.getTime());
+      const oneHourMs = 60 * 60 * 1000;
+      if (diffMs < oneHourMs) {
+        if (diffMs < 60 * 1000) {
+          const secs = Math.max(1, Math.round(diffMs / 1000));
+          shortShiftTag = `Short Shift (${secs}s)`;
+        } else {
+          const mins = Math.max(1, Math.round(diffMs / (60 * 1000)));
+          shortShiftTag = `Short Shift (${mins}m)`;
+        }
+
+        if (!updatedNotes) {
+          updatedNotes = shortShiftTag;
+        } else if (!updatedNotes.includes('Short Shift')) {
+          updatedNotes = `${updatedNotes} (${shortShiftTag})`;
+        }
+      }
+    }
+
+    await pool.query('UPDATE attendance SET check_out = ?, notes = ? WHERE id = ?', [checkOutTime, updatedNotes, id]);
+
+    res.json({ success: true, message: 'Check-out recorded', check_out: checkOutTime, notes: updatedNotes });
   } catch (error) {
     console.error('Error recording check-out:', error);
     res.status(500).json({ error: 'Failed to record check-out' });
@@ -4444,10 +4152,25 @@ app.put('/api/attendance/:id', async (req, res) => {
       }
     }
 
-    const updateNotes = notes !== undefined ? notes : a.notes;
+    let updateNotes = notes !== undefined ? notes : a.notes;
     const updateCheckIn = check_in !== undefined ? check_in : a.check_in;
     const updateCheckOut = check_out !== undefined ? check_out : a.check_out;
     const updateShift = shift_id !== undefined ? shift_id : a.shift_id;
+
+    if (updateCheckIn && updateCheckOut && updateStatus !== 'Absent' && (!updateNotes || !updateNotes.includes('Not Checked Out Manually'))) {
+      const cIn = new Date(updateCheckIn);
+      const cOut = new Date(updateCheckOut);
+      if (!isNaN(cIn.getTime()) && !isNaN(cOut.getTime())) {
+        const diffMs = cOut.getTime() - cIn.getTime();
+        if (diffMs >= 0 && diffMs < 3600000) {
+          const shortShiftTag = diffMs < 60000 
+            ? `Short Shift (${Math.max(1, Math.round(diffMs / 1000))}s)` 
+            : `Short Shift (${Math.max(1, Math.round(diffMs / 60000))}m)`;
+          if (!updateNotes) updateNotes = shortShiftTag;
+          else if (!updateNotes.includes('Short Shift')) updateNotes = `${updateNotes} (${shortShiftTag})`;
+        }
+      }
+    }
 
     await pool.query(
       'UPDATE attendance SET status = ?, notes = ?, check_in = ?, check_out = ?, shift_id = ? WHERE id = ?',
@@ -8398,6 +8121,8 @@ app.post('/api/superadmin/test-email', authenticateToken, authorizeRoles('Super 
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api')) {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  } else {
+    res.status(404).json({ error: 'Endpoint not found' });
   }
 });
 

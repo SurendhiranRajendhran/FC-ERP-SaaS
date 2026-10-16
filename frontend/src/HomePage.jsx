@@ -220,7 +220,7 @@ export default function HomePage() {
         <div className="bento-grid">
            <div className="bento-card bento-small">
             <h3 style={{fontSize:'1.2rem'}}>Inventory & Supply Chain</h3>
-            <p style={{fontSize:'0.9rem', marginTop:'10px'}}>Track raw materials per vendor. Set low-stock alerts, manage inter-stall transfers, and auto-deduct stock based on recipe formulations.</p>
+            <p style={{fontSize:'0.9rem', marginTop:'10px'}}>Track raw materials per vendor. Set low-stock alerts, track purchase history, and auto-deduct stock based on recipe formulations.</p>
           </div>
           <div className="bento-card bento-small">
             <h3 style={{fontSize:'1.2rem'}}>HR & Payroll System</h3>

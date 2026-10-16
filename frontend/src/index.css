@@ -577,6 +577,14 @@ body {
   border: 1px solid rgba(230, 81, 0, 0.35);
 }
 
+.badge-short-shift {
+  background-color: rgba(245, 158, 11, 0.22);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  box-shadow: 0 1px 3px rgba(245, 158, 11, 0.2);
+  font-weight: 600;
+}
+
 /* BUTTONS */
 .btn {
   display: inline-flex;
@@ -4534,37 +4542,385 @@ input:checked + .slider:before {
   cursor: pointer;
 }
 
+/* Print Utility Helpers */
+.print-only {
+  display: none !important;
+}
+
 @media print {
-  body {
-    background: white !important;
-    color: black !important;
+  @page {
+    size: A4 portrait;
+    margin: 12mm 14mm;
   }
-  .sidebar, .top-bar, .action-btns, .sub-tabs {
+
+  /* 1. Prevent animation freeze at opacity: 0 */
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    -webkit-animation: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* 2. Global Canvas & Text Setup */
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 3. Visibility Toggles */
+  .sidebar, 
+  .top-bar, 
+  .action-btns, 
+  .sub-tabs, 
+  .no-print, 
+  .modal-overlay:not(.active),
+  button:not(.allow-print),
+  .btn:not(.allow-print) {
     display: none !important;
   }
-  .app-container {
+
+  .print-only {
+    display: block !important;
+  }
+
+  /* 4. Full Viewport Expansion */
+  .app-container,
+  .main-content,
+  .view-panel-container,
+  .view-panel,
+  .view-panel.active,
+  .reports-content-area,
+  .report-section {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
     height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
     overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
-  .main-content {
-    overflow: visible !important;
+
+  .view-header-bar {
+    border-bottom: 2px solid #0f172a !important;
+    padding-bottom: 10px !important;
+    margin-bottom: 20px !important;
   }
-  .view-panel-container {
-    padding: 0;
-    overflow: visible !important;
+
+  .view-header-bar h2, .view-header-bar h3 {
+    color: #0f172a !important;
+    font-size: 1.3rem !important;
+    font-weight: 800 !important;
   }
+
+  /* 5. MIS Dashboard Widgets / Stats Cards */
+  .stats-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 16px !important;
+    margin-bottom: 24px !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .stats-card {
+    background: #ffffff !important;
+    border: 1.5px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+    padding: 16px 20px !important;
+    box-shadow: none !important;
+    color: #0f172a !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .stats-card::before {
+    display: none !important;
+  }
+
+  .stats-info {
+    width: 100% !important;
+  }
+
+  .stats-info h3, .stats-card h3 {
+    color: #475569 !important;
+    font-size: 0.85rem !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    margin: 0 0 6px 0 !important;
+  }
+
+  .stats-value {
+    color: #0f172a !important;
+    font-size: 1.7rem !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.5px !important;
+    margin: 0 !important;
+    display: block !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 6. Panel Cards (Tables, Sections) */
   .panel-card {
-    border: 1px solid #ccc;
-    box-shadow: none;
-    margin-bottom: 20px;
+    background: #ffffff !important;
+    border: 1.5px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    margin-bottom: 24px !important;
+    padding: 18px !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    color: #0f172a !important;
   }
+
+  .panel-card-header {
+    border-bottom: 1.5px solid #e2e8f0 !important;
+    padding-bottom: 10px !important;
+    margin-bottom: 14px !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+  }
+
+  .panel-card-header h3 {
+    color: #0f172a !important;
+    font-size: 1.1rem !important;
+    font-weight: 700 !important;
+    margin: 0 !important;
+  }
+
+  .panel-card-header button, .panel-card-header .btn {
+    display: none !important;
+  }
+
+  /* 7. Stock Comparison Dashboard Cards */
+  .reports-content-area div[style*="gridTemplateColumns"],
+  .dashboard-details-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 14px !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .reports-content-area div[style*="borderRadius: 'var(--radius-sm)'"],
+  .reports-content-area div[style*="border: '1px solid var(--border-light)'"] {
+    background: #f8fafc !important;
+    border: 1.5px solid #cbd5e1 !important;
+    border-radius: 6px !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+    padding: 12px 16px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .reports-content-area span[style*="textTransform: 'uppercase'"] {
+    color: #475569 !important;
+    font-weight: 700 !important;
+    font-size: 11px !important;
+  }
+
+  .reports-content-area h3[style*="var(--text-light)"] {
+    color: #0f172a !important;
+    font-weight: 800 !important;
+    font-size: 20px !important;
+  }
+
+  /* 8. Peak Hours Chart Bars */
+  .chart-list {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  .chart-bar-item {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .chart-bar-label {
+    display: flex !important;
+    justify-content: space-between !important;
+    margin-bottom: 4px !important;
+    font-size: 0.85rem !important;
+  }
+
+  .chart-bar-name {
+    color: #0f172a !important;
+    font-weight: 700 !important;
+  }
+
+  .chart-bar-val {
+    color: #1e293b !important;
+    font-weight: 600 !important;
+  }
+
+  .chart-bar-track {
+    background: #e2e8f0 !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 4px !important;
+    height: 16px !important;
+    overflow: hidden !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .chart-bar-fill {
+    background: #2563eb !important;
+    height: 100% !important;
+    border-radius: 3px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 9. Data Tables */
+  .table-container {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .data-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 11.5px !important;
+    color: #0f172a !important;
+  }
+
   .data-table th {
-    color: black;
-    border-bottom: 2px solid #ccc;
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: 700 !important;
+    border: 1px solid #cbd5e1 !important;
+    padding: 8px 10px !important;
+    text-align: left !important;
+    position: static !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
+
   .data-table td {
-    color: black;
-    border-bottom: 1px solid #eee;
+    color: #1e293b !important;
+    border: 1px solid #e2e8f0 !important;
+    padding: 7px 10px !important;
+  }
+
+  .data-table tr:nth-child(even) td {
+    background-color: #f8fafc !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .data-table tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* 10. Badges & Indicators */
+  .badge, .status-badge {
+    border: 1px solid #94a3b8 !important;
+    font-weight: 700 !important;
+    padding: 2px 7px !important;
+    border-radius: 4px !important;
+    font-size: 10.5px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .badge-success, .status-badge.completed, .status-badge.paid {
+    background: #dcfce7 !important;
+    color: #15803d !important;
+    border-color: #86efac !important;
+  }
+
+  .badge-danger, .status-badge.cancelled, .status-badge.failed {
+    background: #fee2e2 !important;
+    color: #b91c1c !important;
+    border-color: #fca5a5 !important;
+  }
+
+  .badge-warning, .status-badge.pending {
+    background: #fef3c7 !important;
+    color: #b45309 !important;
+    border-color: #fde68a !important;
+  }
+
+  .badge-category {
+    background: #f1f5f9 !important;
+    color: #475569 !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  /* 11. MIS Executive Print Header */
+  .mis-report-print-header {
+    margin-bottom: 24px !important;
+    padding-bottom: 16px !important;
+    border-bottom: 2px solid #0f172a !important;
+  }
+  .mis-report-print-header .print-header-top {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: flex-start !important;
+    margin-bottom: 12px !important;
+  }
+  .mis-report-print-header .print-brand h1 {
+    font-size: 22px !important;
+    font-weight: 800 !important;
+    color: #0f172a !important;
+    margin: 0 0 4px 0 !important;
+    letter-spacing: -0.5px !important;
+  }
+  .mis-report-print-header .print-brand p {
+    font-size: 11px !important;
+    color: #64748b !important;
+    margin: 0 !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+  }
+  .mis-report-print-header .print-meta-badge {
+    text-align: right !important;
+  }
+  .mis-report-print-header .print-meta-label {
+    display: block !important;
+    font-size: 10px !important;
+    text-transform: uppercase !important;
+    color: #64748b !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.5px !important;
+  }
+  .mis-report-print-header .print-meta-val {
+    font-size: 14px !important;
+    color: #1e40af !important;
+    font-weight: 800 !important;
+  }
+  .mis-report-print-header .print-header-details {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 16px !important;
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 6px !important;
+    padding: 8px 14px !important;
+    font-size: 11px !important;
+    color: #334155 !important;
+    margin-top: 8px !important;
+  }
+  .mis-report-print-header .print-header-details div strong {
+    color: #0f172a !important;
   }
 }
 

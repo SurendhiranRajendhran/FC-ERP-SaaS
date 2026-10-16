@@ -1706,6 +1706,104 @@ function QRManagementPanel({ user }) {
     qrImages.forEach(q => downloadQr(q.dataUrl, q.table));
   };
 
+  const handlePrintQrReceipt = (order, type) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Popup blocker prevented print window. Please allow popups.');
+      return;
+    }
+
+    const isKot = type === 'KOT';
+    const title = isKot ? `KOT_Token_${order.token_number}` : `Bill_Token_${order.token_number}`;
+    const dateStr = new Date(order.order_date).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+    const orderItems = order.items || [];
+
+    const receiptHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${title}</title>
+  <style>
+    @page { size: 80mm auto; margin: 4mm; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: 'Courier New', Courier, monospace; font-size: 13px; margin: 0; padding: 12px; color: #000; background: #fff; line-height: 1.3; }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .divider { border-top: 1px dashed #000; margin: 8px 0; }
+    .double-divider { border-top: 2px dashed #000; margin: 8px 0; }
+    .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .token-badge { font-size: 24px; font-weight: 900; margin: 6px 0; }
+    .action-bar { text-align: center; margin-bottom: 12px; }
+    .action-bar button { padding: 6px 14px; font-size: 13px; font-weight: bold; background: #000; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    @media print {
+      .action-bar { display: none !important; }
+      body { padding: 0 !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="action-bar">
+    <button onclick="window.print()">🖨️ Print ${isKot ? 'KOT' : 'Bill'}</button>
+  </div>
+  <div class="center bold" style="font-size: 15px;">FOOD COURT &amp; CANTEEN</div>
+  <div class="center" style="font-size: 11px;">QR SELF-ORDERING SYSTEM</div>
+  <div class="divider"></div>
+  <div class="center bold" style="font-size: 14px;">${isKot ? '*** KITCHEN ORDER TICKET (KOT) ***' : '*** CUSTOMER RECEIPT / TAX INVOICE ***'}</div>
+  <div class="center token-badge">TOKEN #${order.token_number}</div>
+  <div class="divider"></div>
+  <div class="row"><span>Date:</span><span>${dateStr}</span></div>
+  <div class="row"><span>Customer:</span><span>${order.customer_name || 'Walk-in'}</span></div>
+  ${order.customer_phone ? `<div class="row"><span>Phone:</span><span>${order.customer_phone}</span></div>` : ''}
+  ${order.pickup_slot ? `<div class="row"><span>Slot:</span><span class="bold">${order.pickup_slot}</span></div>` : ''}
+  <div class="row"><span>Status:</span><span class="bold">${order.status || 'Received'}</span></div>
+  <div class="double-divider"></div>
+  <div class="row bold">
+    <span style="flex: 2;">Item</span>
+    <span style="flex: 1; text-align: center;">Qty</span>
+    ${!isKot ? '<span style="flex: 1; text-align: right;">Amount</span>' : ''}
+  </div>
+  <div class="divider"></div>
+  ${orderItems.length > 0 ? orderItems.map(it => `
+    <div class="row">
+      <span style="flex: 2;">${it.name || it.item_name || 'Item'}</span>
+      <span style="flex: 1; text-align: center;">x${it.quantity}</span>
+      ${!isKot ? `<span style="flex: 1; text-align: right;">₹${(parseFloat(it.price || 0) * parseInt(it.quantity || 1)).toFixed(2)}</span>` : ''}
+    </div>
+    ${it.spice_level ? `<div style="font-size: 10px; color: #555; padding-left: 8px;">Spice: ${it.spice_level}</div>` : ''}
+    ${it.special_instructions ? `<div style="font-size: 10px; color: #555; padding-left: 8px;">Note: ${it.special_instructions}</div>` : ''}
+  `).join('') : `
+    <div class="row">
+      <span style="flex: 2;">Order Items (Summary)</span>
+      <span style="flex: 1; text-align: center;">1</span>
+      ${!isKot ? `<span style="flex: 1; text-align: right;">₹${parseFloat(order.total_amount || 0).toFixed(2)}</span>` : ''}
+    </div>
+  `}
+  <div class="double-divider"></div>
+  ${!isKot ? `
+    <div class="row bold" style="font-size: 15px;">
+      <span>TOTAL AMOUNT:</span>
+      <span>₹${parseFloat(order.total_amount || 0).toFixed(2)}</span>
+    </div>
+    <div class="row" style="font-size: 11px;">
+      <span>Payment Mode:</span>
+      <span>${order.payment_mode || 'Online / Cash'}</span>
+    </div>
+    <div class="divider"></div>
+    <div class="center" style="font-size: 11px; margin-top: 8px;">Thank You! Visit Again.</div>
+  ` : `
+    <div class="center bold" style="margin-top: 10px;">PREPARE ORDER PROMPTLY</div>
+  `}
+  <script>
+    window.onload = function() { window.print(); };
+  </script>
+</body>
+</html>`;
+
+    printWindow.document.open();
+    printWindow.document.write(receiptHtml);
+    printWindow.document.close();
+  };
+
   return (
     <div className="view-panel active">
       <div className="view-header-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1783,8 +1881,8 @@ function QRManagementPanel({ user }) {
                   <td>₹{parseFloat(o.total_amount).toFixed(2)}</td>
                   <td><span className={`status-badge ${(o.status || '').toLowerCase()}`}>{o.status}</span></td>
                   <td>
-                    <button onClick={() => window.alert(`Printing KOT for Token #${o.token_number}...`)} style={{ padding: '0.2rem 0.5rem', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '0.4rem' }}>Print KOT</button>
-                    <button onClick={() => window.alert(`Printing Bill for Token #${o.token_number}...`)} style={{ padding: '0.2rem 0.5rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>Print Bill</button>
+                    <button onClick={() => handlePrintQrReceipt(o, 'KOT')} style={{ padding: '0.2rem 0.5rem', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '0.4rem' }}>Print KOT</button>
+                    <button onClick={() => handlePrintQrReceipt(o, 'Bill')} style={{ padding: '0.2rem 0.5rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>Print Bill</button>
                   </td>
                 </tr>
               ))}
@@ -1915,14 +2013,6 @@ function App() {
   const [centralSelectedItems, setCentralSelectedItems] = useState([]);
   const [centralHistory, setCentralHistory] = useState([]);
   const [centralSettling, setCentralSettling] = useState(false);
-
-  // Stock Transfer / Borrowing States (Task 7)
-  const [stockTransfers, setStockTransfers] = useState([]);
-  const [transferStatusFilter, setTransferStatusFilter] = useState('All');
-  const [showTransferModal, setShowTransferModal] = useState(false);
-  const [formTransfer, setFormTransfer] = useState({
-    material_id: '', quantity: '', from_vendor_id: '', to_vendor_id: ''
-  });
 
   const fetchCentralPending = async () => {
     try {
@@ -2390,7 +2480,6 @@ function App() {
     fetchCombos();
     fetchMaterials();
     fetchSuppliers();
-    fetchStockTransfers();
     fetchRecipes();
     fetchLogs();
     fetchOrders();
@@ -2574,23 +2663,6 @@ function App() {
     } catch (err) {
       showToast('Failed to fetch raw materials', 'error');
       setMaterials([]);
-    }
-  };
-
-  const fetchStockTransfers = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/stock-transfers`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setStockTransfers(data);
-      } else {
-        setStockTransfers([]);
-      }
-    } catch (err) {
-      console.error('Failed to fetch stock transfers:', err);
-      setStockTransfers([]);
     }
   };
 
@@ -2785,6 +2857,30 @@ function App() {
     }
   };
 
+  const handleExportMisReportPdf = () => {
+    const originalTitle = document.title;
+    const subTabLabels = {
+      'sales': 'Daily_Sales_Report',
+      'stock': 'Stock_Inventory_Report',
+      'peak-hours': 'Peak_Hours_Report',
+      'monthly-pl': 'Monthly_PL_Statement',
+      'customer-analytics': 'Customer_Analytics_Report',
+      'gst': 'GST_Tax_Report',
+      'reconciliation': 'Daily_Reconciliation_Report',
+      'credits': 'Credit_Customers_Report'
+    };
+    const reportName = subTabLabels[reportsSubTab] || 'MIS_Report';
+    const startStr = reportDateRange.startDate || 'start';
+    const endStr = reportDateRange.endDate || 'end';
+    document.title = `${reportName}_${startStr}_to_${endStr}`;
+    
+    window.print();
+    
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 1500);
+  };
+
   const fetchRoster = async (weekStart) => {
     try {
       const res = await fetch(`${API_BASE}/roster?week_start=${weekStart}`);
@@ -2906,7 +3002,8 @@ function App() {
           status: dayStatus,
           check_in: checkIn,
           check_out: checkOut,
-          meals: mealsDesc
+          meals: mealsDesc,
+          notes: attRec ? attRec.notes : null
         });
       }
 
@@ -3486,78 +3583,6 @@ function App() {
         items: prev.items.filter((_, i) => i !== index)
       };
     });
-  };
-
-  const handleSaveTransfer = async (e) => {
-    e.preventDefault();
-    if (!formTransfer.material_id || !formTransfer.quantity) {
-      showToast('Please fill all required fields.', 'error');
-      return;
-    }
-    // Central admin must select a destination stall
-    if (!user?.vendor_id && !formTransfer.to_vendor_id) {
-      showToast('Please select a destination stall.', 'error');
-      return;
-    }
-
-    try {
-      const payload = { ...formTransfer, quantity: parseFloat(formTransfer.quantity) };
-      
-      if (user?.vendor_id) {
-        // Stall manager: requesting stock TO themselves
-        payload.to_vendor_id = user.vendor_id;
-        // from_vendor_id: '' means Central Storage (null), else another stall's ID
-        payload.from_vendor_id = payload.from_vendor_id ? parseInt(payload.from_vendor_id) : null;
-      } else {
-        // Central admin: from_vendor_id '' means Central Storage (null)
-        payload.from_vendor_id = payload.from_vendor_id ? parseInt(payload.from_vendor_id) : null;
-        payload.to_vendor_id = parseInt(payload.to_vendor_id);
-      }
-
-      const res = await fetch(`${API_BASE}/stock-transfers`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to request transfer');
-
-      showToast('Transfer request submitted', 'success');
-      setShowTransferModal(false);
-      setFormTransfer({ material_id: '', quantity: '', from_vendor_id: '', to_vendor_id: '' });
-      fetchStockTransfers();
-      fetchMaterials();
-      fetchLogs();
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  };
-
-  const handleUpdateTransferStatus = async (id, status) => {
-    try {
-      const res = await fetch(`${API_BASE}/stock-transfers/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ status })
-      });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update status');
-
-      showToast(`Transfer marked as ${status}`, 'success');
-      fetchStockTransfers();
-      fetchMaterials();
-      fetchLogs();
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
   };
 
   const handleSavePurchaseEntry = async (e) => {
@@ -4178,10 +4203,17 @@ function App() {
         method: 'PUT'
       });
       if (res.ok) {
-        showToast('Staff checked out successfully', 'success');
+        const data = await res.json().catch(() => ({}));
+        if (data.notes && data.notes.includes('Short Shift')) {
+          const match = data.notes.match(/Short Shift\s*\([^)]+\)/i);
+          showToast(`Staff checked out (⚠️ Tagged: ${match ? match[0] : 'Short Shift'})`, 'warning');
+        } else {
+          showToast('Staff checked out successfully', 'success');
+        }
         fetchAttendance(selectedAttendanceDate);
       } else {
-        showToast('Failed to check out', 'error');
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error || 'Failed to check out', 'error');
       }
     } catch (err) {
       showToast('Network error checking out', 'error');
@@ -4444,7 +4476,7 @@ function App() {
   };
 
   const handleFinalizePayroll = async () => {
-    if (!confirm(`Are you sure you want to finalize the payroll for ${new Date(2026, payrollMonth - 1).toLocaleString(undefined, { month: 'long' })} ${payrollYear}? Once finalized, it cannot be regenerated or modified.`)) {
+    if (!confirm(`Are you sure you want to finalize the payroll for ${new Date(payrollYear, payrollMonth - 1).toLocaleString(undefined, { month: 'long' })} ${payrollYear}? Once finalized, it cannot be regenerated or modified.`)) {
       return;
     }
     try {
@@ -4487,6 +4519,427 @@ function App() {
     } catch (err) {
       showToast('Network error marking payroll as paid', 'error');
     }
+  };
+
+  const handleGeneratePayslip = (p, monthVal, yearVal) => {
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+      showToast('Popup blocker prevented payslip window. Please allow popups for this site.', 'error');
+      return;
+    }
+
+    const m = parseInt(monthVal || p.month || payrollMonth || 1);
+    const y = parseInt(yearVal || p.year || payrollYear || 2026);
+    const monthName = new Date(y, m - 1).toLocaleString('en-US', { month: 'long' });
+    const payslipRef = `PS-${y}${String(m).padStart(2, '0')}-${String(p.staff_id).padStart(4, '0')}`;
+    const generatedOn = new Date().toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+    const daysWorked = Number(p.days_present || 0);
+    const totalWorkingDays = Number(p.working_days || 0);
+    const unpaidDays = Math.max(0, totalWorkingDays - daysWorked);
+    const grossSalary = parseFloat(p.gross_salary || 0);
+    const pfDeduction = parseFloat(p.pf_deduction || 0);
+    const esiDeduction = parseFloat(p.esi_deduction || 0);
+    const tdsDeduction = parseFloat(p.tds_deduction || 0);
+    const mealDeduction = parseFloat(p.meal_deduction || 0);
+    const totalDeductions = pfDeduction + esiDeduction + tdsDeduction + mealDeduction;
+    const netSalary = parseFloat(p.net_salary || 0);
+
+    const statusBadgeStyle = p.status === 'Paid'
+      ? 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;'
+      : p.status === 'Finalized'
+        ? 'background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd;'
+        : 'background: #fef3c7; color: #b45309; border: 1px solid #fde68a;';
+
+    const payslipHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Payslip_${(p.staff_name || 'Staff').replace(/\\s+/g, '_')}_${monthName}_${y}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm 15mm;
+    }
+    *, *::before, *::after {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #f8fafc;
+      color: #0f172a;
+      line-height: 1.4;
+    }
+    .payslip-container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+      padding: 32px;
+    }
+    .action-bar {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .btn-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .btn-print {
+      background: #2563eb;
+      color: #ffffff;
+    }
+    .btn-close {
+      background: #e2e8f0;
+      color: #334155;
+    }
+    .header {
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 18px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .brand-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+      margin: 0 0 4px 0;
+    }
+    .brand-subtitle {
+      font-size: 13px;
+      color: #64748b;
+      margin: 0;
+      font-weight: 500;
+    }
+    .payslip-badge-block {
+      text-align: right;
+    }
+    .payslip-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1e293b;
+      margin: 0 0 6px 0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .status-pill {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .meta-strip {
+      display: flex;
+      justify-content: space-between;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 10px 16px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #334155;
+    }
+    .meta-strip strong {
+      color: #0f172a;
+    }
+    .emp-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+    .emp-cell {
+      display: flex;
+      flex-direction: column;
+    }
+    .emp-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #64748b;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .emp-val {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .salary-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 24px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .salary-table th {
+      background: #0f172a;
+      color: #ffffff;
+      text-transform: uppercase;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+      padding: 10px 14px;
+      font-weight: 700;
+      text-align: left;
+    }
+    .salary-table th.amount, .salary-table td.amount {
+      text-align: right;
+    }
+    .salary-table td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 13px;
+      color: #1e293b;
+    }
+    .salary-table tr:nth-child(even) td {
+      background: #f8fafc;
+    }
+    .salary-table .subtotal-row td {
+      background: #f1f5f9;
+      font-weight: 700;
+      border-top: 1.5px solid #cbd5e1;
+      border-bottom: 1.5px solid #cbd5e1;
+      color: #0f172a;
+    }
+    .net-banner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #eff6ff;
+      border: 1.5px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 30px;
+    }
+    .net-label {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1e40af;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .net-note {
+      font-size: 12px;
+      color: #3b82f6;
+      margin-top: 2px;
+    }
+    .net-amount {
+      font-size: 26px;
+      font-weight: 900;
+      color: #1d4ed8;
+      letter-spacing: -0.5px;
+    }
+    .signatures {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 48px;
+      padding-top: 24px;
+    }
+    .sig-box {
+      width: 220px;
+      text-align: center;
+    }
+    .sig-line {
+      border-top: 1.5px dashed #94a3b8;
+      margin-bottom: 8px;
+    }
+    .sig-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .sig-title {
+      font-size: 11px;
+      color: #64748b;
+    }
+    .footer-note {
+      margin-top: 36px;
+      text-align: center;
+      font-size: 11px;
+      color: #94a3b8;
+      border-top: 1px solid #f1f5f9;
+      padding-top: 12px;
+    }
+    @media print {
+      body {
+        background: #ffffff !important;
+        padding: 0 !important;
+      }
+      .payslip-container {
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        max-width: 100% !important;
+      }
+      .action-bar {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="payslip-container">
+    <div class="action-bar">
+      <button class="btn-action btn-print" onclick="window.print()">🖨️ Print / Save as PDF</button>
+      <button class="btn-action btn-close" onclick="window.close()">✕ Close</button>
+    </div>
+
+    <div class="header">
+      <div>
+        <h1 class="brand-title">FOOD COURT &amp; CANTEEN ERP</h1>
+        <p class="brand-subtitle">Automated Multi-Stall Hospitality Management System</p>
+      </div>
+      <div class="payslip-badge-block">
+        <div class="payslip-title">Salary Payslip &bull; ${monthName} ${y}</div>
+        <span class="status-pill" style="${statusBadgeStyle}">${p.status}</span>
+      </div>
+    </div>
+
+    <div class="meta-strip">
+      <div><strong>Payslip Ref:</strong> ${payslipRef}</div>
+      <div><strong>Pay Period:</strong> ${monthName} ${y}</div>
+      <div><strong>Issue Date:</strong> ${generatedOn}</div>
+    </div>
+
+    <div class="emp-grid">
+      <div class="emp-cell">
+        <span class="emp-label">Employee ID</span>
+        <span class="emp-val">EMP-${String(p.staff_id).padStart(4, '0')}</span>
+      </div>
+      <div class="emp-cell">
+        <span class="emp-label">Employee Name</span>
+        <span class="emp-val">${p.staff_name}</span>
+      </div>
+      <div class="emp-cell">
+        <span class="emp-label">Designation / Role</span>
+        <span class="emp-val">${p.role}</span>
+      </div>
+      <div class="emp-cell">
+        <span class="emp-label">Salary Scheme</span>
+        <span class="emp-val">${p.pay_type || 'Monthly'}</span>
+      </div>
+      <div class="emp-cell">
+        <span class="emp-label">Bank Account</span>
+        <span class="emp-val">${p.bank_account || 'N/A'}</span>
+      </div>
+      <div class="emp-cell">
+        <span class="emp-label">Total Working Days</span>
+        <span class="emp-val">${totalWorkingDays}</span>
+      </div>
+      <div class="emp-cell">
+        <span class="emp-label">Days Worked (Present)</span>
+        <span class="emp-val" style="color: #16a34a;">${daysWorked}</span>
+      </div>
+      <div class="emp-cell">
+        <span class="emp-label">Unpaid / LOP Days</span>
+        <span class="emp-val" style="color: ${unpaidDays > 0 ? '#dc2626' : '#64748b'};">${unpaidDays}</span>
+      </div>
+    </div>
+
+    <table class="salary-table">
+      <thead>
+        <tr>
+          <th style="width: 32%;">Earnings Component</th>
+          <th class="amount" style="width: 18%;">Amount (₹)</th>
+          <th style="width: 32%;">Deductions Component</th>
+          <th class="amount" style="width: 18%;">Amount (₹)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Gross Pay (Prorated)</td>
+          <td class="amount">₹${grossSalary.toFixed(2)}</td>
+          <td>Provident Fund (PF 12%)</td>
+          <td class="amount">₹${pfDeduction.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td>Allowances &amp; Incentives</td>
+          <td class="amount">₹0.00</td>
+          <td>ESI Contribution (0.75%)</td>
+          <td class="amount">₹${esiDeduction.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td>Special Attendance Bonus</td>
+          <td class="amount">₹0.00</td>
+          <td>Tax Deducted at Source (TDS)</td>
+          <td class="amount">₹${tdsDeduction.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td>—</td>
+          <td class="amount">—</td>
+          <td>Staff Canteen Meals Cost</td>
+          <td class="amount">₹${mealDeduction.toFixed(2)}</td>
+        </tr>
+        <tr class="subtotal-row">
+          <td>Total Gross Earnings (A)</td>
+          <td class="amount">₹${grossSalary.toFixed(2)}</td>
+          <td>Total Deductions (B)</td>
+          <td class="amount">₹${totalDeductions.toFixed(2)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="net-banner">
+      <div>
+        <div class="net-label">Net Take-Home Salary (A - B)</div>
+        <div class="net-note">Amount credited directly to staff bank account</div>
+      </div>
+      <div class="net-amount">₹${netSalary.toFixed(2)}</div>
+    </div>
+
+    <div class="signatures">
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-name">${p.staff_name}</div>
+        <div class="sig-title">Employee Signature</div>
+      </div>
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-name">Authorized Signatory</div>
+        <div class="sig-title">Finance &amp; HR Manager</div>
+      </div>
+    </div>
+
+    <div class="footer-note">
+      This is a system-generated official payslip issued by Food Court &amp; Canteen ERP. No physical signature is required if electronically verified.
+    </div>
+  </div>
+</body>
+</html>`;
+
+    printWin.document.open();
+    printWin.document.write(payslipHtml);
+    printWin.document.close();
   };
 
   const handleSaveStaffMeal = async (e) => {
@@ -4970,9 +5423,41 @@ function App() {
 
   const handleLocalPrintReceipt = () => {
     const printWindow = window.open('', '_blank');
-    printWindow.document.write(`<pre style="font-family: monospace; font-size: 14px; padding: 20px;">${printerModal.bill}</pre>`);
+    if (!printWindow) {
+      showToast('Popup blocker prevented receipt window. Please allow popups.', 'error');
+      return;
+    }
+    const receiptHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Receipt_Food_Court_ERP</title>
+  <style>
+    @page { size: 80mm auto; margin: 4mm; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: 'Courier New', Courier, monospace; font-size: 13px; margin: 0; padding: 12px; color: #000; background: #fff; line-height: 1.3; }
+    pre { white-space: pre-wrap; word-break: break-all; margin: 0; font-family: inherit; font-size: inherit; }
+    .action-bar { text-align: center; margin-bottom: 12px; }
+    .action-bar button { padding: 6px 14px; font-size: 13px; font-weight: bold; background: #000; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    @media print {
+      .action-bar { display: none !important; }
+      body { padding: 0 !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="action-bar">
+    <button onclick="window.print()">🖨️ Print Receipt</button>
+  </div>
+  <pre>${printerModal.bill || ''}</pre>
+  <script>
+    window.onload = function() { window.print(); };
+  </script>
+</body>
+</html>`;
+    printWindow.document.open();
+    printWindow.document.write(receiptHtml);
     printWindow.document.close();
-    printWindow.print();
   };
 
   // --- FILTERS & SEARCHING MATCHES ---
@@ -5325,26 +5810,6 @@ function App() {
             </p>
           </div>
           <div class="top-bar-right">
-            {!user?.vendor_id && (
-              <div class="vendor-filter-context" style={{ marginRight: '15px' }}>
-                <select 
-                  value={selectedVendorId} 
-                  onChange={(e) => {
-                    setSelectedVendorId(e.target.value);
-                    if (e.target.value !== 'all' && e.target.value !== 'null' && (activeTab === 'vendors' || activeTab === 'hr')) {
-                      setActiveTab('dashboard');
-                    }
-                  }}
-                  className="vendor-select-dropdown"
-                >
-                  <option value="null">🏢 Central Store (Admin Only)</option>
-                  <option value="all">🌍 Global Overview (All Stalls)</option>
-                  {vendors.map(v => (
-                    <option key={v.id} value={v.id}>🏪 Stall: {v.name} ({v.stall_number})</option>
-                  ))}
-                </select>
-              </div>
-            )}
             <div class="tenant-selector">
               <span class="tenant-badge">
                 {!user?.vendor_id ? 'Central Canteen' : (vendors.find(v => v.id === user.vendor_id)?.name || 'Stall Dashboard')}
@@ -5653,9 +6118,16 @@ function App() {
                                         <button className="btn btn-outline-danger btn-small" onClick={() => handleCheckOut(rec.id)}>■ Check Out</button>
                                       </div>
                                     ) : (
-                                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: rec.status === 'Absent' ? 'var(--accent-danger)' : 'var(--accent-success)' }}>
-                                        {rec.status === 'Absent' ? ' Absent' : '✓ Completed'}
-                                      </span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: rec.status === 'Absent' ? 'var(--accent-danger)' : 'var(--accent-success)' }}>
+                                          {rec.status === 'Absent' ? ' Absent' : '✓ Completed'}
+                                        </span>
+                                        {rec.notes && rec.notes.includes('Short Shift') && (
+                                          <span className="badge badge-short-shift" style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                                            ⚠️ {rec.notes.match(/Short Shift\s*\([^)]+\)/i)?.[0] || 'Short Shift'}
+                                          </span>
+                                        )}
+                                      </div>
                                     )}
                                   </div>
                                 </div>
@@ -5679,8 +6151,13 @@ function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {attendance.filter(a => a.staff_id === user.id).map(a => (
-                              <tr key={a.id}>
+                            {attendance.filter(a => a.staff_id === user.id).map(a => {
+                              const shortShiftMatch = a.notes && a.notes.match(/Short Shift\s*\([^)]+\)/i);
+                              const isShortShift = Boolean(shortShiftMatch || (a.notes && a.notes.includes('Short Shift')));
+                              const shortShiftLabel = shortShiftMatch ? shortShiftMatch[0] : 'Short Shift';
+
+                              return (
+                              <tr key={a.id} style={isShortShift ? { borderLeft: '3px solid #f59e0b' } : undefined}>
                                 <td>{a.shift_name || '—'}</td>
                                 <td>{a.check_in ? new Date(a.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                                 <td>{a.check_out ? new Date(a.check_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
@@ -5694,15 +6171,23 @@ function App() {
                                       displayStatus === 'Half-Day' ? 'badge-category' :
                                       displayStatus === 'Absent' ? 'badge-danger' : 'badge-category';
                                     return (
-                                      <span className={`badge ${badgeClass}`} style={{ whiteSpace: 'nowrap' }}>
-                                        {displayStatus}
-                                      </span>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                                        <span className={`badge ${badgeClass}`} style={{ whiteSpace: 'nowrap' }}>
+                                          {displayStatus}
+                                        </span>
+                                        {isShortShift && (
+                                          <span className="badge badge-short-shift" style={{ whiteSpace: 'nowrap' }}>
+                                            ⚠️ {shortShiftLabel}
+                                          </span>
+                                        )}
+                                      </div>
                                     );
                                   })()}
                                 </td>
-                                <td>{a.notes || '—'}</td>
+                                <td style={{ fontSize: '0.85rem', color: isShortShift ? '#fbbf24' : 'var(--text-muted)' }}>{a.notes || '—'}</td>
                               </tr>
-                            ))}
+                              );
+                            })}
                             {attendance.filter(a => a.staff_id === user.id).length === 0 && (
                               <tr><td colSpan="5" className="empty-state">No attendance records found for this date.</td></tr>
                             )}
@@ -6049,8 +6534,8 @@ function App() {
                           </tbody>
                         </table>
 
-                        {p.status === 'Finalized' && (
-                          <button className="btn btn-outline-primary" style={{ width: '100%' }} onClick={() => window.print()}>
+                        {(p.status === 'Finalized' || p.status === 'Paid') && (
+                          <button className="btn btn-outline-primary" style={{ width: '100%' }} onClick={() => handleGeneratePayslip(p, payrollMonth, payrollYear)}>
                             🖨️ Print Payslip
                           </button>
                         )}
@@ -6725,7 +7210,6 @@ function App() {
               <div className="sub-tab-bar" style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
                 <button className={`btn ${inventorySubTab === 'materials' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setInventorySubTab('materials')}>Raw Materials</button>
                 <button className={`btn ${inventorySubTab === 'suppliers' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setInventorySubTab('suppliers')}>Suppliers</button>
-                <button className={`btn ${inventorySubTab === 'transfers' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setInventorySubTab('transfers')}>Transfers</button>
               </div>
 
               {inventorySubTab === 'materials' && (
@@ -6861,69 +7345,6 @@ function App() {
                           </tr>
                         ))}
                         {suppliers.length === 0 && <tr><td colSpan="7" className="empty-state">No suppliers found.</td></tr>}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {inventorySubTab === 'transfers' && (
-                <div>
-                  <div className="view-header-bar">
-                    <h3>Stock Borrowing / Transfers</h3>
-                    <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
-                      <select className="form-control" style={{width: 'auto', display: 'inline-block'}} value={transferStatusFilter} onChange={e => setTransferStatusFilter(e.target.value)}>
-                        <option value="All">All Status</option>
-                        <option value="Pending">Pending</option>
-                        <option value="Completed">Completed</option>
-                        <option value="Rejected">Rejected</option>
-                      </select>
-                      <button className="btn btn-primary" onClick={() => {
-                        setFormTransfer({ material_id: '', quantity: '', from_vendor_id: '', to_vendor_id: '' });
-                        setShowTransferModal(true);
-                      }}>Request / Transfer Stock</button>
-                    </div>
-                  </div>
-                  
-                  <div className="table-container">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Date</th>
-                          <th>Material</th>
-                          <th>Qty</th>
-                          <th>From</th>
-                          <th>To</th>
-                          <th>Status</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {stockTransfers.filter(t => transferStatusFilter === 'All' || t.status === transferStatusFilter).map(t => (
-                          <tr key={t.id}>
-                            <td>{new Date(t.created_at).toLocaleString()}</td>
-                            <td>{t.material_name}</td>
-                            <td>{t.quantity} {t.unit}</td>
-                            <td>{t.from_vendor_name || 'Central'}</td>
-                            <td>{t.to_vendor_name || 'Central'}</td>
-                            <td>
-                              <span className={`badge badge-${(t.status === 'Pending' || t.status === 'Requested') ? 'warning' : t.status === 'Completed' ? 'success' : 'danger'}`}>
-                                {t.status}
-                              </span>
-                            </td>
-                            <td>
-                              {(t.status === 'Pending' || t.status === 'Requested') && (!user?.vendor_id || user.vendor_id === t.from_vendor_id) && (
-                                <>
-                                  <button className="btn btn-success-small" onClick={() => handleUpdateTransferStatus(t.id, 'Completed')}>Approve</button>
-                                  <button className="btn btn-danger-small" style={{marginLeft: '5px'}} onClick={() => handleUpdateTransferStatus(t.id, 'Rejected')}>Reject</button>
-                                </>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                        {stockTransfers.length === 0 && (
-                          <tr><td colSpan="7" className="empty-state">No stock transfers found.</td></tr>
-                        )}
                       </tbody>
                     </table>
                   </div>
@@ -9285,9 +9706,16 @@ function App() {
                                       <button className="btn btn-outline-danger btn-small" onClick={() => handleCheckOut(rec.id)}>■ Check Out</button>
                                     </div>
                                   ) : (
-                                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: rec.status === 'Absent' ? 'var(--accent-danger)' : 'var(--accent-success)' }}>
-                                      {rec.status === 'Absent' ? ' Absent' : '✓ Completed'}
-                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: rec.status === 'Absent' ? 'var(--accent-danger)' : 'var(--accent-success)' }}>
+                                        {rec.status === 'Absent' ? ' Absent' : '✓ Completed'}
+                                      </span>
+                                      {rec.notes && rec.notes.includes('Short Shift') && (
+                                        <span className="badge badge-short-shift" style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                                          ⚠️ {rec.notes.match(/Short Shift\s*\([^)]+\)/i)?.[0] || 'Short Shift'}
+                                        </span>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
                               </div>
@@ -9312,31 +9740,52 @@ function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {attendance.filter(a => { const s = staff.find(st => st.id === a.staff_id); return !s || (s.exclude_from_attendance !== 1 && s.role !== 'Owner'); }).map(a => (
-                            <tr key={a.id}>
+                          {attendance.filter(a => { const s = staff.find(st => st.id === a.staff_id); return !s || (s.exclude_from_attendance !== 1 && s.role !== 'Owner'); }).map(a => {
+                            const shortShiftMatch = a.notes && a.notes.match(/Short Shift\s*\([^)]+\)/i);
+                            const isShortShift = Boolean(shortShiftMatch || (a.notes && a.notes.includes('Short Shift')));
+                            const shortShiftLabel = shortShiftMatch ? shortShiftMatch[0] : 'Short Shift';
+                            const isAutoCheckOut = a.notes && a.notes.includes('Not Checked Out Manually');
+
+                            return (
+                            <tr key={a.id} style={isShortShift ? { borderLeft: '3px solid #f59e0b', background: 'rgba(245, 158, 11, 0.04)' } : undefined}>
                               <td><strong>{a.staff_name}</strong></td>
                               <td>{a.shift_name || '—'}</td>
                               <td style={{ fontSize: '0.8rem' }}>{a.check_in ? new Date(a.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                               <td style={{ fontSize: '0.8rem' }}>{a.check_out ? new Date(a.check_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                                <td>
-                                  {(() => {
-                                    const displayStatus = a.status && a.status.trim() !== '' ? a.status : 'Present';
-                                    const badgeClass =
-                                      displayStatus === 'Present' ? 'badge-success' :
-                                      displayStatus === 'Late' ? 'badge-warning' :
-                                      displayStatus === 'Missed Shift' ? 'badge-missed-shift' :
-                                      displayStatus === 'Half-Day' ? 'badge-category' :
-                                      displayStatus === 'Absent' ? 'badge-danger' : 'badge-category';
-                                    return (
+                              <td>
+                                {(() => {
+                                  const displayStatus = a.status && a.status.trim() !== '' ? a.status : 'Present';
+                                  const badgeClass =
+                                    displayStatus === 'Present' ? 'badge-success' :
+                                    displayStatus === 'Late' ? 'badge-warning' :
+                                    displayStatus === 'Missed Shift' ? 'badge-missed-shift' :
+                                    displayStatus === 'Half-Day' ? 'badge-category' :
+                                    displayStatus === 'Absent' ? 'badge-danger' : 'badge-category';
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                                       <span className={`badge ${badgeClass}`} style={{ whiteSpace: 'nowrap' }}>
                                         {displayStatus}
                                       </span>
-                                    );
-                                  })()}
-                                </td>
-                              <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.notes || '—'}</td>
+                                      {isShortShift && (
+                                        <span className="badge badge-short-shift" style={{ whiteSpace: 'nowrap' }}>
+                                          ⚠️ {shortShiftLabel}
+                                        </span>
+                                      )}
+                                      {isAutoCheckOut && (
+                                        <span className="badge" style={{ background: 'rgba(100, 116, 139, 0.2)', color: '#94a3b8', border: '1px solid rgba(100, 116, 139, 0.3)', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+                                          ⏱️ Auto Check-out
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+                              <td style={{ fontSize: '0.85rem', color: isShortShift ? '#fbbf24' : 'var(--text-muted)', maxWidth: '240px' }}>
+                                {a.notes || '—'}
+                              </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                           {attendance.length === 0 && (
                             <tr>
                               <td colSpan="6" className="empty-state">No attendance records logged for this date.</td>
@@ -9568,54 +10017,9 @@ function App() {
                                     💳 Pay
                                   </button>
                                 )}
-                                <button className="btn btn-outline-primary btn-small" onClick={() => {
-                                    const printWin = window.open('', '_blank');
-                                    printWin.document.write(`
-                                      <html><head><title>Payslip - ${p.staff_name}</title>
-                                      <style>
-                                        body { font-family: Arial, sans-serif; padding: 20px; }
-                                        .header { text-align: center; border-bottom: 2px solid #ccc; padding-bottom: 10px; margin-bottom: 20px; }
-                                        .table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                                        .table th, .table td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-                                      </style>
-                                      </head><body>
-                                      <div class="header">
-                                        <h2>Food Court & Canteen ERP</h2>
-                                        <h3>Payslip for ${new Date(2026, payrollMonth - 1).toLocaleString(undefined, { month: 'long' })} ${payrollYear}</h3>
-                                        <p style="font-size:0.85rem; color:#888;">Status: ${p.status}</p>
-                                      </div>
-                                      <p><strong>Employee:</strong> ${p.staff_name}</p>
-                                      <p><strong>Role:</strong> ${p.role}</p>
-                                      <p><strong>Days Worked:</strong> ${p.days_present} / ${p.working_days}</p>
-                                      <table class="table">
-                                        <tr><th>Earnings</th><th>Amount</th><th>Deductions</th><th>Amount</th></tr>
-                                        <tr>
-                                          <td>Gross Pay</td><td>₹${parseFloat(p.gross_salary).toFixed(2)}</td>
-                                          <td>PF Deduction (12%)</td><td>₹${parseFloat(p.pf_deduction).toFixed(2)}</td>
-                                        </tr>
-                                        <tr>
-                                          <td></td><td></td>
-                                          <td>ESI Deduction (0.75%)</td><td>₹${parseFloat(p.esi_deduction).toFixed(2)}</td>
-                                        </tr>
-                                        <tr>
-                                          <td></td><td></td>
-                                          <td>TDS Deduction</td><td>₹${parseFloat(p.tds_deduction).toFixed(2)}</td>
-                                        </tr>
-                                        <tr>
-                                          <td></td><td></td>
-                                          <td>Meals Deductions</td><td>₹${parseFloat(p.meal_deduction).toFixed(2)}</td>
-                                        </tr>
-                                        <tr>
-                                          <th>Total Earnings</th><th>₹${parseFloat(p.gross_salary).toFixed(2)}</th>
-                                          <th>Total Deductions</th><th>₹${(parseFloat(p.pf_deduction) + parseFloat(p.esi_deduction) + parseFloat(p.tds_deduction) + parseFloat(p.meal_deduction)).toFixed(2)}</th>
-                                        </tr>
-                                      </table>
-                                      <h3 style="text-align:right; margin-top: 20px;">Net Payable: ₹${parseFloat(p.net_salary).toFixed(2)}</h3>
-                                      <script>window.print();</script>
-                                      </body></html>
-                                    `);
-                                    printWin.document.close();
-                                  }}>📄 Payslip</button>
+                                <button className="btn btn-outline-primary btn-small" onClick={() => handleGeneratePayslip(p, payrollMonth, payrollYear)}>
+                                  📄 Payslip
+                                </button>
                               </div>
                             </td>
                           </tr>
@@ -9750,6 +10154,20 @@ function App() {
                                       <span className="badge bg-success">Present</span>
                                     ) : (
                                       <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                    )}
+                                    {r.notes && r.notes.includes('Short Shift') && (
+                                      <div style={{ marginTop: '4px' }}>
+                                        <span className="badge badge-short-shift" style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                                          ⚠️ {r.notes.match(/Short Shift\s*\([^)]+\)/i)?.[0] || 'Short Shift'}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {r.notes && r.notes.includes('Not Checked Out Manually') && (
+                                      <div style={{ marginTop: '4px' }}>
+                                        <span className="badge" style={{ background: 'rgba(100, 116, 139, 0.2)', color: '#94a3b8', border: '1px solid rgba(100, 116, 139, 0.3)', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+                                          ⏱️ Auto Check-out
+                                        </span>
+                                      </div>
                                     )}
                                   </td>
                                   <td>{r.check_in !== '-' ? r.check_in : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
@@ -9979,7 +10397,7 @@ function App() {
                ========================================== */}
           {activeTab === 'reports' && (
             <div className="view-panel active">
-              <div className="view-header-bar">
+              <div className="view-header-bar no-print">
                 <h2>MIS, Reports & Analytics</h2>
                 <div className="action-btns">
                   <input type="date" className="header-date-input" value={reportDateRange.startDate} onChange={e => setReportDateRange(prev => ({...prev, startDate: e.target.value}))} />
@@ -9992,7 +10410,7 @@ function App() {
                       <button className="btn btn-outline-primary" onClick={() => setShowCustomerModal(true)}>+ New Customer</button>
                     </>
                   )}
-                  <button className="btn btn-primary" onClick={() => window.print()}>
+                  <button className="btn btn-primary" onClick={handleExportMisReportPdf}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{marginRight: 6}}><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6z"/></svg>
                     Export PDF
                   </button>
@@ -10012,6 +10430,34 @@ function App() {
                 {!user.vendor_id && (
                   <button className={`sub-tab ${reportsSubTab === 'credits' ? 'active' : ''}`} onClick={() => { setReportsSubTab('credits'); fetchCreditCustomers(); }}>Credits</button>
                 )}
+              </div>
+
+              <div className="print-only mis-report-print-header">
+                <div className="print-header-top">
+                  <div className="print-brand">
+                    <h1>FOOD COURT &amp; CANTEEN ERP</h1>
+                    <p className="print-subtitle">Executive Management Information System (MIS) Report</p>
+                  </div>
+                  <div className="print-meta-badge">
+                    <span className="print-meta-label">REPORT MODULE</span>
+                    <span className="print-meta-val">
+                      {reportsSubTab === 'sales' && 'Daily Sales & Performance Analytics'}
+                      {reportsSubTab === 'stock' && 'Stock & Inventory Valuation Report'}
+                      {reportsSubTab === 'peak-hours' && 'Peak Hours & Footfall Distribution'}
+                      {reportsSubTab === 'monthly-pl' && 'Monthly Profit & Loss Statement'}
+                      {reportsSubTab === 'customer-analytics' && 'Customer CRM & Loyalty Analytics'}
+                      {reportsSubTab === 'gst' && 'GST Tax & HSN Summary Report'}
+                      {reportsSubTab === 'reconciliation' && 'Daily Cash & Tender Reconciliation'}
+                      {reportsSubTab === 'credits' && 'Corporate & Customer Credit Ledger'}
+                    </span>
+                  </div>
+                </div>
+                <div className="print-header-details">
+                  <div><strong>Period:</strong> {reportDateRange.startDate || 'All Time'} to {reportDateRange.endDate || 'Present'}</div>
+                  <div><strong>Generated:</strong> {new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</div>
+                  <div><strong>Generated By:</strong> {user?.name || 'Administrator'} ({user?.role || 'Management'})</div>
+                  {user?.vendor_id && <div><strong>Stall:</strong> #{user.vendor_id}</div>}
+                </div>
               </div>
 
               <div className="reports-content-area">
@@ -12082,62 +12528,6 @@ function App() {
       <div className={`toast-wrapper ${toast.show ? 'active' : ''} ${toast.type === 'error' ? 'error' : 'success'}`}>
         <span>{toast.message}</span>
       </div>
-
-      {showTransferModal && (
-        <div className="modal-overlay active">
-          <div className="modal-card">
-            <div className="modal-header">
-              <h3>{user?.vendor_id ? "Request Stock from Central/Stall" : "Direct Stock Transfer"}</h3>
-              <button className="close-btn" onClick={() => setShowTransferModal(false)}>&times;</button>
-            </div>
-            <form onSubmit={handleSaveTransfer} className="modal-body">
-              <div className="form-group">
-                <label>Material</label>
-                <select className="form-control" required value={formTransfer.material_id} onChange={e => setFormTransfer({...formTransfer, material_id: e.target.value})}>
-                  <option value="">Select Material...</option>
-                  {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Quantity</label>
-                <input type="number" step="0.001" min="0.001" className="form-control" required value={formTransfer.quantity} onChange={e => setFormTransfer({...formTransfer, quantity: e.target.value})} />
-              </div>
-              {user?.vendor_id ? (
-                /* Stall manager requesting from central or another stall */
-                <div className="form-group">
-                  <label>Request From</label>
-                  <select className="form-control" value={formTransfer.from_vendor_id} onChange={e => setFormTransfer({...formTransfer, from_vendor_id: e.target.value})}>
-                    <option value="">Central Storage</option>
-                    {vendors.filter(v => v.id !== user.vendor_id).map(v => <option key={v.id} value={v.id}>{v.name} (Stall #{v.id})</option>)}
-                  </select>
-                </div>
-              ) : (
-                /* Central admin doing direct transfer */
-                <>
-                  <div className="form-group">
-                    <label>From (Source)</label>
-                    <select className="form-control" value={formTransfer.from_vendor_id} onChange={e => setFormTransfer({...formTransfer, from_vendor_id: e.target.value})}>
-                      <option value="">Central Storage</option>
-                      {vendors.map(v => <option key={v.id} value={v.id}>{v.name} (Stall #{v.id})</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>To (Destination Stall)</label>
-                    <select className="form-control" required value={formTransfer.to_vendor_id} onChange={e => setFormTransfer({...formTransfer, to_vendor_id: e.target.value})}>
-                      <option value="">Select Destination...</option>
-                      {vendors.filter(v => String(v.id) !== String(formTransfer.from_vendor_id)).map(v => <option key={v.id} value={v.id}>{v.name} (Stall #{v.id})</option>)}
-                    </select>
-                  </div>
-                </>
-              )}
-              <div className="modal-actions" style={{display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px'}}>
-                <button type="button" className="btn btn-outline-primary" onClick={() => setShowTransferModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">{user?.vendor_id ? "Submit Request" : "Transfer Stock"}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {supplierHistoryModal.show && (
         <div className="modal-overlay active">

@@ -74,7 +74,7 @@ export default function AboutPage() {
         </div>
         <div className="story-block" style={{'::before': {background: '#10b981'}}}>
           <h2>Our Solution</h2>
-          <p>We engineered FC-ERP from the ground up as a fully integrated, multi-tenant architecture. Our platform allows a central management layer to seamlessly govern POS operations, vendor payouts, inventory transfers, and kitchen displays in real-time.</p>
+          <p>We engineered FC-ERP from the ground up as a fully integrated, multi-tenant architecture. Our platform allows a central management layer to seamlessly govern POS operations, vendor payouts, inventory management, and kitchen displays in real-time.</p>
           <p>Today, FC-ERP powers over 50+ enterprise food courts, processing millions of transactions reliably with zero downtime.</p>
         </div>
       </section>
