@@ -9,7 +9,11 @@ let pool;
 function setPool(p) { pool = p; }
 
 // ─── Get notification settings from DB ─────────────────────────────────────
-async function getSettings() {
+async function getSettings(tenantId = null) {
+  if (tenantId) {
+    const [tRows] = await pool.query('SELECT * FROM notification_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
+    if (tRows.length > 0) return tRows[0];
+  }
   const [rows] = await pool.query('SELECT * FROM notification_settings LIMIT 1');
   return rows[0] || {};
 }
@@ -351,12 +355,25 @@ async function dispatchBroadcast(campaignId) {
   const campaign = camps[0];
 
   // Build recipient list
+  const params = [];
   let customerQuery = 'SELECT id, name, phone, email, loyalty_points, total_spent FROM customers WHERE 1=1';
+
+  if (campaign.tenant_id) {
+    customerQuery += ' AND tenant_id = ?';
+    params.push(campaign.tenant_id);
+  }
+
   if (campaign.target_segment === 'high_value') customerQuery += ' AND total_spent >= 500';
   else if (campaign.target_segment === 'inactive') customerQuery += ' AND (last_visit IS NULL OR last_visit < DATE_SUB(NOW(), INTERVAL 30 DAY))';
   else if (campaign.target_segment === 'loyalty') customerQuery += ' AND loyalty_points > 0';
 
-  const [customers] = await pool.query(customerQuery);
+  if (campaign.channel === 'whatsapp') {
+    customerQuery += ' AND (whatsapp_opt_in = 1 OR whatsapp_opt_in IS NULL)';
+  } else if (campaign.channel === 'sms') {
+    customerQuery += ' AND (sms_opt_in = 1 OR sms_opt_in IS NULL)';
+  }
+
+  const [customers] = await pool.query(customerQuery, params);
   await pool.query('UPDATE broadcast_campaigns SET status=?,total_recipients=? WHERE id=?', ['sending', customers.length, campaignId]);
   await pool.query('DELETE FROM broadcast_recipients WHERE campaign_id=?', [campaignId]);
 
@@ -366,7 +383,7 @@ async function dispatchBroadcast(campaignId) {
     await pool.query('INSERT INTO broadcast_recipients (campaign_id,customer_id,customer_name,phone,email,status) VALUES ?', [recipRows]);
   }
 
-  const settings = await getSettings();
+  const settings = await getSettings(campaign.tenant_id);
   let sent = 0, failed = 0;
 
   for (const cust of customers) {
@@ -389,6 +406,58 @@ async function dispatchBroadcast(campaignId) {
   await pool.query('UPDATE broadcast_campaigns SET status=?,sent_at=NOW(),total_sent=?,total_failed=? WHERE id=?', ['sent', sent, failed, campaignId]);
   console.log(`[CRM] Broadcast #${campaignId} complete: ${sent} sent, ${failed} failed`);
   return { sent, failed, total: customers.length };
+}
+
+// ─── SCHEDULED BROADCASTS SCHEDULER ──────────────────────────────────────────
+let scheduledBroadcastsInterval = null;
+let isProcessingBroadcasts = false;
+
+async function processScheduledBroadcasts() {
+  if (isProcessingBroadcasts) return;
+  isProcessingBroadcasts = true;
+
+  try {
+    // Find all campaigns that are scheduled or draft-with-schedule whose scheduled_at has arrived
+    const [dueCampaigns] = await pool.query(
+      `SELECT id, name, scheduled_at, tenant_id 
+       FROM broadcast_campaigns 
+       WHERE status IN ('scheduled', 'draft') 
+         AND scheduled_at IS NOT NULL 
+         AND scheduled_at <= NOW() 
+       ORDER BY scheduled_at ASC LIMIT 10`
+    );
+
+    for (const camp of dueCampaigns) {
+      console.log(`[CRM Scheduler] Auto-dispatching scheduled broadcast #${camp.id} ("${camp.name}") [scheduled: ${camp.scheduled_at}]`);
+      try {
+        // Atomic status lock to avoid duplicate execution
+        const [lockResult] = await pool.query(
+          `UPDATE broadcast_campaigns SET status = 'sending' WHERE id = ? AND status IN ('scheduled', 'draft')`,
+          [camp.id]
+        );
+        if (lockResult.affectedRows > 0) {
+          const result = await dispatchBroadcast(camp.id);
+          console.log(`[CRM Scheduler] Broadcast #${camp.id} ("${camp.name}") successfully sent: ${result.sent} sent, ${result.failed} failed`);
+        }
+      } catch (sendErr) {
+        console.error(`[CRM Scheduler] Failed to dispatch broadcast #${camp.id}:`, sendErr.message);
+        await pool.query(`UPDATE broadcast_campaigns SET status = 'failed' WHERE id = ?`, [camp.id]);
+      }
+    }
+  } catch (err) {
+    console.error('[CRM Scheduler] Error checking scheduled broadcasts:', err.message);
+  } finally {
+    isProcessingBroadcasts = false;
+  }
+}
+
+function startScheduledBroadcastsRunner() {
+  if (scheduledBroadcastsInterval) clearInterval(scheduledBroadcastsInterval);
+  // Initial check on server boot
+  processScheduledBroadcasts();
+  // Poll every 30 seconds for due broadcasts
+  scheduledBroadcastsInterval = setInterval(processScheduledBroadcasts, 30 * 1000);
+  console.log('[CRM] Scheduled broadcasts runner initialized (30s polling cycle)');
 }
 
 // ─── DAILY SUMMARY SCHEDULER ─────────────────────────────────────────────────
@@ -429,5 +498,6 @@ module.exports = {
   setPool, getSettings, logNotification, smartSend, sendEmail,
   triggerLowStockAlert, sendDailySummary, sendOrderReadyNotification,
   sendNegativeFeedbackAlert, awardLoyaltyPoints, redeemLoyaltyPoints,
-  dispatchBroadcast, startDailySummaryScheduler
+  dispatchBroadcast, processScheduledBroadcasts, startScheduledBroadcastsRunner,
+  startDailySummaryScheduler
 };

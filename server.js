@@ -304,6 +304,13 @@ crm.setPool(pool);
       await conn.query("UPDATE attendance SET status = 'Missed Shift' WHERE status = '' OR status IS NULL");
       console.log("Migration: Ensured attendance status column includes 'Missed Shift' and healed empty status records.");
     }
+
+    // 11. Ensure future scheduled broadcasts in draft status are updated to 'scheduled'
+    const [bcTables] = await conn.query("SHOW TABLES LIKE 'broadcast_campaigns'");
+    if (bcTables.length > 0) {
+      await conn.query("UPDATE broadcast_campaigns SET status = 'scheduled' WHERE status = 'draft' AND scheduled_at IS NOT NULL AND scheduled_at > NOW()");
+      console.log("Migration: Ensured future scheduled broadcasts have 'scheduled' status.");
+    }
     
     conn.release();
   } catch (err) {
@@ -465,6 +472,7 @@ pool.getConnection = async function() {
 };
 
 crm.startDailySummaryScheduler();
+crm.startScheduledBroadcastsRunner();
 console.log('[CRM] Notifications & CRM Engine initialized');
 
 // Test Connection and Pool
@@ -7397,14 +7405,25 @@ app.get('/api/notifications/loyalty', async (req, res) => {
 
 app.get('/api/notifications/loyalty/:customerId/history', async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      `SELECT lt.*, o.total_amount as order_cost 
-       FROM loyalty_transactions lt 
-       LEFT JOIN orders o ON lt.order_id = o.id 
-       WHERE lt.customer_id=? 
-       ORDER BY lt.created_at DESC LIMIT 100`,
-      [req.params.customerId]
-    );
+    const tenantId = req.user?.tenant_id;
+    let query;
+    let params;
+    if (tenantId) {
+      query = `SELECT lt.*, o.total_amount as order_cost 
+               FROM loyalty_transactions lt 
+               LEFT JOIN orders o ON (lt.order_id = o.id AND o.tenant_id = ?) 
+               WHERE lt.customer_id = ? 
+               ORDER BY lt.created_at DESC LIMIT 100`;
+      params = [tenantId, req.params.customerId];
+    } else {
+      query = `SELECT lt.*, o.total_amount as order_cost 
+               FROM loyalty_transactions lt 
+               LEFT JOIN orders o ON (lt.order_id = o.id AND (o.tenant_id IS NOT NULL OR o.tenant_id IS NULL)) 
+               WHERE lt.customer_id = ? 
+               ORDER BY lt.created_at DESC LIMIT 100`;
+      params = [req.params.customerId];
+    }
+    const [rows] = await pool.query(query, params);
     const [cus] = await pool.query('SELECT id,name,loyalty_points,total_spent FROM customers WHERE id=?', [req.params.customerId]);
     res.json({ transactions: rows, customer: cus[0] || null });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -7488,22 +7507,32 @@ app.post('/api/notifications/broadcasts', async (req, res) => {
   try {
     const { name, message, channel, target_segment, scheduled_at } = req.body;
     if (!name || !message) return res.status(400).json({ error: 'name and message are required' });
+    const schedTime = scheduled_at && String(scheduled_at).trim() !== '' ? scheduled_at : null;
+    const status = schedTime ? 'scheduled' : 'draft';
     const [r] = await pool.query(
-      'INSERT INTO broadcast_campaigns (name,message,channel,target_segment,scheduled_at,created_by) VALUES (?,?,?,?,?,?)',
-      [name, message, channel||'whatsapp', target_segment||'all', scheduled_at||null, 'Owner']
+      'INSERT INTO broadcast_campaigns (name,message,channel,target_segment,scheduled_at,status,created_by) VALUES (?,?,?,?,?,?,?)',
+      [name, message, channel||'whatsapp', target_segment||'all', schedTime, status, 'Owner']
     );
-    res.status(201).json({ success: true, id: r.insertId });
+    if (schedTime && new Date(schedTime) <= new Date()) {
+      setImmediate(() => crm.processScheduledBroadcasts());
+    }
+    res.status(201).json({ success: true, id: r.insertId, status });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/notifications/broadcasts/:id', async (req, res) => {
   try {
     const { name, message, channel, target_segment, scheduled_at } = req.body;
+    const schedTime = scheduled_at && String(scheduled_at).trim() !== '' ? scheduled_at : null;
+    const status = schedTime ? 'scheduled' : 'draft';
     await pool.query(
-      'UPDATE broadcast_campaigns SET name=?,message=?,channel=?,target_segment=?,scheduled_at=? WHERE id=?',
-      [name, message, channel||'whatsapp', target_segment||'all', scheduled_at||null, req.params.id]
+      'UPDATE broadcast_campaigns SET name=?,message=?,channel=?,target_segment=?,scheduled_at=?,status=? WHERE id=? AND status IN (?,?,?)',
+      [name, message, channel||'whatsapp', target_segment||'all', schedTime, status, req.params.id, 'draft', 'scheduled', 'failed']
     );
-    res.json({ success: true });
+    if (schedTime && new Date(schedTime) <= new Date()) {
+      setImmediate(() => crm.processScheduledBroadcasts());
+    }
+    res.json({ success: true, status });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -7523,7 +7552,7 @@ app.get('/api/notifications/broadcasts/:id/recipients', async (req, res) => {
 
 app.delete('/api/notifications/broadcasts/:id', async (req, res) => {
   try {
-    await pool.query('DELETE FROM broadcast_campaigns WHERE id=? AND status IN (?,?)', [req.params.id, 'draft', 'failed']);
+    await pool.query('DELETE FROM broadcast_campaigns WHERE id=? AND status IN (?,?,?)', [req.params.id, 'draft', 'scheduled', 'failed']);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

@@ -139,7 +139,6 @@ function LoyaltyTab() {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
   const [history, setHistory] = useState([]);
-  const [redeem, setRedeem] = useState({ show: false, points: '', cid: null });
   const [edit, setEdit] = useState({ show: false, data: {} });
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(true);
@@ -157,18 +156,14 @@ function LoyaltyTab() {
 
   const viewHistory = async (c) => {
     setSelected(c);
-    const r = await api(`/api/notifications/loyalty/${c.id}/history`);
-    setHistory(r.transactions || []);
-  };
-
-  const doRedeem = async () => {
-    setMsg('');
     try {
-      const r = await api('/api/notifications/loyalty/redeem', { method: 'POST', body: JSON.stringify({ customer_id: redeem.cid, points: parseInt(redeem.points) }) });
-      setMsg(`✅ Redeemed ${redeem.points} pts = ₹${r.discount} discount. New balance: ${r.newBalance} pts`);
-      setRedeem({ show: false, points: '', cid: null });
-      load();
-    } catch(e) { setMsg('❌ ' + e.message); }
+      const r = await api(`/api/notifications/loyalty/${c.id}/history`);
+      if (r.customer) setSelected(r.customer);
+      setHistory(r.transactions || []);
+    } catch (e) {
+      console.error(e);
+      setHistory([]);
+    }
   };
 
   const doDelete = async (c) => {
@@ -229,7 +224,6 @@ function LoyaltyTab() {
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button onClick={() => openEdit(c)} style={{ padding: '4px 10px', background: '#f59e0b22', color: '#f59e0b', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>Edit</button>
                     <button onClick={() => viewHistory(c)} style={{ padding: '4px 10px', background: '#3b82f622', color: '#3b82f6', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>History</button>
-                    <button onClick={() => setRedeem({ show: true, cid: c.id, points: '', name: c.name, balance: c.loyalty_points })} style={{ padding: '4px 10px', background: '#10b98122', color: '#10b981', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>Redeem</button>
                     <button onClick={() => doDelete(c)} style={{ padding: '4px 10px', background: '#ef444422', color: '#ef4444', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>Remove</button>
                   </div>
                 </td>
@@ -320,22 +314,6 @@ function LoyaltyTab() {
           </div>
         </div>
       )}
-
-      {/* Redeem modal */}
-      {redeem.show && (
-        <div style={{ position: 'fixed', inset: 0, background: '#00000088', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#1f2937', borderRadius: 16, padding: 32, width: 380 }}>
-            <h3 style={{ color: '#fff', marginTop: 0 }}>🎁 Redeem Points</h3>
-            <p style={{ color: '#9ca3af', fontSize: 13 }}>Customer: <strong style={{ color: '#fff' }}>{redeem.name}</strong> | Balance: <strong style={{ color: '#f59e0b' }}>⭐ {redeem.balance}</strong></p>
-            <input type="number" value={redeem.points} onChange={e => setRedeem(p => ({ ...p, points: e.target.value }))} placeholder="Points to redeem" style={{ width: '100%', padding: '10px 14px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box', marginBottom: 16 }} />
-            <p style={{ color: '#10b981', fontSize: 13, margin: '0 0 20px' }}>Discount: ₹{redeem.points || 0}</p>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button onClick={doRedeem} style={{ flex: 1, padding: '10px', background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>Confirm Redeem</button>
-              <button onClick={() => setRedeem({ show: false, points: '', cid: null })} style={{ flex: 1, padding: '10px', background: '#374151', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -356,13 +334,18 @@ function BroadcastsTab() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 15000);
+    return () => clearInterval(interval);
+  }, [load]);
 
   const save = async () => {
     setMsg('');
     try {
       await api('/api/notifications/broadcasts', { method: 'POST', body: JSON.stringify(form) });
-      setMsg('✅ Campaign created!'); setShowForm(false);
+      setMsg(form.scheduled_at ? '✅ Broadcast scheduled successfully!' : '✅ Campaign draft saved!');
+      setShowForm(false);
       setForm({ name: '', message: '', channel: 'whatsapp', target_segment: 'all', scheduled_at: '' });
       load();
     } catch(e) { setMsg('❌ ' + e.message); }
@@ -432,7 +415,9 @@ function BroadcastsTab() {
             <textarea value={form.message} onChange={e => setForm(p => ({ ...p, message: e.target.value }))} rows={5} placeholder="Type your broadcast message here..." style={{ width: '100%', padding: '10px 14px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box', resize: 'vertical' }} />
           </div>
           <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
-            <button onClick={save} style={{ background: 'linear-gradient(135deg,#8b5cf6,#6366f1)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontWeight: 700, cursor: 'pointer' }}>Save Draft</button>
+            <button onClick={save} style={{ background: 'linear-gradient(135deg,#8b5cf6,#6366f1)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontWeight: 700, cursor: 'pointer' }}>
+              {form.scheduled_at ? 'Schedule Broadcast' : 'Save Draft'}
+            </button>
             <button onClick={() => setShowForm(false)} style={{ background: '#374151', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer' }}>Cancel</button>
           </div>
         </div>
@@ -463,9 +448,9 @@ function BroadcastsTab() {
                 <td style={{ padding: '12px 16px' }}>
                   <div style={{ display: 'flex', gap: 6 }}>
                     {c.status === 'sent' && <button onClick={() => viewRecipients(c.id, c.name)} style={{ padding: '4px 8px', background: '#3b82f622', color: '#3b82f6', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>Report</button>}
-                    {['draft','failed'].includes(c.status) && <>
-                      <button onClick={() => send(c.id, c.name)} disabled={sending === c.id} style={{ padding: '4px 8px', background: '#8b5cf622', color: '#8b5cf6', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>{sending === c.id ? '...' : 'Send'}</button>
-                      <button onClick={() => del(c.id)} style={{ padding: '4px 8px', background: '#ef444422', color: '#ef4444', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>Delete</button>
+                    {['draft', 'scheduled', 'failed'].includes(c.status) && <>
+                      <button onClick={() => send(c.id, c.name)} disabled={sending === c.id} style={{ padding: '4px 8px', background: '#8b5cf622', color: '#8b5cf6', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>{sending === c.id ? '...' : (c.status === 'scheduled' ? 'Send Now' : 'Send')}</button>
+                      <button onClick={() => del(c.id)} style={{ padding: '4px 8px', background: '#ef444422', color: '#ef4444', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>{c.status === 'scheduled' ? 'Cancel' : 'Delete'}</button>
                     </>}
                   </div>
                 </td>
