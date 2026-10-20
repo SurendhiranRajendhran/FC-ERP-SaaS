@@ -132,13 +132,13 @@ app.use((req, res, next) => {
       }
     }
 
-    // Validate strictly positive numeric fields
-    const positiveNumericFields = ['change_qty', 'stock_change'];
-    for (const posKey of positiveNumericFields) {
-      if (req.body[posKey] !== undefined && req.body[posKey] !== null && req.body[posKey] !== '') {
-        const numVal = parseFloat(req.body[posKey]);
-        if (isNaN(numVal) || numVal <= 0) {
-          return res.status(400).json({ error: `Invalid ${posKey}. Must be a positive number greater than 0.` });
+    // Validate non-zero numeric fields (can be positive or negative, e.g. stock additions or reductions, but must be non-zero)
+    const nonZeroNumericFields = ['change_qty', 'stock_change'];
+    for (const nzKey of nonZeroNumericFields) {
+      if (req.body[nzKey] !== undefined && req.body[nzKey] !== null && req.body[nzKey] !== '') {
+        const numVal = parseFloat(req.body[nzKey]);
+        if (isNaN(numVal) || numVal === 0) {
+          return res.status(400).json({ error: `Invalid ${nzKey}. Must be a valid non-zero number.` });
         }
       }
     }
@@ -1288,6 +1288,9 @@ app.post('/api/stock-logs', async (req, res) => {
   // Purchase/Adjustment/Opening should be positive (increase stock)
   // Wastage/Closing/Sale Deduction should represent physical decrease (represented as negative in log)
   let adjustedQty = parseFloat(change_qty);
+  if (isNaN(adjustedQty) || adjustedQty === 0) {
+    return res.status(400).json({ error: 'Invalid change_qty. Must be a valid non-zero number.' });
+  }
   if (['Wastage', 'Closing', 'Sale Deduction'].includes(log_type) && adjustedQty > 0) {
     adjustedQty = -adjustedQty;
   }
