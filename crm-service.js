@@ -152,6 +152,12 @@ async function smartSend({ type, channel, recipient, recipientName, message, ref
 
 // ─── LOW STOCK ALERT ─────────────────────────────────────────────────────────
 async function triggerLowStockAlert(material) {
+  // Only alert for Central Canteen materials (vendor_id IS NULL)
+  // Stall-specific raw materials are monitored by stall managers on their vendor dashboard
+  if (material.vendor_id !== null && material.vendor_id !== undefined) {
+    return;
+  }
+
   const settings = await getSettings();
   if (!settings.low_stock_alert_enabled) return;
 
@@ -161,7 +167,7 @@ async function triggerLowStockAlert(material) {
     if (hours < (settings.low_stock_throttle_hours || 4)) return;
   }
 
-  const msg = `⚠️ LOW STOCK ALERT\n${material.name} is running low!\nCurrent: ${material.stock_level} ${material.unit}\nMinimum: ${material.min_stock} ${material.unit}\nAction: Please reorder immediately.`;
+  const msg = `⚠️ CENTRAL CANTEEN LOW STOCK ALERT\n${material.name} is running low!\nCurrent: ${material.stock_level} ${material.unit}\nMinimum: ${material.min_stock} ${material.unit}\nAction: Please reorder immediately.`;
 
   const tasks = [];
   if (settings.owner_whatsapp) {
@@ -177,37 +183,81 @@ async function triggerLowStockAlert(material) {
   await Promise.all(tasks);
   // Update last_alert_sent
   await pool.query('UPDATE raw_materials SET last_alert_sent=NOW() WHERE id=?', [material.id]);
-  console.log(`[CRM] Low stock alert sent for: ${material.name}`);
+  console.log(`[CRM] Central Canteen low stock alert sent for: ${material.name}`);
 }
 
 // ─── DAILY SUMMARY ───────────────────────────────────────────────────────────
 async function sendDailySummary() {
   try {
     const today = new Date().toLocaleDateString('en-CA');
+
+    // Consolidated Food Court Sales for today
     const [salesRows] = await pool.query(
       `SELECT COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue,
-       COALESCE(SUM(CASE WHEN payment_mode='Cash' THEN total_amount ELSE 0 END),0) as cash_total
-       FROM orders WHERE DATE(order_date)=? AND status NOT IN ('cancelled')`, [today]
+       COALESCE(SUM(CASE WHEN payment_mode='Cash' THEN total_amount ELSE 0 END),0) as cash_total,
+       COALESCE(SUM(CASE WHEN payment_mode='UPI' THEN total_amount ELSE 0 END),0) as upi_total,
+       COALESCE(SUM(CASE WHEN payment_mode='Card' THEN total_amount ELSE 0 END),0) as card_total,
+       COALESCE(SUM(CASE WHEN payment_mode='Wallet' THEN total_amount ELSE 0 END),0) as wallet_total
+       FROM orders WHERE DATE(order_date)=? AND status NOT IN ('cancelled', 'Cancelled')`, [today]
     );
+
+    // Sales Breakdown: Central Canteen vs. Vendor Stalls
+    const [breakdownRows] = await pool.query(
+      `SELECT 
+         CASE WHEN i.vendor_id IS NULL THEN 'Central Canteen' ELSE COALESCE(v.name, CONCAT('Stall #', i.vendor_id)) END as entity_name,
+         i.vendor_id,
+         COUNT(DISTINCT o.id) as orders_count,
+         COALESCE(SUM(oi.quantity * oi.price), 0) as total_sales
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       JOIN items i ON oi.item_id = i.id
+       LEFT JOIN vendors v ON i.vendor_id = v.id
+       WHERE DATE(o.order_date) = ? AND o.status NOT IN ('cancelled', 'Cancelled')
+       GROUP BY entity_name, i.vendor_id
+       ORDER BY (i.vendor_id IS NOT NULL), entity_name ASC`, [today]
+    );
+
+    // Top 3 Items across entire Food Court
     const [topItems] = await pool.query(
-      `SELECT oi.item_name, SUM(oi.quantity) as qty FROM order_items oi
-       JOIN orders o ON oi.order_id=o.id WHERE DATE(o.order_date)=? AND o.status NOT IN ('cancelled')
-       GROUP BY oi.item_name ORDER BY qty DESC LIMIT 3`, [today]
+      `SELECT i.name as item_name, SUM(oi.quantity) as qty FROM order_items oi
+       JOIN items i ON oi.item_id = i.id
+       JOIN orders o ON oi.order_id = o.id WHERE DATE(o.order_date) = ? AND o.status NOT IN ('cancelled', 'Cancelled')
+       GROUP BY i.name ORDER BY qty DESC LIMIT 3`, [today]
     );
+
+    // Central Canteen Low Stock Items only (vendor_id IS NULL)
     const [lowStockRows] = await pool.query(
-      `SELECT name FROM raw_materials WHERE stock_level <= min_stock`
+      `SELECT name, stock_level, min_stock, unit FROM raw_materials WHERE stock_level <= min_stock AND vendor_id IS NULL`
     );
 
-    const sales = salesRows[0];
-    const topList = topItems.map((i,idx) => `  ${idx+1}. ${i.item_name} (${i.qty} sold)`).join('\n') || '  No data';
-    const lowList = lowStockRows.length ? lowStockRows.map(r=>'  ⚠️ '+r.name).join('\n') : '  ✅ All stocked';
+    const sales = salesRows[0] || { orders: 0, revenue: 0, cash_total: 0, upi_total: 0, card_total: 0, wallet_total: 0 };
+    const digitalTotal = parseFloat(sales.upi_total || 0) + parseFloat(sales.card_total || 0) + parseFloat(sales.wallet_total || 0);
 
-    const msg = `📊 DAILY SUMMARY - ${today}\n\n` +
-      `📦 Total Orders: ${sales.orders}\n` +
-      `💰 Total Revenue: ₹${parseFloat(sales.revenue).toFixed(2)}\n` +
-      `💵 Cash Collected: ₹${parseFloat(sales.cash_total).toFixed(2)}\n\n` +
-      `🏆 Top 3 Items:\n${topList}\n\n` +
-      `📉 Low Stock Items:\n${lowList}\n\n` +
+    let breakdownList = '';
+    if (breakdownRows.length > 0) {
+      breakdownList = breakdownRows.map(b => 
+        `  • ${b.entity_name}: ₹${parseFloat(b.total_sales).toFixed(2)} (${b.orders_count} orders)`
+      ).join('\n');
+    } else {
+      breakdownList = '  • No counter sales recorded today';
+    }
+
+    const topList = topItems.length 
+      ? topItems.map((i,idx) => `  ${idx+1}. ${i.item_name} (${i.qty} sold)`).join('\n') 
+      : '  No items sold yet';
+
+    const lowList = lowStockRows.length 
+      ? lowStockRows.map(r=>`  ⚠️ ${r.name} (${parseFloat(r.stock_level).toFixed(2)} / ${parseFloat(r.min_stock).toFixed(2)} ${r.unit})`).join('\n') 
+      : '  ✅ Central canteen stock healthy';
+
+    const msg = `📊 DAILY SUMMARY (FOOD COURT CONSOLIDATED) - ${today}\n\n` +
+      `📦 Total Food Court Orders: ${sales.orders}\n` +
+      `💰 Total Gross Revenue: ₹${parseFloat(sales.revenue).toFixed(2)}\n` +
+      `💵 Cash Collected: ₹${parseFloat(sales.cash_total).toFixed(2)}\n` +
+      `📱 Digital (UPI/Card/Wallet): ₹${digitalTotal.toFixed(2)}\n\n` +
+      `🏪 Sales Breakdown (Central vs Stalls):\n${breakdownList}\n\n` +
+      `🏆 Top Food Court Items:\n${topList}\n\n` +
+      `📉 Central Canteen Low Stock:\n${lowList}\n\n` +
       `Have a great night! 🌙`;
 
     const settings = await getSettings();
@@ -217,7 +267,7 @@ async function sendDailySummary() {
     if (!settings.owner_whatsapp && !settings.owner_email) tasks.push(smartSend({ type: 'daily_summary', channel: 'simulated', recipient: 'owner', recipientName: 'Owner', message: msg, referenceId: today }));
 
     await Promise.all(tasks);
-    console.log('[CRM] Daily summary sent for', today);
+    console.log('[CRM] Consolidated daily summary sent for', today);
     return { success: true, message: msg };
   } catch (e) {
     console.error('[CRM] Daily summary error:', e.message);
@@ -225,26 +275,10 @@ async function sendDailySummary() {
   }
 }
 
-// ─── ORDER READY NOTIFICATION ────────────────────────────────────────────────
-async function sendOrderReadyNotification(order) {
-  const settings = await getSettings();
-  if (!settings.order_ready_sms && !settings.order_ready_whatsapp) return;
-
-  const msg = `✅ Your order is READY!\nToken #: ${order.token_number}\nPickup at the counter now.\nThank you for ordering! 🍽️`;
-
-  const tasks = [];
-  if (order.customer_phone) {
-    if (settings.order_ready_whatsapp) {
-      tasks.push(smartSend({ type: 'order_ready', channel: 'whatsapp', recipient: order.customer_phone, recipientName: order.customer_name || 'Customer', message: msg, referenceId: String(order.id) }));
-    }
-    if (settings.order_ready_sms) {
-      tasks.push(smartSend({ type: 'order_ready', channel: 'sms', recipient: order.customer_phone, recipientName: order.customer_name || 'Customer', message: msg, referenceId: String(order.id) }));
-    }
-  } else {
-    tasks.push(smartSend({ type: 'order_ready', channel: 'simulated', recipient: 'customer', recipientName: order.customer_name || 'Customer', message: msg, referenceId: String(order.id) }));
-  }
-  await Promise.all(tasks);
-  console.log(`[CRM] Order ready notification sent for token #${order.token_number}`);
+// ─── ORDER READY NOTIFICATION (RETIRED) ───────────────────────────────────────
+// Retired in favor of real-time QR Order Status & Token Display screen
+async function sendOrderReadyNotification() {
+  return { success: true, message: 'Order ready notification disabled in favor of real-time QR tracking.' };
 }
 
 // ─── FEEDBACK ALERT (negative) ───────────────────────────────────────────────

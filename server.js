@@ -685,14 +685,14 @@ app.get('/api/dashboard', async (req, res) => {
       );
       pendingCount = pending[0].count;
 
-      // Low stock count & list for raw materials linked to Vendor items via recipes
+      // Low stock count & list for raw materials linked to Vendor items via recipes or belonging to stall
       const [lowStock] = await pool.query(
         `SELECT DISTINCT rm.id, rm.name, rm.stock_level, rm.min_stock, rm.unit 
          FROM raw_materials rm
-         JOIN recipes r ON rm.id = r.material_id
-         JOIN items i ON r.item_id = i.id
-         WHERE i.vendor_id = ? AND rm.stock_level <= rm.min_stock`,
-         [vId]
+         LEFT JOIN recipes r ON rm.id = r.material_id
+         LEFT JOIN items i ON r.item_id = i.id
+         WHERE (rm.vendor_id = ? OR i.vendor_id = ?) AND rm.stock_level <= rm.min_stock`,
+         [vId, vId]
       );
       lowStockResult = lowStock;
 
@@ -1353,10 +1353,10 @@ app.post('/api/stock-logs', async (req, res) => {
 
     await connection.commit();
 
-    // CRM: Check low stock and trigger alert if needed
+    // CRM: Check low stock and trigger alert if needed (Central Canteen only)
     try {
       const [matCheck] = await pool.query('SELECT * FROM raw_materials WHERE id=?', [material_id]);
-      if (matCheck.length && matCheck[0].stock_level <= matCheck[0].min_stock) {
+      if (matCheck.length && matCheck[0].stock_level <= matCheck[0].min_stock && (matCheck[0].vendor_id === null || matCheck[0].vendor_id === undefined)) {
         crm.triggerLowStockAlert(matCheck[0]).catch(e => console.error('[CRM] Low stock alert err:', e.message));
       }
     } catch(crmErr) { console.error('[CRM] Hook err:', crmErr.message); }
@@ -2523,17 +2523,7 @@ app.put('/api/orders/:id/status', async (req, res) => {
       await pool.query('UPDATE orders SET status = ? WHERE id = ?', [status, id]);
     }
 
-    // CRM: Send order-ready notification to customer
-    if (status === 'Ready') {
-      try {
-        const [orderInfo] = await pool.query(
-          'SELECT id, token_number, customer_name, customer_phone FROM orders WHERE id=?', [id]
-        );
-        if (orderInfo.length) {
-          crm.sendOrderReadyNotification(orderInfo[0]).catch(e => console.error('[CRM] Ready notify err:', e.message));
-        }
-      } catch(crmErr) { console.error('[CRM] Hook err:', crmErr.message); }
-    }
+    // Note: Order Ready SMS & WhatsApp triggers have been retired in favor of real-time QR order status & token display screen
     res.json({ success: true, message: `Order #${id} status updated to ${status}` });
   } catch (error) {
     console.error('Status update error:', error);
@@ -7375,15 +7365,19 @@ app.post('/api/notifications/daily-summary', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Low Stock Test ────────────────────────────────────────────────────────────
+// ── Low Stock Test (Central Canteen only) ────────────────────────────────────
 app.post('/api/notifications/test-low-stock', async (req, res) => {
   try {
-    const [mats] = await pool.query('SELECT * FROM raw_materials WHERE stock_level <= min_stock LIMIT 1');
-    if (!mats.length) return res.json({ success: true, message: 'No low-stock items currently' });
-    const mat = mats[0];
+    const [mats] = await pool.query('SELECT * FROM raw_materials WHERE stock_level <= min_stock AND vendor_id IS NULL LIMIT 1');
+    let mat = mats[0];
+    if (!mat) {
+      const [anyMat] = await pool.query('SELECT * FROM raw_materials WHERE vendor_id IS NULL LIMIT 1');
+      if (!anyMat.length) return res.status(404).json({ error: 'No Central Canteen raw materials found' });
+      mat = anyMat[0];
+    }
     mat.last_alert_sent = null; // force send
     await crm.triggerLowStockAlert(mat);
-    res.json({ success: true, message: `Low-stock alert sent for: ${mat.name}` });
+    res.json({ success: true, message: `Low-stock alert sent for Central Canteen material: ${mat.name}` });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -7560,17 +7554,9 @@ app.delete('/api/notifications/broadcasts/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Order Ready Notification (manual trigger) ─────────────────────────────────
-app.post('/api/notifications/order-ready/:orderId', async (req, res) => {
-  try {
-    const [orderInfo] = await pool.query(
-      'SELECT id, token_number, customer_name, customer_phone FROM orders WHERE id=?',
-      [req.params.orderId]
-    );
-    if (!orderInfo.length) return res.status(404).json({ error: 'Order not found' });
-    await crm.sendOrderReadyNotification(orderInfo[0]);
-    res.json({ success: true, message: 'Order ready notification sent' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+// ── Order Ready Notification (Retired) ────────────────────────────────────────
+app.post('/api/notifications/order-ready/:orderId', (req, res) => {
+  res.json({ success: true, message: 'Order Ready SMS/WhatsApp is disabled in favor of real-time QR tracking & Token Display.' });
 });
 
 // ── CRM Overview Stats ────────────────────────────────────────────────────────
@@ -7593,7 +7579,7 @@ app.get('/api/notifications/overview', async (req, res) => {
       `SELECT * FROM notification_logs ORDER BY created_at DESC LIMIT 10`
     );
     const [lowStockItems] = await pool.query(
-      `SELECT name, stock_level, min_stock, unit FROM raw_materials WHERE stock_level<=min_stock`
+      `SELECT name, stock_level, min_stock, unit FROM raw_materials WHERE stock_level<=min_stock AND vendor_id IS NULL`
     );
     const [campaignStats] = await pool.query(
       `SELECT status, COUNT(*) as count FROM broadcast_campaigns GROUP BY status`

@@ -82,9 +82,10 @@ function OverviewTab() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {/* Low Stock */}
         <div style={{ background: '#1f2937', borderRadius: 12, padding: 20 }}>
-          <h3 style={{ color: '#ef4444', margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><span>⚠️</span> Low Stock Items</h3>
+          <h3 style={{ color: '#ef4444', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}><span>⚠️</span> Central Canteen Low Stock</h3>
+          <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 12px' }}>Ingredients in Central Canteen needing reorder (Stall stock is managed on Stall Dashboards)</p>
           {data?.low_stock_items?.length === 0
-            ? <div style={{ color: '#10b981', fontSize: 14 }}>✅ All materials well stocked</div>
+            ? <div style={{ color: '#10b981', fontSize: 14 }}>✅ All central materials well stocked</div>
             : (data?.low_stock_items || []).map(i => (
               <div key={i.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #374151', fontSize: 13 }}>
                 <span style={{ color: '#f9fafb' }}>{i.name}</span>
@@ -96,12 +97,12 @@ function OverviewTab() {
 
         {/* Daily Summary */}
         <div style={{ background: '#1f2937', borderRadius: 12, padding: 20 }}>
-          <h3 style={{ color: '#10b981', margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><span>📊</span> Daily Summary</h3>
-          <p style={{ color: '#9ca3af', fontSize: 13, margin: '0 0 16px' }}>Manually send today's end-of-day summary to the owner via WhatsApp/Email.</p>
+          <h3 style={{ color: '#10b981', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}><span>📊</span> Food Court Daily Summary</h3>
+          <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 14px' }}>Send consolidated food court summary (total revenue, orders, cash, and stall breakdown) to owner.</p>
           <button id="crm-send-daily-summary" onClick={sendSummary} disabled={summaryLoading} style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 700, cursor: 'pointer', width: '100%' }}>
-            {summaryLoading ? '⏳ Sending...' : '📤 Send Daily Summary Now'}
+            {summaryLoading ? '⏳ Sending...' : '📤 Send Food Court Daily Summary Now'}
           </button>
-          {summaryMsg && <div style={{ marginTop: 12, color: summaryMsg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13 }}>{summaryMsg}</div>}
+          {summaryMsg && <div style={{ marginTop: 12, color: summaryMsg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13, whiteSpace: 'pre-line' }}>{summaryMsg}</div>}
         </div>
       </div>
 
@@ -591,7 +592,7 @@ function LogsTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const types = ['', 'low_stock', 'daily_summary', 'order_ready', 'broadcast', 'feedback_alert', 'loyalty_earned', 'loyalty_redeemed'];
+  const types = ['', 'low_stock', 'daily_summary', 'broadcast', 'feedback_alert', 'loyalty_earned', 'loyalty_redeemed'];
   const channels = ['', 'whatsapp', 'sms', 'email', 'simulated'];
   const statuses = ['', 'sent', 'failed', 'simulated', 'pending'];
 
@@ -757,7 +758,7 @@ function SettingsTab({ userRole }) {
       </Section>
 
       <Section title="Alert Controls" icon="🔔">
-        <Toggle label="Low Stock WhatsApp Alert" k="low_stock_alert_enabled" note="Alert owner when ingredient drops below minimum" />
+        <Toggle label="Central Canteen Low Stock WhatsApp Alert" k="low_stock_alert_enabled" note="Alert owner when Central Canteen ingredient drops below minimum" />
         <div style={{ padding: '12px 0', borderBottom: '1px solid #374151', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ color: '#f9fafb', fontSize: 14 }}>Low Stock Alert Throttle (hours)</div>
@@ -765,9 +766,7 @@ function SettingsTab({ userRole }) {
           </div>
           <input type="number" value={settings.low_stock_throttle_hours || 4} onChange={e => setSettings(p => ({ ...p, low_stock_throttle_hours: e.target.value }))} style={{ width: 80, padding: '8px 12px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', textAlign: 'center' }} />
         </div>
-        <Toggle label="Order Ready - SMS" k="order_ready_sms" note="SMS to customer when kitchen marks order Ready" />
-        <Toggle label="Order Ready - WhatsApp" k="order_ready_whatsapp" note="WhatsApp to customer when order is Ready" />
-        <Toggle label="Daily Summary Auto-Send" k="daily_summary_enabled" note="Automatically send at configured time" />
+        <Toggle label="Food Court Daily Summary Auto-Send" k="daily_summary_enabled" note="Automatically send consolidated daily summary at configured closing time" />
         <div style={{ padding: '12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ color: '#f9fafb', fontSize: 14 }}>Negative Feedback Threshold</div>
