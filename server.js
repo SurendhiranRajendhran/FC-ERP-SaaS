@@ -5692,7 +5692,7 @@ app.get('/api/reports/stock', async (req, res) => {
         [mat.id, endStr]
       );
       const futureChanges = parseFloat(futureLogs[0].change_sum);
-      const closingStock = parseFloat(mat.stock_level) + futureChanges;
+      const closingStock = parseFloat(mat.stock_level) - futureChanges;
 
       // Calculate changes in range
       const [rangeLogs] = await pool.query(
@@ -5715,18 +5715,22 @@ app.get('/api/reports/stock', async (req, res) => {
       const totalChangesInRange = purchases - usageQty - wastage + adjustments;
       const openingStock = closingStock - totalChangesInRange;
 
+      const unitCost = parseFloat(mat.cost_per_unit) || 0;
+      const stockValue = parseFloat((Math.max(0, closingStock) * unitCost).toFixed(2));
+
       stockReport.push({
         id: mat.id,
         name: mat.name,
         unit: mat.unit,
         min_stock: parseFloat(mat.min_stock),
-        cost_per_unit: parseFloat(mat.cost_per_unit || 50.00),
+        cost_per_unit: unitCost,
         openingStock: openingStock,
         purchases: purchases,
         consumption: usageQty,
         wastage: wastage,
         adjustments: adjustments,
         closingStock: closingStock,
+        value: stockValue,
         currentStock: parseFloat(mat.stock_level),
         reorderRequired: parseFloat(mat.stock_level) <= parseFloat(mat.min_stock)
       });
@@ -5768,13 +5772,15 @@ app.get('/api/reports/stock', async (req, res) => {
     const totalWasted = parseFloat(summaryRows[0].totalWasted || 0);
     const totalConsumed = parseFloat(cogsRows[0].totalConsumed || 0);
     const netDelta = totalPurchased - totalConsumed - totalWasted;
+    const totalStockValue = stockReport.reduce((sum, item) => sum + (item.value || 0), 0);
 
     res.json({
       summary: {
         totalPurchased,
         totalConsumed,
         totalWasted,
-        netDelta
+        netDelta,
+        totalStockValue: parseFloat(totalStockValue.toFixed(2))
       },
       items: stockReport
     });

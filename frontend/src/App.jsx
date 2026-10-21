@@ -903,7 +903,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                 borderRadius: '12px', 
                 fontWeight: '600',
                 letterSpacing: '0.5px'
-              }}>v1.1.2</span>
+              }}>v1.1.3</span>
             </p>
             <p style={saStyles.logoSub}>SaaS Control Panel</p>
           </div>
@@ -1563,7 +1563,7 @@ function LoginScreen({ onLogin }) {
               letterSpacing: '0.5px',
               marginLeft: '12px',
               verticalAlign: 'middle'
-            }}>v1.1.2</span>
+            }}>v1.1.3</span>
           </h1>
           <p>Login to your account</p>
         </div>
@@ -5550,7 +5550,7 @@ function App() {
                 borderRadius: '12px', 
                 fontWeight: '600',
                 letterSpacing: '0.5px'
-              }}>v1.1.2</span>
+              }}>v1.1.3</span>
             </h1>
             <span style={{ marginTop: '2px', display: 'block' }}>Canteen ERP</span>
           </div>
@@ -10515,14 +10515,18 @@ function App() {
                             {reportsData.stock.summary.netDelta >= 0 ? '+' : ''}₹{Number(reportsData.stock.summary.netDelta || 0).toFixed(2)}
                           </h3>
                         </div>
+                        <div style={{ padding: '15px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', backgroundColor: 'rgba(255,255,255,0.05)', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.5px' }}>Current Stock Value</span>
+                          <h3 style={{ margin: '5px 0 0 0', fontSize: '22px', color: 'var(--accent-primary)', fontWeight: 600 }}>₹{Number(reportsData.stock.summary.totalStockValue || 0).toFixed(2)}</h3>
+                        </div>
                       </div>
                     )}
 
                     <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <h3>Stock & Inventory Report</h3>
                       <button className="btn btn-outline-primary" onClick={() => {
-                        const csvContent = "data:text/csv;charset=utf-8,Item,Opening,Purchased,Consumed,Wasted,Closing,Value\n" +
-                          reportsData.stock.items.map(e => `${e.name},${e.openingStock} ${e.unit},${e.purchases} ${e.unit},${e.consumption} ${e.unit},${e.wastage} ${e.unit},${e.closingStock} ${e.unit},${(e.closingStock * e.cost_per_unit).toFixed(2)}`).join("\n");
+                        const csvContent = "data:text/csv;charset=utf-8,Item,Opening,Purchased,Consumed,Wasted,Closing,Unit Cost,Value\n" +
+                          reportsData.stock.items.map(e => `${e.name},${e.openingStock} ${e.unit},${e.purchases} ${e.unit},${e.consumption} ${e.unit},${e.wastage} ${e.unit},${e.closingStock} ${e.unit},${Number(e.cost_per_unit || 0).toFixed(2)},${Number(e.value || 0).toFixed(2)}`).join("\n");
                         const link = document.createElement("a");
                         link.setAttribute("href", encodeURI(csvContent));
                         link.setAttribute("download", `stock_report.csv`);
@@ -10533,7 +10537,7 @@ function App() {
                     </div>
                     <div className="table-container">
                       <table className="data-table">
-                        <thead><tr><th>Item</th><th>Opening</th><th>Purchased</th><th>Consumed</th><th>Wasted</th><th>Closing</th><th>Value</th></tr></thead>
+                        <thead><tr><th>Item</th><th>Opening</th><th>Purchased</th><th>Consumed</th><th>Wasted</th><th>Closing</th><th>Unit Cost</th><th>Value</th></tr></thead>
                         <tbody>
                           {reportsData.stock.items.map((item, idx) => (
                             <tr key={idx}>
@@ -10543,10 +10547,17 @@ function App() {
                               <td>{item.consumption} {item.unit}</td>
                               <td>{item.wastage} {item.unit}</td>
                               <td>{item.closingStock} {item.unit}</td>
-                              <td>₹{Number(item.closingStock * item.cost_per_unit).toFixed(2)}</td>
+                              <td>₹{Number(item.cost_per_unit || 0).toFixed(2)}</td>
+                              <td>₹{Number(item.value || 0).toFixed(2)}</td>
                             </tr>
                           ))}
                         </tbody>
+                        <tfoot>
+                          <tr style={{ fontWeight: 'bold', borderTop: '2px solid var(--border-light)' }}>
+                            <td colSpan={7} style={{ textAlign: 'right' }}>Total Inventory Valuation</td>
+                            <td>₹{reportsData.stock.items.reduce((sum, item) => sum + Number(item.value || 0), 0).toFixed(2)}</td>
+                          </tr>
+                        </tfoot>
                       </table>
                     </div>
                   </div>
