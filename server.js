@@ -4449,11 +4449,19 @@ app.put('/api/leaves/:id/approve', async (req, res) => {
     const diffTime = Math.abs(end - start);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
 
-    // Auto-exclude holidays
-    const [holidays] = await connection.query(
-      'SELECT COUNT(id) as count FROM holidays WHERE holiday_date BETWEEN ? AND ?',
-      [leave.start_date, leave.end_date]
-    );
+    // Auto-exclude holidays (scoped strictly to staff member's stall or central canteen)
+    const [staffVendorRow] = await connection.query('SELECT vendor_id FROM staff WHERE id = ?', [leave.staff_id]);
+    const staffVendorId = staffVendorRow.length > 0 ? staffVendorRow[0].vendor_id : null;
+
+    let holidayCountQuery = 'SELECT COUNT(id) as count FROM holidays WHERE holiday_date BETWEEN ? AND ? AND ';
+    let holidayCountParams = [leave.start_date, leave.end_date];
+    if (staffVendorId === null) {
+      holidayCountQuery += 'vendor_id IS NULL';
+    } else {
+      holidayCountQuery += 'vendor_id = ?';
+      holidayCountParams.push(staffVendorId);
+    }
+    const [holidays] = await connection.query(holidayCountQuery, holidayCountParams);
     const holidayCount = holidays[0].count;
     const netDays = Math.max(1, diffDays - holidayCount);
 
@@ -7310,15 +7318,18 @@ app.put('/api/shifts/swap/:id/reject', async (req, res) => {
   }
 });
 
-// Holidays list (scoped by vendor_id)
+// Holidays list (strictly isolated by vendor_id between Central Canteen and Stalls)
 app.get('/api/holidays', async (req, res) => {
   try {
     let query, params;
+    // Strict stall isolation:
+    // - Stall staff / Stall managers (vendor_id present) see ONLY holidays marked for their specific stall.
+    // - Central Admin / Central staff (vendor_id is null) see ONLY Central Canteen holidays (vendor_id IS NULL).
     if (req.user.vendor_id) {
-      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE (vendor_id = ? OR vendor_id IS NULL) ORDER BY holiday_date ASC';
+      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE vendor_id = ? ORDER BY holiday_date ASC';
       params = [req.user.vendor_id];
     } else {
-      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE vendor_id IS NULL ORDER BY holiday_date';
+      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE vendor_id IS NULL ORDER BY holiday_date ASC';
       params = [];
     }
     const [rows] = await pool.query(query, params);

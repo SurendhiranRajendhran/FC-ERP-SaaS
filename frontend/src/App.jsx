@@ -6591,7 +6591,7 @@ function App() {
                                         🏖️ Leave
                                       </span>
                                       <span style={{ fontSize: '0.58rem', color: '#fca5a5', opacity: 0.9 }}>
-                                        {holidayInfo.vendor_id ? 'Stall' : 'General'}
+                                        {user?.vendor_id ? 'Stall' : 'Central'}
                                       </span>
                                     </div>
                                     <div style={{
@@ -6647,7 +6647,7 @@ function App() {
                                   </span>
                                 </div>
                                 <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                                  Holidays marked by your Stall Manager are officially highlighted as duty off / paid leave.
+                                  {user?.vendor_id ? `Holidays marked by your Stall Manager (${stallName}) are officially highlighted as duty off / paid leave.` : 'Holidays marked by Central Admin (Central Canteen) are officially highlighted as duty off / paid leave.'}
                                 </p>
                               </div>
 
@@ -6763,7 +6763,7 @@ function App() {
                             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <div style={{ width: '14px', height: '14px', borderRadius: '4px', backgroundColor: 'rgba(239, 68, 68, 0.2)', border: '2px solid #ef4444' }}></div>
-                                <span style={{ fontWeight: 600, color: 'var(--text-light)' }}>Stall Holiday (Leave)</span>
+                                <span style={{ fontWeight: 600, color: 'var(--text-light)' }}>{user?.vendor_id ? `Stall Holiday (Leave)` : `Central Canteen Holiday (Leave)`}</span>
                               </div>
 
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -6783,7 +6783,7 @@ function App() {
                             </div>
 
                             <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                              🔒 Managed by Stall Manager ({stallName})
+                              🔒 Managed exclusively by {user?.vendor_id ? `${stallName} Manager` : 'Central Admin'}
                             </div>
                           </div>
 
@@ -6862,7 +6862,7 @@ function App() {
                                           {dateObj.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
                                         </div>
                                         <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '3px' }}>
-                                          {h.description ? h.description : (h.vendor_id ? `Marked by ${stallName} Manager` : 'Food Court Common Holiday')}
+                                          {h.description ? h.description : (user?.vendor_id ? `Marked by ${stallName} Manager` : 'Marked by Central Admin')}
                                         </div>
                                       </div>
                                     </div>
@@ -10776,6 +10776,19 @@ function App() {
               {/* ============ SUB-TAB: HOLIDAY CALENDAR ============ */}
               {hrSubTab === 'holidays' && (
                 <div className="holidays-section" style={{ padding: '20px' }}>
+                  <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span className="badge badge-primary" style={{ fontSize: '0.8rem', padding: '4px 10px' }}>
+                        {user?.vendor_id ? `🏪 ${vendors.find(v => v.id === user.vendor_id)?.name || `Stall #${user.vendor_id}`}` : '🏢 Central Canteen'}
+                      </span>
+                      <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-light)' }}>
+                        {user?.vendor_id ? 'Stall Holiday Calendar' : 'Central Canteen Holiday Calendar'}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      🔒 Holidays configured here apply strictly to {user?.vendor_id ? `${vendors.find(v => v.id === user.vendor_id)?.name || 'this stall'}'s staff` : 'Central Canteen staff only'}.
+                    </span>
+                  </div>
                   <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                       <button className="btn btn-outline-primary" onClick={() => setCurrentCalendarMonth(new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() - 1, 1))}>&lt; Prev</button>
