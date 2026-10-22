@@ -1,3 +1,6 @@
+// Ensure application timezone defaults to Asia/Kolkata (IST) in both local and production environments
+process.env.TZ = process.env.TZ || 'Asia/Kolkata';
+
 const { AsyncLocalStorage } = require('async_hooks');
 const express = require('express');
 const jwt = require('jsonwebtoken');
@@ -310,6 +313,31 @@ crm.setPool(pool);
     if (bcTables.length > 0) {
       await conn.query("UPDATE broadcast_campaigns SET status = 'scheduled' WHERE status = 'draft' AND scheduled_at IS NOT NULL AND scheduled_at > NOW()");
       console.log("Migration: Ensured future scheduled broadcasts have 'scheduled' status.");
+    }
+
+    // 12. Heal any past unclosed attendance check-ins on startup
+    if (attTables.length > 0) {
+      const now = new Date();
+      const todayDateStr = formatLocalTimestamp(now).split(' ')[0];
+      const [unclosedPast] = await conn.query(`
+        SELECT id, DATE_FORMAT(attendance_date, '%Y-%m-%d') as attendance_date, notes
+        FROM attendance
+        WHERE check_out IS NULL 
+          AND status IN ('Present', 'Late', 'Half-Day', 'Missed Shift')
+          AND attendance_date < ?
+      `, [todayDateStr]);
+
+      for (const rec of unclosedPast) {
+        const targetCheckOut = `${rec.attendance_date} 23:59:00`;
+        let updatedNotes = rec.notes ? String(rec.notes).trim() : '';
+        if (!updatedNotes.includes('Not Checked Out Manually')) {
+          updatedNotes = updatedNotes ? `${updatedNotes} (Not Checked Out Manually)` : 'Not Checked Out Manually';
+        }
+        await conn.query('UPDATE attendance SET check_out = ?, notes = ? WHERE id = ?', [targetCheckOut, updatedNotes, rec.id]);
+      }
+      if (unclosedPast.length > 0) {
+        console.log(`Migration: Healed ${unclosedPast.length} past unclosed attendance check-ins at 23:59:00.`);
+      }
     }
     
     conn.release();
@@ -3907,6 +3935,58 @@ app.delete('/api/roster/:id', async (req, res) => {
 // 12. ATTENDANCE API
 // ==========================================
 
+// Helper: Auto-checkout unclosed punches at 23:59:00 of their respective attendance date
+async function autoCheckoutOpenPunches(source = 'cron') {
+  try {
+    const now = new Date();
+    const nowLocal = formatLocalTimestamp(now);
+    const todayDateStr = nowLocal.split(' ')[0];
+    const currentTimeStr = nowLocal.split(' ')[1];
+
+    // Auto-checkout criteria:
+    // 1. Any record where attendance_date < todayDate (past days that already ended)
+    // 2. Any record where attendance_date = todayDate AND current time is >= 23:59:00 (today has ended)
+    const [openPunches] = await pool.query(`
+      SELECT id, staff_id, notes, DATE_FORMAT(attendance_date, '%Y-%m-%d') as attendance_date, status 
+      FROM attendance 
+      WHERE check_out IS NULL 
+        AND status IN ('Present', 'Late', 'Half-Day', 'Missed Shift')
+        AND (
+          attendance_date < ? 
+          OR (attendance_date = ? AND ? >= '23:59:00')
+        )
+      ORDER BY attendance_date ASC, id ASC
+    `, [todayDateStr, todayDateStr, currentTimeStr]);
+
+    if (!openPunches || openPunches.length === 0) {
+      return 0;
+    }
+
+    let closedCount = 0;
+    for (const record of openPunches) {
+      const targetCheckOut = `${record.attendance_date} 23:59:00`;
+      let updatedNotes = record.notes ? String(record.notes).trim() : '';
+      if (!updatedNotes.includes('Not Checked Out Manually')) {
+        updatedNotes = updatedNotes ? `${updatedNotes} (Not Checked Out Manually)` : 'Not Checked Out Manually';
+      }
+
+      await pool.query(
+        `UPDATE attendance SET check_out = ?, notes = ? WHERE id = ?`,
+        [targetCheckOut, updatedNotes, record.id]
+      );
+      closedCount++;
+    }
+
+    if (closedCount > 0) {
+      console.log(`[Attendance] Auto-checkout (${source}): Auto-closed ${closedCount} open check-in(s) at 23:59:00.`);
+    }
+    return closedCount;
+  } catch (error) {
+    console.error(`[Attendance] Auto-checkout error (${source}):`, error);
+    return 0;
+  }
+}
+
 // Get attendance for a date
 app.get('/api/attendance', async (req, res) => {
   const { date } = req.query;
@@ -3915,6 +3995,15 @@ app.get('/api/attendance', async (req, res) => {
   }
 
   try {
+    // If fetching attendance for a past date or after 23:59 today, ensure open punches are auto-closed first
+    const now = new Date();
+    const nowLocal = formatLocalTimestamp(now);
+    const todayDateStr = nowLocal.split(' ')[0];
+    const currentTimeStr = nowLocal.split(' ')[1];
+
+    if (date < todayDateStr || (date === todayDateStr && currentTimeStr >= '23:59:00')) {
+      await autoCheckoutOpenPunches(`fetch-${date}`);
+    }
     const scopeClause = req.user.vendor_id
       ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role != 'Manager'`
       : `AND (s.vendor_id IS NULL OR s.role = 'Manager')`;
@@ -3948,6 +4037,23 @@ app.post('/api/attendance/check-in', async (req, res) => {
     const now = new Date();
     const attendanceDate = attendance_date || formatLocalTimestamp(now).split(' ')[0];
     const checkInTime = check_in || formatLocalTimestamp(now);
+
+    // Auto-checkout any prior unclosed punch for this staff member from earlier dates
+    const [pastUnclosed] = await pool.query(`
+      SELECT id, DATE_FORMAT(attendance_date, '%Y-%m-%d') as attendance_date, notes
+      FROM attendance
+      WHERE staff_id = ? AND check_out IS NULL AND attendance_date < ?
+        AND status IN ('Present', 'Late', 'Half-Day', 'Missed Shift')
+    `, [staff_id, attendanceDate]);
+
+    for (const past of pastUnclosed) {
+      const pastTargetCheckOut = `${past.attendance_date} 23:59:00`;
+      let pastNotes = past.notes ? String(past.notes).trim() : '';
+      if (!pastNotes.includes('Not Checked Out Manually')) {
+        pastNotes = pastNotes ? `${pastNotes} (Not Checked Out Manually)` : 'Not Checked Out Manually';
+      }
+      await pool.query('UPDATE attendance SET check_out = ?, notes = ? WHERE id = ?', [pastTargetCheckOut, pastNotes, past.id]);
+    }
 
     const [staffRows] = await pool.query('SELECT vendor_id, tenant_id FROM staff WHERE id = ?', [staff_id]);
     if (staffRows.length === 0) return res.status(404).json({ error: 'Staff member not found.' });
@@ -8210,40 +8316,26 @@ cron.schedule('0 * * * *', async () => {
   } catch (error) {
     console.error('Auto-absent cron job error:', error);
   }
+}, {
+  timezone: 'Asia/Kolkata'
 });
 
-// 2. Auto-Checkout Job: Run at 23:59:00 every day to auto-close any unclosed punches
-cron.schedule('59 23 * * *', async () => {
-  try {
-    const now = new Date();
-    const dateStr = formatLocalTimestamp(now).split(' ')[0];
-
-    const [openPunches] = await pool.query(`
-      SELECT id, notes, DATE_FORMAT(attendance_date, '%Y-%m-%d') as attendance_date 
-      FROM attendance 
-      WHERE check_out IS NULL 
-        AND status IN ('Present', 'Late', 'Half-Day', 'Missed Shift')
-        AND attendance_date <= ?
-    `, [dateStr]);
-
-    for (const record of openPunches) {
-      const targetCheckOut = `${record.attendance_date} 23:59:00`;
-      const updatedNotes = record.notes 
-        ? `${record.notes} (Not Checked Out Manually)` 
-        : 'Not Checked Out Manually';
-
-      await pool.query(
-        `UPDATE attendance SET check_out = ?, notes = ? WHERE id = ?`,
-        [targetCheckOut, updatedNotes, record.id]
-      );
-    }
-    if (openPunches.length > 0) {
-      console.log(`[Attendance] Auto-closed ${openPunches.length} open check-ins at 23:59:00.`);
-    }
-  } catch (error) {
-    console.error('Auto-checkout cron job error:', error);
-  }
+// 2. Auto-Checkout Job: Run at 23:59:00 every day (IST) to auto-close any unclosed punches
+cron.schedule('59 23 * * *', () => {
+  autoCheckoutOpenPunches('cron-23:59');
+}, {
+  timezone: 'Asia/Kolkata'
 });
+
+// 3. Periodic Safety Net: Run every 15 minutes to automatically heal any unclosed punches from past days
+cron.schedule('*/15 * * * *', () => {
+  autoCheckoutOpenPunches('periodic-safety');
+}, {
+  timezone: 'Asia/Kolkata'
+});
+
+// Startup reconciliation: auto-close any unclosed punches from past days
+autoCheckoutOpenPunches('startup-reconciliation');
 
 // Start Server — listen on all interfaces so mobile devices can connect
 const LAN_IP = getLanIp();

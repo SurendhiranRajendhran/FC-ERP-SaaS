@@ -6127,6 +6127,11 @@ function App() {
                                             ⚠️ {rec.notes.match(/Short Shift\s*\([^)]+\)/i)?.[0] || 'Short Shift'}
                                           </span>
                                         )}
+                                        {rec.notes && rec.notes.includes('Not Checked Out Manually') && (
+                                          <span className="badge" style={{ background: 'rgba(100, 116, 139, 0.2)', color: '#94a3b8', border: '1px solid rgba(100, 116, 139, 0.3)', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+                                            ⏱️ Auto Check-out
+                                          </span>
+                                        )}
                                       </div>
                                     )}
                                   </div>
@@ -6155,6 +6160,7 @@ function App() {
                               const shortShiftMatch = a.notes && a.notes.match(/Short Shift\s*\([^)]+\)/i);
                               const isShortShift = Boolean(shortShiftMatch || (a.notes && a.notes.includes('Short Shift')));
                               const shortShiftLabel = shortShiftMatch ? shortShiftMatch[0] : 'Short Shift';
+                              const isAutoCheckOut = a.notes && a.notes.includes('Not Checked Out Manually');
 
                               return (
                               <tr key={a.id} style={isShortShift ? { borderLeft: '3px solid #f59e0b' } : undefined}>
@@ -6178,6 +6184,11 @@ function App() {
                                         {isShortShift && (
                                           <span className="badge badge-short-shift" style={{ whiteSpace: 'nowrap' }}>
                                             ⚠️ {shortShiftLabel}
+                                          </span>
+                                        )}
+                                        {isAutoCheckOut && (
+                                          <span className="badge" style={{ background: 'rgba(100, 116, 139, 0.2)', color: '#94a3b8', border: '1px solid rgba(100, 116, 139, 0.3)', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+                                            ⏱️ Auto Check-out
                                           </span>
                                         )}
                                       </div>
@@ -9713,6 +9724,11 @@ function App() {
                                       {rec.notes && rec.notes.includes('Short Shift') && (
                                         <span className="badge badge-short-shift" style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
                                           ⚠️ {rec.notes.match(/Short Shift\s*\([^)]+\)/i)?.[0] || 'Short Shift'}
+                                        </span>
+                                      )}
+                                      {rec.notes && rec.notes.includes('Not Checked Out Manually') && (
+                                        <span className="badge" style={{ background: 'rgba(100, 116, 139, 0.2)', color: '#94a3b8', border: '1px solid rgba(100, 116, 139, 0.3)', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+                                          ⏱️ Auto Check-out
                                         </span>
                                       )}
                                     </div>
