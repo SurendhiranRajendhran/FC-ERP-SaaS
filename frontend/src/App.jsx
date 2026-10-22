@@ -6476,9 +6476,20 @@ function App() {
                         String(a.holiday_date).localeCompare(String(b.holiday_date))
                       );
 
-                      // Personal approved leaves for current month
+                      // Personal approved leaves for current month (calendar highlighting + KPI count)
                       const myApprovedLeaves = leaves.filter(l => {
                         if (l.staff_id !== user.id || l.status !== 'Approved') return false;
+                        const s = String(l.start_date).split('T')[0];
+                        const e = String(l.end_date).split('T')[0];
+                        const monthStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+                        const monthEnd = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`;
+                        return (s <= monthEnd && e >= monthStart);
+                      });
+
+                      // All leave applications (approved + rejected) for the Detailed List below calendar
+                      const myAllLeaves = leaves.filter(l => {
+                        if (l.staff_id !== user.id) return false;
+                        if (l.status !== 'Approved' && l.status !== 'Rejected') return false;
                         const s = String(l.start_date).split('T')[0];
                         const e = String(l.end_date).split('T')[0];
                         const monthStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
@@ -6806,11 +6817,11 @@ function App() {
                                 📋 Detailed Leave & Holiday List — {currentCalendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
                               </h4>
                               <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                {monthHolidays.length + myApprovedLeaves.length} scheduled event(s)
+                                {monthHolidays.length + myAllLeaves.length} event(s)
                               </span>
                             </div>
 
-                            {monthHolidays.length === 0 && myApprovedLeaves.length === 0 ? (
+                            {monthHolidays.length === 0 && myAllLeaves.length === 0 ? (
                               <div style={{
                                 padding: '30px',
                                 textAlign: 'center',
@@ -6820,7 +6831,7 @@ function App() {
                                 color: 'var(--text-muted)',
                                 fontSize: '0.9rem'
                               }}>
-                                🌴 No holidays or approved leaves scheduled for {currentCalendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}. Regular work schedule applies.
+                                🌴 No holidays or leave records for {currentCalendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}. Regular work schedule applies.
                               </div>
                             ) : (
                               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
@@ -6881,9 +6892,16 @@ function App() {
                                   );
                                 })}
 
-                                {myApprovedLeaves.map(l => {
+                                {myAllLeaves.map(l => {
                                   const sObj = new Date(String(l.start_date).split('T')[0] + 'T00:00:00');
                                   const eObj = new Date(String(l.end_date).split('T')[0] + 'T00:00:00');
+                                  const isApproved = l.status === 'Approved';
+                                  const isRejected = l.status === 'Rejected';
+                                  const borderColor = isApproved ? '#8b5cf6' : '#ef4444';
+                                  const bgColor = isApproved ? 'rgba(139, 92, 246, 0.12)' : 'rgba(239, 68, 68, 0.10)';
+                                  const accentColor = isApproved ? '#a78bfa' : '#f87171';
+                                  const badgeBg = isApproved ? 'rgba(139, 92, 246, 0.15)' : 'rgba(239, 68, 68, 0.12)';
+                                  const badgeColor = isApproved ? '#c4b5fd' : '#fca5a5';
                                   return (
                                     <div
                                       key={`l-${l.id}`}
@@ -6895,8 +6913,9 @@ function App() {
                                         backgroundColor: 'var(--bg-surface)',
                                         borderRadius: '10px',
                                         border: '1px solid var(--border-light)',
-                                        borderLeft: '4px solid #8b5cf6',
-                                        boxShadow: '0 2px 6px rgba(0,0,0,0.06)'
+                                        borderLeft: `4px solid ${borderColor}`,
+                                        boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
+                                        opacity: isRejected ? 0.75 : 1
                                       }}
                                     >
                                       {/* Date Box */}
@@ -6904,12 +6923,12 @@ function App() {
                                         minWidth: '48px',
                                         height: '48px',
                                         borderRadius: '10px',
-                                        backgroundColor: 'rgba(139, 92, 246, 0.12)',
+                                        backgroundColor: bgColor,
                                         display: 'flex',
                                         flexDirection: 'column',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        color: '#a78bfa',
+                                        color: accentColor,
                                         fontWeight: 800
                                       }}>
                                         <span style={{ fontSize: '1.15rem', lineHeight: 1 }}>{sObj.getDate()}</span>
@@ -6920,19 +6939,19 @@ function App() {
 
                                       {/* Info Box */}
                                       <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px', flexWrap: 'wrap' }}>
                                           <div style={{ fontWeight: 700, fontSize: '0.92rem', color: 'var(--text-light)' }}>
-                                            {l.leave_type} Leave (Approved)
+                                            {l.leave_type} Leave
                                           </div>
-                                          <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(139, 92, 246, 0.15)', color: '#c4b5fd', fontWeight: 600 }}>
-                                            ✉️ Personal Leave
+                                          <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', backgroundColor: badgeBg, color: badgeColor, fontWeight: 600 }}>
+                                            {isApproved ? '✅ Approved' : '❌ Rejected'}
                                           </span>
                                         </div>
                                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                                           {sObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – {eObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                                         </div>
                                         <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '3px' }}>
-                                          {l.reason || 'Personal leave filed & approved'}
+                                          {l.reason || (isApproved ? 'Personal leave filed & approved' : 'Leave application rejected')}
                                         </div>
                                       </div>
                                     </div>
