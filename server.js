@@ -7315,7 +7315,7 @@ app.get('/api/holidays', async (req, res) => {
   try {
     let query, params;
     if (req.user.vendor_id) {
-      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE vendor_id = ? ORDER BY holiday_date';
+      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE (vendor_id = ? OR vendor_id IS NULL) ORDER BY holiday_date ASC';
       params = [req.user.vendor_id];
     } else {
       query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE vendor_id IS NULL ORDER BY holiday_date';

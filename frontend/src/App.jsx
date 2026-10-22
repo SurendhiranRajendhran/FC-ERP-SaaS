@@ -6440,30 +6440,498 @@ function App() {
 
                 {/* 5. HOLIDAY CALENDAR */}
                 {portalSubTab === 'holidays' && (
-                  <div>
-                    <div className="holiday-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '15px', marginTop: '20px' }}>
-                      {holidays.length > 0 ? holidays.map(h => (
-                        <div 
-                          key={h.id} 
-                          className="holiday-card" 
-                          title={h.description || h.name}
-                          style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '10px', borderLeft: `4px solid ${h.type === 'National' ? 'var(--accent-danger)' : h.type === 'Regional' ? 'var(--accent-warning)' : 'var(--accent-success)'}` }}
-                        >
-                          <h4 style={{ margin: '0 0 5px 0' }}>{h.name}</h4>
-                          <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '8px' }}>
-                            {new Date(h.holiday_date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                          </div>
-                          {h.description && (
-                            <div style={{ fontSize: '0.8rem', color: 'var(--text-light)', marginBottom: '8px', fontStyle: 'italic' }}>
-                              {h.description}
+                  <div className="holiday-calendar-portal" style={{ animation: 'fadeIn 0.2s ease-in' }}>
+                    {(() => {
+                      const stallName = !user?.vendor_id 
+                        ? 'Central Canteen' 
+                        : (vendors.find(v => v.id === user.vendor_id)?.name || `Stall #${user.vendor_id}`);
+
+                      const year = currentCalendarMonth.getFullYear();
+                      const month = currentCalendarMonth.getMonth();
+                      const firstDay = new Date(year, month, 1);
+                      const lastDay = new Date(year, month + 1, 0);
+                      const startDate = new Date(firstDay);
+                      startDate.setDate(startDate.getDate() - startDate.getDay());
+                      const endDate = new Date(lastDay);
+                      if (endDate.getDay() !== 6) endDate.setDate(endDate.getDate() + (6 - endDate.getDay()));
+
+                      const todayStr = new Date().toLocaleDateString('en-CA');
+
+                      // Holidays for current month
+                      const monthHolidays = holidays.filter(h => {
+                        const datePart = String(h.holiday_date).split('T')[0];
+                        const [y, m] = datePart.split('-').map(Number);
+                        return y === year && (m - 1) === month;
+                      });
+
+                      // Personal approved leaves for current month
+                      const myApprovedLeaves = leaves.filter(l => {
+                        if (l.staff_id !== user.id || l.status !== 'Approved') return false;
+                        const s = String(l.start_date).split('T')[0];
+                        const e = String(l.end_date).split('T')[0];
+                        const monthStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+                        const monthEnd = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`;
+                        return (s <= monthEnd && e >= monthStart);
+                      });
+
+                      const rows = [];
+                      let days = [];
+                      let day = new Date(startDate);
+
+                      while (day <= endDate) {
+                        for (let i = 0; i < 7; i++) {
+                          const currentDate = new Date(day);
+                          const dateStr = currentDate.toLocaleDateString('en-CA');
+                          const isCurrentMonth = currentDate.getMonth() === month;
+                          const isToday = dateStr === todayStr;
+                          const isSunday = currentDate.getDay() === 0;
+
+                          // Check if this date has a stall holiday marked by Stall Manager
+                          const holidayInfo = holidays.find(h => String(h.holiday_date).split('T')[0] === dateStr);
+
+                          // Check if staff has an approved personal leave on this date
+                          const userLeave = myApprovedLeaves.find(l => {
+                            const s = String(l.start_date).split('T')[0];
+                            const e = String(l.end_date).split('T')[0];
+                            return dateStr >= s && dateStr <= e;
+                          });
+
+                          const isLeaveDay = Boolean(holidayInfo || userLeave);
+
+                          days.push(
+                            <div
+                              key={dateStr}
+                              title={
+                                holidayInfo 
+                                  ? `🏖️ Stall Holiday: ${holidayInfo.name}${holidayInfo.description ? ' (' + holidayInfo.description + ')' : ''} — Marked by Stall Manager` 
+                                  : userLeave 
+                                    ? `✉️ Approved Leave: ${userLeave.leave_type} Leave (${userLeave.reason || 'Personal'})` 
+                                    : ''
+                              }
+                              style={{
+                                padding: '10px 8px',
+                                minHeight: '96px',
+                                border: '1px solid var(--border-light)',
+                                backgroundColor: holidayInfo
+                                  ? 'rgba(239, 68, 68, 0.10)'
+                                  : userLeave
+                                    ? 'rgba(139, 92, 246, 0.10)'
+                                    : isToday
+                                      ? 'rgba(59, 130, 246, 0.08)'
+                                      : isSunday && isCurrentMonth
+                                        ? 'rgba(255, 255, 255, 0.015)'
+                                        : isCurrentMonth
+                                          ? 'var(--bg-surface)'
+                                          : 'rgba(0, 0, 0, 0.03)',
+                                opacity: isCurrentMonth ? 1 : 0.38,
+                                position: 'relative',
+                                borderLeft: isToday 
+                                  ? '3px solid #3b82f6' 
+                                  : holidayInfo 
+                                    ? '3px solid #ef4444' 
+                                    : userLeave 
+                                      ? '3px solid #8b5cf6' 
+                                      : '1px solid var(--border-light)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'space-between',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              {/* Date Number Header */}
+                              <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                marginBottom: '6px'
+                              }}>
+                                <span style={{
+                                  fontWeight: isToday ? '700' : '600',
+                                  fontSize: '0.9rem',
+                                  color: isToday 
+                                    ? '#3b82f6' 
+                                    : isSunday && isCurrentMonth 
+                                      ? '#ef4444' 
+                                      : isCurrentMonth 
+                                        ? 'var(--text-light)' 
+                                        : 'var(--text-muted)',
+                                  backgroundColor: isToday ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                                  borderRadius: '50%',
+                                  width: '26px',
+                                  height: '26px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}>
+                                  {currentDate.getDate()}
+                                </span>
+
+                                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                  {isToday && (
+                                    <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '2px 5px', borderRadius: '4px', backgroundColor: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6' }}>TODAY</span>
+                                  )}
+                                  {isSunday && isCurrentMonth && !holidayInfo && (
+                                    <span style={{ fontSize: '0.62rem', color: '#ef4444', fontWeight: 600, opacity: 0.8 }}>OFF</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Event Badges */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: 'auto' }}>
+                                {holidayInfo && (
+                                  <div style={{
+                                    backgroundColor: 'rgba(239, 68, 68, 0.14)',
+                                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                                    borderRadius: '6px',
+                                    padding: '4px 6px',
+                                    lineHeight: '1.25'
+                                  }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px', marginBottom: '2px' }}>
+                                      <span style={{ fontSize: '0.62rem', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.4px', color: '#f87171' }}>
+                                        🏖️ Leave
+                                      </span>
+                                      <span style={{ fontSize: '0.58rem', color: '#fca5a5', opacity: 0.9 }}>
+                                        {holidayInfo.vendor_id ? 'Stall' : 'General'}
+                                      </span>
+                                    </div>
+                                    <div style={{
+                                      fontWeight: 600,
+                                      fontSize: '0.74rem',
+                                      color: '#fff',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap'
+                                    }}>
+                                      {holidayInfo.name}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {userLeave && (
+                                  <div style={{
+                                    backgroundColor: 'rgba(139, 92, 246, 0.14)',
+                                    border: '1px solid rgba(139, 92, 246, 0.35)',
+                                    borderRadius: '6px',
+                                    padding: '4px 6px',
+                                    lineHeight: '1.25'
+                                  }}>
+                                    <div style={{ fontSize: '0.62rem', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.4px', color: '#c4b5fd' }}>
+                                      ✉️ {userLeave.leave_type} Leave
+                                    </div>
+                                    <div style={{ fontSize: '0.72rem', color: '#e9d5ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {userLeave.reason || 'Approved'}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          )}
-                          <span className="badge badge-outline" style={{ fontSize: '0.75rem' }}>{h.type} Holiday</span>
-                        </div>
-                      )) : (
-                        <div className="empty-state" style={{ gridColumn: '1 / -1' }}>No upcoming holidays configured.</div>
-                      )}
-                    </div>
+                          );
+                          day.setDate(day.getDate() + 1);
+                        }
+                        rows.push(<div key={day.toISOString()} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>{days}</div>);
+                        days = [];
+                      }
+
+                      return (
+                        <>
+                          {/* Top Header Card */}
+                          <div className="panel-card" style={{ marginBottom: '20px', padding: '18px 22px', borderRadius: '12px', background: 'var(--bg-surface)', border: '1px solid var(--border-light)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-light)' }}>
+                                    🏖️ Holiday & Leave Calendar
+                                  </h3>
+                                  <span className="badge badge-primary" style={{ fontSize: '0.75rem', padding: '3px 8px' }}>
+                                    🏪 {stallName}
+                                  </span>
+                                </div>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                                  Holidays marked by your Stall Manager are officially highlighted as duty off / paid leave.
+                                </p>
+                              </div>
+
+                              {/* Month Navigation Controls */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <button
+                                  className="btn btn-outline-primary btn-small"
+                                  onClick={() => setCurrentCalendarMonth(new Date())}
+                                  title="Jump to Current Month"
+                                  style={{ padding: '6px 12px', fontSize: '0.82rem' }}
+                                >
+                                  Today
+                                </button>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                                  <button
+                                    className="btn btn-outline-primary btn-small"
+                                    onClick={() => setCurrentCalendarMonth(new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() - 1, 1))}
+                                    style={{ padding: '5px 10px', minWidth: '32px' }}
+                                  >
+                                    ‹
+                                  </button>
+                                  <span style={{ fontWeight: 700, minWidth: '140px', textAlign: 'center', fontSize: '0.95rem', color: 'var(--text-light)' }}>
+                                    {currentCalendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                                  </span>
+                                  <button
+                                    className="btn btn-outline-primary btn-small"
+                                    onClick={() => setCurrentCalendarMonth(new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() + 1, 1))}
+                                    style={{ padding: '5px 10px', minWidth: '32px' }}
+                                  >
+                                    ›
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Summary KPI Pills */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-light)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', backgroundColor: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                                <div style={{ fontSize: '1.4rem' }}>🏖️</div>
+                                <div>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Stall Holidays (Leave)</div>
+                                  <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f87171' }}>{monthHolidays.length} Days</div>
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', backgroundColor: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
+                                <div style={{ fontSize: '1.4rem' }}>✉️</div>
+                                <div>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Approved Leaves</div>
+                                  <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#a78bfa' }}>{myApprovedLeaves.length} Recorded</div>
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', backgroundColor: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                <div style={{ fontSize: '1.4rem' }}>💼</div>
+                                <div>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Working Schedule</div>
+                                  <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#34d399' }}>Active Shift Duty</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Main Calendar View Container */}
+                          <div style={{ border: '1px solid var(--border-light)', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 14px rgba(0,0,0,0.12)', backgroundColor: 'var(--bg-app)' }}>
+                            {/* Day Name Header Row */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', backgroundColor: 'var(--bg-surface)', borderBottom: '2px solid var(--border-light)' }}>
+                              {[
+                                { name: 'Sunday', short: 'Sun', off: true },
+                                { name: 'Monday', short: 'Mon' },
+                                { name: 'Tuesday', short: 'Tue' },
+                                { name: 'Wednesday', short: 'Wed' },
+                                { name: 'Thursday', short: 'Thu' },
+                                { name: 'Friday', short: 'Fri' },
+                                { name: 'Saturday', short: 'Sat' }
+                              ].map((d, idx) => (
+                                <div
+                                  key={d.short}
+                                  style={{
+                                    padding: '12px 6px',
+                                    textAlign: 'center',
+                                    fontWeight: 700,
+                                    fontSize: '0.82rem',
+                                    letterSpacing: '0.6px',
+                                    textTransform: 'uppercase',
+                                    color: d.off ? '#ef4444' : 'var(--text-muted)',
+                                    backgroundColor: d.off ? 'rgba(239, 68, 68, 0.04)' : 'transparent'
+                                  }}
+                                >
+                                  {d.short}
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Calendar Days Body */}
+                            <div>{rows}</div>
+                          </div>
+
+                          {/* Legend & Schedule Notes */}
+                          <div style={{
+                            marginTop: '20px',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '16px',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '12px 18px',
+                            backgroundColor: 'var(--bg-surface)',
+                            borderRadius: '10px',
+                            border: '1px solid var(--border-light)',
+                            fontSize: '0.82rem'
+                          }}>
+                            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ width: '14px', height: '14px', borderRadius: '4px', backgroundColor: 'rgba(239, 68, 68, 0.2)', border: '2px solid #ef4444' }}></div>
+                                <span style={{ fontWeight: 600, color: 'var(--text-light)' }}>Stall Holiday (Leave)</span>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ width: '14px', height: '14px', borderRadius: '4px', backgroundColor: 'rgba(139, 92, 246, 0.2)', border: '2px solid #8b5cf6' }}></div>
+                                <span style={{ fontWeight: 600, color: 'var(--text-light)' }}>My Approved Leave</span>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ width: '14px', height: '14px', borderRadius: '4px', backgroundColor: 'rgba(59, 130, 246, 0.2)', border: '2px solid #3b82f6' }}></div>
+                                <span style={{ fontWeight: 600, color: 'var(--text-light)' }}>Today</span>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700, padding: '1px 5px', borderRadius: '3px', backgroundColor: 'rgba(239,68,68,0.1)' }}>OFF</span>
+                                <span style={{ color: 'var(--text-muted)' }}>Sunday Weekly Off</span>
+                              </div>
+                            </div>
+
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                              🔒 Managed by Stall Manager ({stallName})
+                            </div>
+                          </div>
+
+                          {/* List View of Holidays & Leaves for Selected Month */}
+                          <div style={{ marginTop: '24px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                              <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                📋 Detailed Leave & Holiday List — {currentCalendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                              </h4>
+                              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                {monthHolidays.length + myApprovedLeaves.length} scheduled event(s)
+                              </span>
+                            </div>
+
+                            {monthHolidays.length === 0 && myApprovedLeaves.length === 0 ? (
+                              <div style={{
+                                padding: '30px',
+                                textAlign: 'center',
+                                backgroundColor: 'var(--bg-surface)',
+                                borderRadius: '10px',
+                                border: '1px dashed var(--border-light)',
+                                color: 'var(--text-muted)',
+                                fontSize: '0.9rem'
+                              }}>
+                                🌴 No holidays or approved leaves scheduled for {currentCalendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}. Regular work schedule applies.
+                              </div>
+                            ) : (
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
+                                {monthHolidays.map(h => {
+                                  const dateObj = new Date(String(h.holiday_date).split('T')[0] + 'T00:00:00');
+                                  return (
+                                    <div
+                                      key={`h-${h.id}`}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '14px',
+                                        padding: '14px 18px',
+                                        backgroundColor: 'var(--bg-surface)',
+                                        borderRadius: '10px',
+                                        border: '1px solid var(--border-light)',
+                                        borderLeft: '4px solid #ef4444',
+                                        boxShadow: '0 2px 6px rgba(0,0,0,0.06)'
+                                      }}
+                                    >
+                                      {/* Date Box */}
+                                      <div style={{
+                                        minWidth: '48px',
+                                        height: '48px',
+                                        borderRadius: '10px',
+                                        backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: '#f87171',
+                                        fontWeight: 800
+                                      }}>
+                                        <span style={{ fontSize: '1.15rem', lineHeight: 1 }}>{dateObj.getDate()}</span>
+                                        <span style={{ fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                          {dateObj.toLocaleString('default', { month: 'short' })}
+                                        </span>
+                                      </div>
+
+                                      {/* Info Box */}
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                                          <div style={{ fontWeight: 700, fontSize: '0.92rem', color: 'var(--text-light)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {h.name}
+                                          </div>
+                                          <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(239,68,68,0.12)', color: '#f87171', fontWeight: 600 }}>
+                                            🏖️ Leave
+                                          </span>
+                                        </div>
+                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                          {dateObj.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '3px' }}>
+                                          {h.description ? h.description : (h.vendor_id ? `Marked by ${stallName} Manager` : 'Food Court Common Holiday')}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+
+                                {myApprovedLeaves.map(l => {
+                                  const sObj = new Date(String(l.start_date).split('T')[0] + 'T00:00:00');
+                                  const eObj = new Date(String(l.end_date).split('T')[0] + 'T00:00:00');
+                                  return (
+                                    <div
+                                      key={`l-${l.id}`}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '14px',
+                                        padding: '14px 18px',
+                                        backgroundColor: 'var(--bg-surface)',
+                                        borderRadius: '10px',
+                                        border: '1px solid var(--border-light)',
+                                        borderLeft: '4px solid #8b5cf6',
+                                        boxShadow: '0 2px 6px rgba(0,0,0,0.06)'
+                                      }}
+                                    >
+                                      {/* Date Box */}
+                                      <div style={{
+                                        minWidth: '48px',
+                                        height: '48px',
+                                        borderRadius: '10px',
+                                        backgroundColor: 'rgba(139, 92, 246, 0.12)',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: '#a78bfa',
+                                        fontWeight: 800
+                                      }}>
+                                        <span style={{ fontSize: '1.15rem', lineHeight: 1 }}>{sObj.getDate()}</span>
+                                        <span style={{ fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                          {sObj.toLocaleString('default', { month: 'short' })}
+                                        </span>
+                                      </div>
+
+                                      {/* Info Box */}
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                                          <div style={{ fontWeight: 700, fontSize: '0.92rem', color: 'var(--text-light)' }}>
+                                            {l.leave_type} Leave (Approved)
+                                          </div>
+                                          <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(139, 92, 246, 0.15)', color: '#c4b5fd', fontWeight: 600 }}>
+                                            ✉️ Personal Leave
+                                          </span>
+                                        </div>
+                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                          {sObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – {eObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '3px' }}>
+                                          {l.reason || 'Personal leave filed & approved'}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
 
