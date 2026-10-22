@@ -2551,12 +2551,16 @@ function App() {
   useEffect(() => {
     // Number of days in the selected month (using day 0 of the next month)
     const daysInMonth = new Date(payrollYear, payrollMonth, 0).getDate();
-    // Count how many holidays fall in this selected month and year
-    const holidaysInMonth = holidays.filter(h => {
-      if (!h.holiday_date) return false;
+    // Count how many unique holidays fall in this selected month and year
+    const uniqueHolidayDates = new Set();
+    holidays.forEach(h => {
+      if (!h.holiday_date) return;
       const d = new Date(h.holiday_date);
-      return (d.getMonth() + 1) === payrollMonth && d.getFullYear() === payrollYear;
-    }).length;
+      if ((d.getMonth() + 1) === payrollMonth && d.getFullYear() === payrollYear) {
+        uniqueHolidayDates.add(String(h.holiday_date).split('T')[0]);
+      }
+    });
+    const holidaysInMonth = uniqueHolidayDates.size;
     
     setPayrollWorkingDays((daysInMonth - holidaysInMonth).toString());
   }, [payrollMonth, payrollYear, holidays]);
@@ -6457,12 +6461,20 @@ function App() {
 
                       const todayStr = new Date().toLocaleDateString('en-CA');
 
-                      // Holidays for current month
-                      const monthHolidays = holidays.filter(h => {
+                      // Holidays for current month (strictly deduplicated by unique date)
+                      const rawMonthHolidays = holidays.filter(h => {
                         const datePart = String(h.holiday_date).split('T')[0];
                         const [y, m] = datePart.split('-').map(Number);
                         return y === year && (m - 1) === month;
                       });
+                      const holidayMapByDate = new Map();
+                      rawMonthHolidays.forEach(h => {
+                        const d = String(h.holiday_date).split('T')[0];
+                        holidayMapByDate.set(d, h);
+                      });
+                      const monthHolidays = Array.from(holidayMapByDate.values()).sort((a, b) =>
+                        String(a.holiday_date).localeCompare(String(b.holiday_date))
+                      );
 
                       // Personal approved leaves for current month
                       const myApprovedLeaves = leaves.filter(l => {
@@ -11621,10 +11633,15 @@ function App() {
                     return;
                   }
                   try {
-                    const url = holidayModal.id 
-                      ? `${API_BASE}/holidays/${holidayModal.id}` 
+                    let targetId = holidayModal.id;
+                    if (!targetId) {
+                      const existing = holidays.find(h => String(h.holiday_date).split('T')[0] === holidayModal.date);
+                      if (existing) targetId = existing.id;
+                    }
+                    const url = targetId 
+                      ? `${API_BASE}/holidays/${targetId}` 
                       : `${API_BASE}/holidays`;
-                    const method = holidayModal.id ? 'PUT' : 'POST';
+                    const method = targetId ? 'PUT' : 'POST';
                     const res = await fetch(url, {
                       method,
                       headers: { 'Content-Type': 'application/json' },

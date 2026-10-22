@@ -238,7 +238,7 @@ crm.setPool(pool);
       console.log("Migration: Created coupons table.");
     }
 
-    // 4. Ensure holidays table has description column
+    // 4. Ensure holidays table has description column & heal any duplicate holiday dates per vendor/tenant
     const [hTables] = await conn.query("SHOW TABLES LIKE 'holidays'");
     if (hTables.length > 0) {
       const [descCols] = await conn.query("SHOW COLUMNS FROM holidays LIKE 'description'");
@@ -246,6 +246,16 @@ crm.setPool(pool);
         await conn.query("ALTER TABLE holidays ADD COLUMN description TEXT NULL DEFAULT NULL");
         console.log("Migration: Added description column to holidays table.");
       }
+      // Deduplicate any accidental duplicate holidays across tenants and stalls, keeping the latest entry per (tenant_id, vendor_id, holiday_date)
+      await conn.query(`
+        DELETE h1 FROM holidays h1
+        INNER JOIN holidays h2 
+        WHERE h1.id < h2.id 
+          AND h1.holiday_date = h2.holiday_date 
+          AND (h1.vendor_id = h2.vendor_id OR (h1.vendor_id IS NULL AND h2.vendor_id IS NULL))
+          AND (h1.tenant_id = h2.tenant_id OR (h1.tenant_id IS NULL AND h2.tenant_id IS NULL))
+      `);
+      console.log("Migration: Deduplicated holidays table ensuring one record per date per stall/tenant.");
     }
 
     // 5. Ensure staff table has staff_meal_limit and staff_meal_auto_reset
@@ -7333,14 +7343,21 @@ app.get('/api/holidays', async (req, res) => {
       params = [];
     }
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+
+    // Deduplicate in response by holiday_date as defense-in-depth, keeping the latest entry
+    const holidayMap = new Map();
+    for (const row of rows) {
+      holidayMap.set(row.holiday_date, row);
+    }
+    const deduplicated = Array.from(holidayMap.values()).sort((a, b) => a.holiday_date.localeCompare(b.holiday_date));
+    res.json(deduplicated);
   } catch (error) {
     console.error('Error fetching holidays:', error);
     res.status(500).json({ error: 'Failed to fetch holidays' });
   }
 });
 
-// Add holiday (scoped by vendor_id)
+// Add or update holiday (scoped by vendor_id, upsert to prevent duplicates on same date)
 app.post('/api/holidays', async (req, res) => {
   const { holiday_date, name, is_recurring, description } = req.body;
   if (!holiday_date || !name) {
@@ -7348,11 +7365,31 @@ app.post('/api/holidays', async (req, res) => {
   }
   try {
     const assignedVendorId = req.user.vendor_id || null;
-    await pool.query(
-      'INSERT INTO holidays (holiday_date, name, is_recurring, vendor_id, description) VALUES (?, ?, ?, ?, ?)',
-      [holiday_date, name, is_recurring ? 1 : 0, assignedVendorId, description || null]
+    const assignedTenantId = req.user.tenant_id || 1;
+
+    let checkQuery, checkParams;
+    if (assignedVendorId) {
+      checkQuery = 'SELECT id FROM holidays WHERE holiday_date = ? AND vendor_id = ? AND tenant_id = ?';
+      checkParams = [holiday_date, assignedVendorId, assignedTenantId];
+    } else {
+      checkQuery = 'SELECT id FROM holidays WHERE holiday_date = ? AND vendor_id IS NULL AND tenant_id = ?';
+      checkParams = [holiday_date, assignedTenantId];
+    }
+    const [existing] = await pool.query(checkQuery, checkParams);
+
+    if (existing.length > 0) {
+      await pool.query(
+        'UPDATE holidays SET name = ?, is_recurring = ?, description = ? WHERE id = ?',
+        [name, is_recurring ? 1 : 0, description || null, existing[0].id]
+      );
+      return res.status(200).json({ success: true, message: 'Holiday updated successfully.', id: existing[0].id });
+    }
+
+    const [result] = await pool.query(
+      'INSERT INTO holidays (holiday_date, name, is_recurring, vendor_id, description, tenant_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [holiday_date, name, is_recurring ? 1 : 0, assignedVendorId, description || null, assignedTenantId]
     );
-    res.status(201).json({ success: true, message: 'Holiday added successfully.' });
+    res.status(201).json({ success: true, message: 'Holiday added successfully.', id: result.insertId });
   } catch (error) {
     console.error('Error adding holiday:', error);
     res.status(500).json({ error: 'Failed to add holiday' });
@@ -7362,18 +7399,41 @@ app.post('/api/holidays', async (req, res) => {
 // Update holiday (scoped by vendor_id)
 app.put('/api/holidays/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, holiday_date, description } = req.body;
+  const { name, holiday_date, description, is_recurring } = req.body;
   if (!holiday_date || !name) {
     return res.status(400).json({ error: 'holiday_date and name are required.' });
   }
   try {
-    let query, params;
-    if (req.user.vendor_id) {
-      query = 'UPDATE holidays SET name = ?, holiday_date = ?, description = ? WHERE id = ? AND vendor_id = ?';
-      params = [name, holiday_date, description || null, id, req.user.vendor_id];
+    const assignedVendorId = req.user.vendor_id || null;
+    const assignedTenantId = req.user.tenant_id || 1;
+
+    // Check if another holiday record already exists for the target date
+    let conflictQuery, conflictParams;
+    if (assignedVendorId) {
+      conflictQuery = 'SELECT id FROM holidays WHERE holiday_date = ? AND vendor_id = ? AND tenant_id = ? AND id != ?';
+      conflictParams = [holiday_date, assignedVendorId, assignedTenantId, id];
     } else {
-      query = 'UPDATE holidays SET name = ?, holiday_date = ?, description = ? WHERE id = ? AND vendor_id IS NULL';
-      params = [name, holiday_date, description || null, id];
+      conflictQuery = 'SELECT id FROM holidays WHERE holiday_date = ? AND vendor_id IS NULL AND tenant_id = ? AND id != ?';
+      conflictParams = [holiday_date, assignedTenantId, id];
+    }
+    const [conflicts] = await pool.query(conflictQuery, conflictParams);
+    if (conflicts.length > 0) {
+      // Merge into the target date record and delete this record
+      await pool.query(
+        'UPDATE holidays SET name = ?, description = ?, is_recurring = ? WHERE id = ?',
+        [name, description || null, is_recurring ? 1 : 0, conflicts[0].id]
+      );
+      await pool.query('DELETE FROM holidays WHERE id = ?', [id]);
+      return res.json({ success: true, message: 'Holiday updated and merged successfully.', id: conflicts[0].id });
+    }
+
+    let query, params;
+    if (assignedVendorId) {
+      query = 'UPDATE holidays SET name = ?, holiday_date = ?, description = ?, is_recurring = ? WHERE id = ? AND vendor_id = ?';
+      params = [name, holiday_date, description || null, is_recurring ? 1 : 0, id, assignedVendorId];
+    } else {
+      query = 'UPDATE holidays SET name = ?, holiday_date = ?, description = ?, is_recurring = ? WHERE id = ? AND vendor_id IS NULL';
+      params = [name, holiday_date, description || null, is_recurring ? 1 : 0, id];
     }
     await pool.query(query, params);
     res.json({ success: true, message: 'Holiday updated successfully.' });
