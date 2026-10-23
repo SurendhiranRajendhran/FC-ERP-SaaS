@@ -2896,6 +2896,91 @@ function App() {
     }
   };
 
+  // Helper to dynamically calculate working schedule / active shift status for a staff member
+  const getStaffWorkingSchedule = (targetDateStr) => {
+    const dateStr = targetDateStr || new Date().toLocaleDateString('en-CA');
+    const rosterEntry = roster.find(r => r.staff_id === user?.id && String(r.roster_date || '').split('T')[0] === dateStr);
+    const myWeeklyShifts = roster.filter(r => r.staff_id === user?.id && r.status !== 'Off');
+
+    const formatTimeStr = (t) => {
+      if (!t) return '';
+      const parts = t.split(':');
+      if (parts.length < 2) return t;
+      let hour = parseInt(parts[0], 10);
+      const minute = parts[1];
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      hour = hour % 12 || 12;
+      return `${hour}:${minute} ${ampm}`;
+    };
+
+    if (rosterEntry) {
+      if (rosterEntry.status === 'Off') {
+        return {
+          hasShift: false,
+          isOff: true,
+          title: 'Scheduled Off',
+          shiftName: 'Weekly Off',
+          timing: 'Rest Day / Duty Off',
+          statusLabel: 'Duty Off',
+          subtitle: 'Scheduled Rest Day',
+          icon: '🏖️',
+          color: '#fbbf24',
+          bg: 'rgba(245, 158, 11, 0.08)',
+          borderColor: 'rgba(245, 158, 11, 0.25)'
+        };
+      }
+      const shiftObj = shifts.find(s => s.id === rosterEntry.shift_id) || {};
+      const shiftName = rosterEntry.shift_name || shiftObj.name || 'Assigned Shift';
+      const startTime = rosterEntry.start_time || shiftObj.start_time;
+      const endTime = rosterEntry.end_time || shiftObj.end_time;
+      const timeDisplay = (startTime && endTime) ? `${formatTimeStr(startTime)} – ${formatTimeStr(endTime)}` : '';
+
+      return {
+        hasShift: true,
+        isOff: false,
+        title: timeDisplay ? `${shiftName} (${timeDisplay})` : shiftName,
+        shiftName,
+        timing: timeDisplay,
+        statusLabel: 'Active Shift Duty',
+        subtitle: timeDisplay ? `Duty Hours: ${timeDisplay}` : 'Active Shift Duty',
+        icon: '💼',
+        color: '#34d399',
+        bg: 'rgba(16, 185, 129, 0.08)',
+        borderColor: 'rgba(16, 185, 129, 0.25)'
+      };
+    }
+
+    if (myWeeklyShifts.length > 0) {
+      return {
+        hasShift: false,
+        isOff: false,
+        title: 'No Shift Today',
+        shiftName: 'Off Duty Today',
+        timing: `${myWeeklyShifts.length} shift(s) scheduled this week`,
+        statusLabel: 'Off Duty Today',
+        subtitle: `${myWeeklyShifts.length} Shift(s) Scheduled this week`,
+        icon: '💼',
+        color: '#60a5fa',
+        bg: 'rgba(59, 130, 246, 0.08)',
+        borderColor: 'rgba(59, 130, 246, 0.25)'
+      };
+    }
+
+    return {
+      hasShift: false,
+      isOff: false,
+      title: 'No Shift Assigned',
+      shiftName: 'No Shift Assigned',
+      timing: 'Not scheduled in roster',
+      statusLabel: 'No Shift Assigned',
+      subtitle: 'Not scheduled in roster',
+      icon: '⚪',
+      color: '#94a3b8',
+      bg: 'rgba(148, 163, 184, 0.08)',
+      borderColor: 'rgba(148, 163, 184, 0.2)'
+    };
+  };
+
   const fetchAttendance = async (date) => {
     try {
       const res = await fetch(`${API_BASE}/attendance?date=${date}`);
@@ -6063,11 +6148,19 @@ function App() {
                     className={`hr-sub-tab ${portalSubTab === key ? 'active' : ''}`}
                     onClick={() => {
                       setPortalSubTab(key);
-                      if (key === 'attendance') fetchAttendance(selectedAttendanceDate);
+                      if (key === 'attendance') {
+                        fetchAttendance(selectedAttendanceDate);
+                        fetchRoster(getMonday(selectedAttendanceDate));
+                        fetchShifts();
+                      }
                       if (key === 'roster') fetchRoster(actualRosterWeek);
                       if (key === 'swaps') fetchShiftSwaps();
                       if (key === 'leaves') fetchLeaves();
-                      if (key === 'holidays') fetchHolidays();
+                      if (key === 'holidays') {
+                        fetchHolidays();
+                        fetchRoster(actualRosterWeek);
+                        fetchShifts();
+                      }
                       if (key === 'payslips') fetchPayroll(payrollMonth, payrollYear);
                     }}
                   >
@@ -6084,7 +6177,17 @@ function App() {
                     <div className="view-header-bar" style={{ marginBottom: '20px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <label style={{ fontWeight: 600 }}>Date:</label>
-                        <input type="date" className="attendance-date-input" value={selectedAttendanceDate} onChange={e => setSelectedAttendanceDate(e.target.value)} />
+                        <input
+                          type="date"
+                          className="attendance-date-input"
+                          value={selectedAttendanceDate}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setSelectedAttendanceDate(val);
+                            const mon = getMonday(val);
+                            if (mon) fetchRoster(mon);
+                          }}
+                        />
 
                         {holidays.find(h => (h.holiday_date || h.date || '').split('T')[0] === selectedAttendanceDate) && (
                           <span style={{ backgroundColor: 'rgba(220, 53, 69, 0.1)', color: '#dc3545', padding: '6px 12px', borderRadius: '4px', fontWeight: '600', border: '1px solid rgba(220,53,69,0.3)', fontSize: '13px' }}>
@@ -6095,56 +6198,119 @@ function App() {
                     </div>
                     
                     <div className="attendance-layout" style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                      {/* Left: Quick checkin for today */}
-                      {selectedAttendanceDate === new Date().toLocaleDateString('en-CA') && (
-                        <div style={{ flex: 1, minWidth: '400px', background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                          <h4 style={{ margin: '0 0 15px 0' }}>🍳 My Check-in Desk</h4>
-                          <div className="quick-checkin-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {staff.filter(s => s.id === user.id).map(member => {
-                              const rec = attendance.find(a => a.staff_id === member.id);
-                              return (
-                                <div key={member.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
-                                  <div>
-                                    <strong style={{ display: 'block' }}>{member.name}</strong>
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{member.role}</span>
+                      {/* Left Column: Working Schedule & My Check-in Desk */}
+                      <div style={{ flex: 1, minWidth: '380px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                        {/* 1. Working Schedule / Active Shift Duty Section */}
+                        {(() => {
+                          const scheduleInfo = getStaffWorkingSchedule(selectedAttendanceDate);
+                          return (
+                            <div style={{
+                              background: 'var(--bg-surface)',
+                              padding: '18px 20px',
+                              borderRadius: '12px',
+                              border: '1px solid var(--border-light)',
+                              borderLeft: `4px solid ${scheduleInfo.color}`,
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span style={{ fontSize: '1.25rem' }}>{scheduleInfo.icon}</span>
+                                  <h4 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-light)' }}>
+                                    Working Schedule
+                                  </h4>
+                                </div>
+                                <span style={{
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  backgroundColor: scheduleInfo.bg,
+                                  color: scheduleInfo.color,
+                                  border: `1px solid ${scheduleInfo.borderColor}`
+                                }}>
+                                  {scheduleInfo.statusLabel}
+                                </span>
+                              </div>
+
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                padding: '12px 14px',
+                                borderRadius: '8px',
+                                backgroundColor: scheduleInfo.bg,
+                                border: `1px solid ${scheduleInfo.borderColor}`
+                              }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: '1.08rem', fontWeight: 700, color: scheduleInfo.color }}>
+                                    {scheduleInfo.hasShift ? scheduleInfo.shiftName : scheduleInfo.title}
                                   </div>
-                                  <div>
-                                    {!rec ? (
-                                      <button className="btn btn-success btn-small" onClick={() => {
-                                        const todayStr = new Date().toLocaleDateString('en-CA');
-                                        const rosterEntry = roster.find(r => r.staff_id === member.id && r.roster_date.split('T')[0] === todayStr);
-                                        const shiftId = rosterEntry && rosterEntry.status !== 'Off' ? rosterEntry.shift_id : null;
-                                        handleCheckIn(member.id, shiftId, 'Self check-in');
-                                      }}>▶ Check In</button>
-                                    ) : !rec.check_out && rec.status !== 'Absent' ? (
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>In: {new Date(rec.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                        <button className="btn btn-outline-danger btn-small" onClick={() => handleCheckOut(rec.id)}>■ Check Out</button>
-                                      </div>
-                                    ) : (
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: rec.status === 'Absent' ? 'var(--accent-danger)' : 'var(--accent-success)' }}>
-                                          {rec.status === 'Absent' ? ' Absent' : '✓ Completed'}
-                                        </span>
-                                        {rec.notes && rec.notes.includes('Short Shift') && (
-                                          <span className="badge badge-short-shift" style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
-                                            ⚠️ {rec.notes.match(/Short Shift\s*\([^)]+\)/i)?.[0] || 'Short Shift'}
-                                          </span>
-                                        )}
-                                        {rec.notes && rec.notes.includes('Not Checked Out Manually') && (
-                                          <span className="badge" style={{ background: 'rgba(100, 116, 139, 0.2)', color: '#94a3b8', border: '1px solid rgba(100, 116, 139, 0.3)', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
-                                            ⏱️ Auto Check-out
-                                          </span>
-                                        )}
-                                      </div>
-                                    )}
+                                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                    {scheduleInfo.hasShift
+                                      ? (scheduleInfo.timing ? `Scheduled Duty Hours: ${scheduleInfo.timing}` : 'Active Shift Scheduled')
+                                      : scheduleInfo.subtitle}
                                   </div>
                                 </div>
-                              );
-                            })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* 2. My Check-in Desk Section */}
+                        {selectedAttendanceDate === new Date().toLocaleDateString('en-CA') ? (
+                          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                            <h4 style={{ margin: '0 0 15px 0' }}>🍳 My Check-in Desk</h4>
+                            <div className="quick-checkin-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                              {staff.filter(s => s.id === user.id).map(member => {
+                                const rec = attendance.find(a => a.staff_id === member.id);
+                                return (
+                                  <div key={member.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                                    <div>
+                                      <strong style={{ display: 'block' }}>{member.name}</strong>
+                                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{member.role}</span>
+                                    </div>
+                                    <div>
+                                      {!rec ? (
+                                        <button className="btn btn-success btn-small" onClick={() => {
+                                          const todayStr = new Date().toLocaleDateString('en-CA');
+                                          const rosterEntry = roster.find(r => r.staff_id === member.id && r.roster_date.split('T')[0] === todayStr);
+                                          const shiftId = rosterEntry && rosterEntry.status !== 'Off' ? rosterEntry.shift_id : null;
+                                          handleCheckIn(member.id, shiftId, 'Self check-in');
+                                        }}>▶ Check In</button>
+                                      ) : !rec.check_out && rec.status !== 'Absent' ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>In: {new Date(rec.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                          <button className="btn btn-outline-danger btn-small" onClick={() => handleCheckOut(rec.id)}>■ Check Out</button>
+                                        </div>
+                                      ) : (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: rec.status === 'Absent' ? 'var(--accent-danger)' : 'var(--accent-success)' }}>
+                                            {rec.status === 'Absent' ? ' Absent' : '✓ Completed'}
+                                          </span>
+                                          {rec.notes && rec.notes.includes('Short Shift') && (
+                                            <span className="badge badge-short-shift" style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                                              ⚠️ {rec.notes.match(/Short Shift\s*\([^)]+\)/i)?.[0] || 'Short Shift'}
+                                            </span>
+                                          )}
+                                          {rec.notes && rec.notes.includes('Not Checked Out Manually') && (
+                                            <span className="badge" style={{ background: 'rgba(100, 116, 139, 0.2)', color: '#94a3b8', border: '1px solid rgba(100, 116, 139, 0.3)', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+                                              ⏱️ Auto Check-out
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        ) : (
+                          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                            ℹ️ My Check-in Desk is active for today ({new Date().toLocaleDateString('en-CA')}). Viewing records for {selectedAttendanceDate}.
+                          </div>
+                        )}
+                      </div>
 
                       {/* Right: Attendance history table */}
                       <div style={{ flex: 2, minWidth: '600px' }}>
@@ -6724,13 +6890,23 @@ function App() {
                                 </div>
                               </div>
 
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', backgroundColor: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                                <div style={{ fontSize: '1.4rem' }}>💼</div>
-                                <div>
-                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Working Schedule</div>
-                                  <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#34d399' }}>Active Shift Duty</div>
-                                </div>
-                              </div>
+                              {(() => {
+                                const scheduleInfo = getStaffWorkingSchedule(todayStr);
+                                return (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', backgroundColor: scheduleInfo.bg, border: `1px solid ${scheduleInfo.borderColor}` }}>
+                                    <div style={{ fontSize: '1.4rem' }}>{scheduleInfo.icon}</div>
+                                    <div style={{ minWidth: 0 }}>
+                                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Working Schedule</div>
+                                      <div style={{ fontSize: '1.08rem', fontWeight: 700, color: scheduleInfo.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {scheduleInfo.hasShift ? scheduleInfo.shiftName : scheduleInfo.title}
+                                      </div>
+                                      <div style={{ fontSize: '0.72rem', color: scheduleInfo.color, opacity: 0.88, fontWeight: 500 }}>
+                                        {scheduleInfo.hasShift ? (scheduleInfo.timing ? `${scheduleInfo.timing} • ${scheduleInfo.statusLabel}` : scheduleInfo.statusLabel) : scheduleInfo.subtitle}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
 
