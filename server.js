@@ -70,8 +70,8 @@ app.use((req, res, next) => {
     const timeRegex = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
     const pinRegex = /^\d{4,8}$/;
 
-    const emailFields = ['email', 'owner_email', 'custom_email'];
-    const phoneFields = ['phone', 'customer_phone', 'contact', 'contact_phone'];
+    const emailFields = ['email', 'owner_email', 'custom_email', 'manager_email'];
+    const phoneFields = ['phone', 'customer_phone', 'contact', 'contact_phone', 'manager_phone'];
     const gstFields = ['gstin', 'gst_no'];
     const bankFields = ['bank_account', 'account_number', 'bank_account_no'];
     const timeFields = ['start_time', 'end_time'];
@@ -350,6 +350,25 @@ crm.setPool(pool);
       }
     }
     
+    // 13. Ensure all Managers and Owners are excluded from operational metrics (payroll, roster, attendance, performance)
+    // and Stall Managers have zero wage/tds fields
+    await conn.query(`
+      UPDATE staff
+      SET exclude_from_payroll = 1,
+          exclude_from_roster = 1,
+          exclude_from_attendance = 1,
+          exclude_from_performance = 1
+      WHERE role IN ('Manager', 'Owner')
+    `);
+    await conn.query(`
+      UPDATE staff
+      SET monthly_salary = 0,
+          daily_rate = 0,
+          tds_percentage = 0
+      WHERE role = 'Manager' AND vendor_id IS NOT NULL
+    `);
+    console.log("Migration: Ensured Managers and Owners are excluded from operational metrics and stall managers have zero wage fields.");
+
     conn.release();
   } catch (err) {
     console.error("Migration error on startup:", err.message);
@@ -605,6 +624,8 @@ app.use('/api/payroll', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Coo
 app.use('/api/payslip', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
 app.use('/api/staff-meals', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
 app.use('/api/performance', authorizeRoles('Owner', 'Manager'));
+app.use('/api/stall-managers', authorizeRoles('Owner', 'Manager', 'Super Admin'));
+app.use('/api/staff/me/profile', authorizeRoles('All'));
 
 app.use('/api/inventory', authorizeRoles('Owner', 'Manager', 'Cook'));
 app.use('/api/reports', authorizeRoles('Owner', 'Manager'));
@@ -2760,36 +2781,141 @@ app.get('/api/orders', async (req, res) => {
 // 8. MULTI-VENDOR MANAGEMENT APIS
 // ==========================================
 
-// Get all vendors
+// Get all vendors (with linked manager info)
 app.get('/api/vendors', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM vendors ORDER BY name');
+    const tenantId = req.user ? req.user.tenant_id : null;
+    let query = `
+      SELECT v.*,
+             m.id as manager_id,
+             m.name as manager_name,
+             m.email as manager_email,
+             m.phone as manager_phone,
+             m.is_active as manager_is_active
+      FROM vendors v
+      LEFT JOIN staff m ON m.vendor_id = v.id AND m.role = 'Manager'
+    `;
+    const params = [];
+    if (tenantId) {
+      query += ' WHERE (v.tenant_id = ? OR v.tenant_id IS NULL)';
+      params.push(tenantId);
+    }
+    query += ' ORDER BY v.name';
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
+    console.error('Failed to fetch vendors:', error);
     res.status(500).json({ error: 'Failed to fetch vendors' });
   }
 });
 
-// Add a vendor
+// Add a vendor with atomic manager onboarding
 app.post('/api/vendors', async (req, res) => {
-  const { name, gstin, bank_account, contact, stall_number, commission_rate, share_area } = req.body;
-  if (!name) {
-    return res.status(400).json({ error: 'Vendor name is required.' });
+  if (req.user && req.user.vendor_id) {
+    return res.status(403).json({ error: 'Only Central Admin can register new stalls.' });
   }
+  const {
+    name, gstin, bank_account, contact, stall_number, commission_rate, share_area,
+    manager_name, manager_phone, manager_email, manager_password
+  } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Vendor stall name is required.' });
+  }
+
+  const tenantId = req.user ? req.user.tenant_id : null;
+  const conn = await pool.getConnection();
+
   try {
-    const [result] = await pool.query(
-      `INSERT INTO vendors (name, gstin, bank_account, contact, stall_number, commission_rate, share_area) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [name, gstin || null, bank_account || null, contact || null, stall_number || null, commission_rate || 10.00, share_area || 10.00]
+    await conn.beginTransaction();
+
+    // 1. Insert Vendor
+    const [vendorResult] = await conn.query(
+      `INSERT INTO vendors (name, gstin, bank_account, contact, stall_number, commission_rate, share_area, tenant_id) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        name.trim(),
+        gstin || null,
+        bank_account || null,
+        contact || manager_phone || null,
+        stall_number || null,
+        commission_rate !== undefined ? parseFloat(commission_rate) : 10.00,
+        share_area !== undefined ? parseFloat(share_area) : 10.00,
+        tenantId
+      ]
     );
+    const newVendorId = vendorResult.insertId;
+
+    let createdManager = null;
+
+    // 2. If manager fields provided, atomically create the assigned Stall Manager
+    if (manager_email || manager_name) {
+      if (!manager_email) {
+        await conn.rollback();
+        conn.release();
+        return res.status(400).json({ error: 'Manager email is required to create a Stall Manager account.' });
+      }
+
+      // Check if email already in use
+      const [existingEmail] = await conn.query('SELECT id FROM staff WHERE email = ?', [manager_email.trim()]);
+      if (existingEmail.length > 0) {
+        await conn.rollback();
+        conn.release();
+        return res.status(400).json({ error: 'Login email is already registered to another user.' });
+      }
+
+      const rawPassword = manager_password && manager_password.trim() ? manager_password.trim() : '123456';
+      const passwordHash = await bcrypt.hash(rawPassword, 10);
+      const managerFullName = manager_name && manager_name.trim() ? manager_name.trim() : `${name.trim()} Manager`;
+      const managerContact = manager_phone ? manager_phone.trim() : (contact || null);
+
+      const [managerResult] = await conn.query(
+        `INSERT INTO staff (
+           name, email, phone, password_hash, role, pay_type, daily_rate, monthly_salary,
+           pf_enabled, esi_enabled, tds_percentage, bank_account, is_active,
+           vendor_id, tenant_id,
+           exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance,
+           joined_at
+         ) VALUES (?, ?, ?, ?, 'Manager', 'monthly', 0, 0, 0, 0, 0, ?, 1, ?, ?, 1, 1, 1, 1, NOW())`,
+        [
+          managerFullName,
+          manager_email.trim(),
+          managerContact,
+          passwordHash,
+          bank_account || null,
+          newVendorId,
+          tenantId
+        ]
+      );
+
+      createdManager = {
+        id: managerResult.insertId,
+        name: managerFullName,
+        email: manager_email.trim(),
+        phone: managerContact,
+        role: 'Manager'
+      };
+    }
+
+    await conn.commit();
+    conn.release();
+
     res.status(201).json({
-      id: result.insertId,
-      name, gstin, bank_account, contact, stall_number,
+      id: newVendorId,
+      name: name.trim(),
+      gstin: gstin || null,
+      bank_account: bank_account || null,
+      contact: contact || null,
+      stall_number: stall_number || null,
       commission_rate: parseFloat(commission_rate || 10.00),
-      share_area: parseFloat(share_area || 10.00)
+      share_area: parseFloat(share_area || 10.00),
+      manager: createdManager
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create vendor' });
+    await conn.rollback();
+    conn.release();
+    console.error('Failed to create vendor and manager:', error);
+    res.status(500).json({ error: 'Failed to create vendor: ' + error.message });
   }
 });
 
@@ -3254,6 +3380,172 @@ app.get('/api/vendors/central-settlements/history', async (req, res) => {
 });
 
 // ==========================================
+// 8.5. STALL MANAGERS MANAGEMENT APIS (Central Admin Only)
+// ==========================================
+
+// Get all stall managers with linked vendor details
+app.get('/api/stall-managers', async (req, res) => {
+  if (req.user.vendor_id) {
+    return res.status(403).json({ error: 'Access denied. Only Central Admin can manage stall managers.' });
+  }
+  try {
+    const tenantId = req.user.tenant_id;
+    let query = `
+      SELECT 
+        s.id, s.name, s.email, s.phone, s.role, s.is_active, s.bank_account, s.joined_at, s.created_at,
+        s.vendor_id,
+        v.name as vendor_name,
+        v.stall_number,
+        v.gstin,
+        v.contact as vendor_contact,
+        v.commission_rate,
+        v.share_area,
+        v.bank_account as vendor_bank_account
+      FROM staff s
+      JOIN vendors v ON s.vendor_id = v.id
+      WHERE s.role = 'Manager'
+    `;
+    const params = [];
+    if (tenantId) {
+      query += ' AND (s.tenant_id = ? OR s.tenant_id IS NULL)';
+      params.push(tenantId);
+    }
+    query += ' ORDER BY v.name, s.name';
+    const [rows] = await pool.query(query, params);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching stall managers:', error);
+    res.status(500).json({ error: 'Failed to fetch stall managers' });
+  }
+});
+
+// Update a stall manager details (Central Admin only)
+app.put('/api/stall-managers/:id', async (req, res) => {
+  if (req.user.vendor_id) {
+    return res.status(403).json({ error: 'Access denied. Only Central Admin can manage stall managers.' });
+  }
+  const { id } = req.params;
+  const { name, phone, bank_account, is_active, password } = req.body;
+
+  try {
+    const [existing] = await pool.query('SELECT * FROM staff WHERE id = ? AND role = "Manager"', [id]);
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'Stall Manager not found' });
+    }
+    const current = existing[0];
+
+    let updatePasswordHash = current.password_hash;
+    if (password && password.trim()) {
+      updatePasswordHash = await bcrypt.hash(password.trim(), 10);
+    }
+
+    const updatedName = name !== undefined ? name.trim() : current.name;
+    const updatedPhone = phone !== undefined ? phone.trim() : current.phone;
+    const updatedBank = bank_account !== undefined ? bank_account.trim() : current.bank_account;
+    const updatedActive = is_active !== undefined ? (is_active ? 1 : 0) : current.is_active;
+
+    await pool.query(
+      `UPDATE staff 
+       SET name = ?, phone = ?, bank_account = ?, is_active = ?, password_hash = ?
+       WHERE id = ?`,
+      [updatedName, updatedPhone, updatedBank, updatedActive, updatePasswordHash, id]
+    );
+
+    // Also update bank_account in vendors table if manager is linked to a vendor
+    if (current.vendor_id && updatedBank) {
+      await pool.query('UPDATE vendors SET bank_account = ? WHERE id = ?', [updatedBank, current.vendor_id]);
+    }
+
+    res.json({
+      success: true,
+      message: 'Stall Manager updated successfully',
+      manager: {
+        id: parseInt(id),
+        name: updatedName,
+        phone: updatedPhone,
+        bank_account: updatedBank,
+        is_active: updatedActive
+      }
+    });
+  } catch (error) {
+    console.error('Error updating stall manager:', error);
+    res.status(500).json({ error: 'Failed to update stall manager: ' + error.message });
+  }
+});
+
+// Deactivate / delete a stall manager (Central Admin only)
+app.delete('/api/stall-managers/:id', async (req, res) => {
+  if (req.user.vendor_id) {
+    return res.status(403).json({ error: 'Access denied. Only Central Admin can manage stall managers.' });
+  }
+  const { id } = req.params;
+  try {
+    await pool.query('UPDATE staff SET is_active = 0 WHERE id = ? AND role = "Manager"', [id]);
+    res.json({ success: true, message: 'Stall Manager deactivated successfully' });
+  } catch (error) {
+    console.error('Error deactivating stall manager:', error);
+    res.status(500).json({ error: 'Failed to deactivate stall manager' });
+  }
+});
+
+// ==========================================
+// SELF-SERVICE PROFILE APIS (For all authenticated staff & managers)
+// ==========================================
+
+// Get current user profile details
+app.get('/api/staff/me/profile', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT s.id, s.name, s.email, s.phone, s.role, s.vendor_id, s.bank_account, s.joined_at, s.created_at,
+             v.name as vendor_name, v.stall_number, v.bank_account as vendor_bank_account
+      FROM staff s
+      LEFT JOIN vendors v ON s.vendor_id = v.id
+      WHERE s.id = ?
+    `, [req.user.id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+    res.json(rows[0]);
+  } catch (error) {
+    console.error('Error fetching self profile:', error);
+    res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+});
+
+// Update self profile (Strictly name and phone only)
+app.put('/api/staff/me/profile', async (req, res) => {
+  const { name, phone } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Name is required' });
+  }
+
+  try {
+    await pool.query(
+      'UPDATE staff SET name = ?, phone = ? WHERE id = ?',
+      [name.trim(), phone ? phone.trim() : null, req.user.id]
+    );
+
+    const [rows] = await pool.query(`
+      SELECT s.id, s.name, s.email, s.phone, s.role, s.vendor_id, s.bank_account,
+             v.name as vendor_name, v.stall_number
+      FROM staff s
+      LEFT JOIN vendors v ON s.vendor_id = v.id
+      WHERE s.id = ?
+    `, [req.user.id]);
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating self profile:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// ==========================================
 // 9. STAFF CRUD API (HR)
 // ==========================================
 
@@ -3263,12 +3555,12 @@ app.get('/api/staff', async (req, res) => {
     let query = 'SELECT * FROM staff WHERE tenant_id = ?';
     const params = [req.user.tenant_id];
     if (req.user.vendor_id) {
-      // Stall Manager: only see their own stall's staff (including themselves)
-      query += ' AND vendor_id = ?';
+      // Stall Manager: only see their own stall's operational staff (Cooks, Cashiers, Helpers)
+      query += ' AND vendor_id = ? AND role NOT IN (\'Manager\', \'Owner\')';
       params.push(req.user.vendor_id);
     } else {
-      // Central Admin: see Central Canteen staff (no vendor) + all Stall Managers
-      query += ' AND (vendor_id IS NULL OR role = \'Manager\')';
+      // Central Admin: see Central Canteen operational staff only
+      query += ' AND vendor_id IS NULL AND role NOT IN (\'Manager\', \'Owner\')';
     }
     query += ' ORDER BY name';
     const [rows] = await pool.query(query, params);
@@ -3346,9 +3638,10 @@ app.get('/api/staff/performance', async (req, res) => {
       ) ord ON s.id = ord.billing_staff_id
       WHERE s.is_active = 1 AND s.exclude_from_performance = 0
         AND s.tenant_id = ?
+        AND s.role NOT IN ('Manager', 'Owner')
         AND (
           (? IS NOT NULL AND s.vendor_id = ?) OR
-          (? IS NULL AND (s.vendor_id IS NULL OR s.role = 'Manager'))
+          (? IS NULL AND s.vendor_id IS NULL)
         )
       ORDER BY s.name
     `, [
@@ -3546,15 +3839,12 @@ app.post('/api/staff', async (req, res) => {
     staff_meal_limit, staff_meal_auto_reset
   } = req.body;
 
-  let assigned_vendor_id = vendor_id || null;
-  if (req.user.vendor_id) {
-    // Stall Managers can only create staff for their own stall
-    assigned_vendor_id = req.user.vendor_id;
-    // Stall Managers cannot create other Managers
-    if (role === 'Manager') {
-      return res.status(403).json({ error: 'Stall Managers cannot create accounts with the Manager role.' });
-    }
+  // Operational staff only: Managers and Owners cannot be registered via operational staff form
+  if (['Manager', 'Owner'].includes(role)) {
+    return res.status(400).json({ error: 'Stall Managers must be registered via the Multi-Vendor Stall Registration module.' });
   }
+
+  let assigned_vendor_id = req.user.vendor_id ? req.user.vendor_id : null;
 
   try {
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
@@ -3568,7 +3858,7 @@ app.post('/api/staff', async (req, res) => {
       [
         name, phone, email, passwordHash, role, pay_type, daily_rate || 0, monthly_salary || 0,
         pf_enabled || 0, esi_enabled || 0, tds_percentage || 0.00, bank_account, joined_at,
-        exclude_from_payroll || 0, exclude_from_roster || 0, exclude_from_attendance || 0, exclude_from_performance || 0,
+        0, 0, 0, 0,
         assigned_vendor_id, staff_meal_limit || 0, staff_meal_auto_reset === false ? 0 : 1, req.user.tenant_id
       ]
     );
@@ -3814,8 +4104,8 @@ app.get('/api/roster', async (req, res) => {
     const weekEndStr = weekEnd.toISOString().split('T')[0];
 
     const scopeClause = req.user.vendor_id
-      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role != 'Manager'`
-      : `AND (s.vendor_id IS NULL OR s.role = 'Manager')`;
+      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role NOT IN ('Manager', 'Owner')`
+      : `AND s.vendor_id IS NULL AND s.role NOT IN ('Manager', 'Owner')`;
 
     const [rows] = await pool.query(`
       SELECT r.id, r.staff_id, s.name as staff_name, r.shift_id, sh.name as shift_name,
@@ -4015,8 +4305,8 @@ app.get('/api/attendance', async (req, res) => {
       await autoCheckoutOpenPunches(`fetch-${date}`);
     }
     const scopeClause = req.user.vendor_id
-      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role != 'Manager'`
-      : `AND (s.vendor_id IS NULL OR s.role = 'Manager')`;
+      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role NOT IN ('Manager', 'Owner')`
+      : `AND s.vendor_id IS NULL AND s.role NOT IN ('Manager', 'Owner')`;
 
     const [rows] = await pool.query(`
       SELECT a.id, a.staff_id, s.name as staff_name, s.role, DATE_FORMAT(a.attendance_date, '%Y-%m-%d') as attendance_date,
@@ -4361,8 +4651,8 @@ app.get('/api/leaves', async (req, res) => {
 
   try {
     const scopeClause = req.user.vendor_id
-      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role != 'Manager'`
-      : `AND (s.vendor_id IS NULL OR s.role = 'Manager')`;
+      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role NOT IN ('Manager', 'Owner')`
+      : `AND s.vendor_id IS NULL AND s.role NOT IN ('Manager', 'Owner')`;
 
     let query = `
       SELECT l.id, l.staff_id, s.name as staff_name, l.leave_type, DATE_FORMAT(l.start_date, '%Y-%m-%d') as start_date, DATE_FORMAT(l.end_date, '%Y-%m-%d') as end_date,
@@ -4642,10 +4932,10 @@ app.post('/api/payroll/generate', async (req, res) => {
     let scopeQuery = '';
     let scopeParams = [];
     if (req.user.vendor_id) {
-      scopeQuery = ' AND s.vendor_id = ?';
+      scopeQuery = ' AND s.vendor_id = ? AND s.role NOT IN (\'Manager\', \'Owner\')';
       scopeParams.push(req.user.vendor_id);
     } else {
-      scopeQuery = ' AND (s.vendor_id IS NULL OR s.role = \'Manager\')';
+      scopeQuery = ' AND s.vendor_id IS NULL AND s.role NOT IN (\'Manager\', \'Owner\')';
     }
 
     const [existingFinalized] = await connection.query(`
@@ -4792,8 +5082,8 @@ app.get('/api/payroll', async (req, res) => {
 
   try {
     const scopeClause = req.user.vendor_id
-      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role != 'Manager'`
-      : `AND (s.vendor_id IS NULL OR s.role = 'Manager')`;
+      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role NOT IN ('Manager', 'Owner')`
+      : `AND s.vendor_id IS NULL AND s.role NOT IN ('Manager', 'Owner')`;
 
     const [rows] = await pool.query(`
       SELECT p.id, p.staff_id, s.name as staff_name, s.role, s.pay_type, s.bank_account,
@@ -4824,10 +5114,10 @@ app.put('/api/payroll/finalize', async (req, res) => {
     let scopeClause = '';
     let scopeParams = [];
     if (req.user.vendor_id) {
-      scopeClause = ' AND s.vendor_id = ?';
+      scopeClause = ' AND s.vendor_id = ? AND s.role NOT IN (\'Manager\', \'Owner\')';
       scopeParams.push(req.user.vendor_id);
     } else {
-      scopeClause = ' AND (s.vendor_id IS NULL OR s.role = \'Manager\')';
+      scopeClause = ' AND s.vendor_id IS NULL AND s.role NOT IN (\'Manager\', \'Owner\')';
     }
 
     // Check if there are any draft records to finalize
@@ -7228,8 +7518,8 @@ app.post('/api/shifts/swap-request', async (req, res) => {
 app.get('/api/shifts/swap-requests', async (req, res) => {
   try {
     const scopeClause = req.user.vendor_id
-      ? `WHERE s1.vendor_id = ${pool.escape(req.user.vendor_id)} AND s1.role != 'Manager'`
-      : `WHERE (s1.vendor_id IS NULL OR s1.role = 'Manager')`;
+      ? `WHERE s1.vendor_id = ${pool.escape(req.user.vendor_id)} AND s1.role NOT IN ('Manager', 'Owner')`
+      : `WHERE s1.vendor_id IS NULL AND s1.role NOT IN ('Manager', 'Owner')`;
 
     const [rows] = await pool.query(`
       SELECT r.id, r.requester_id, r.target_id, r.requester_shift_id, r.target_shift_id, DATE_FORMAT(r.swap_date, '%Y-%m-%d') as swap_date, r.reason, r.status, r.approved_by, r.created_at, r.tenant_id, 

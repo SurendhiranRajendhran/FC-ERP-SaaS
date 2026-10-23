@@ -1998,7 +1998,20 @@ function App() {
   });
   const [settlements, setSettlements] = useState([]);
   const [vendorPerformance, setVendorPerformance] = useState([]);
-  const [formVendor, setFormVendor] = useState({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00' });
+  const [formVendor, setFormVendor] = useState({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00', manager_name: '', manager_phone: '', manager_email: '', manager_password: '' });
+  // Stall Managers State (Central Admin)
+  const [stallManagers, setStallManagers] = useState([]);
+  const [showEditManagerModal, setShowEditManagerModal] = useState(false);
+  const [formEditManager, setFormEditManager] = useState({
+    id: '', name: '', phone: '', email: '', bank_account: '', is_active: 1,
+    vendor_name: '', stall_number: '', new_password: ''
+  });
+  // Self-Service Profile State
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [formProfile, setFormProfile] = useState({
+    id: '', name: '', phone: '', email: '', role: '', vendor_id: null,
+    vendor_name: '', stall_number: '', bank_account: ''
+  });
   const [costSplit, setCostSplit] = useState({ startDate: '', endDate: '', totalCost: '', method: 'Equal' });
   const [vendorSubTab, setVendorSubTab] = useState('profiles');
   const [showVendorForm, setShowVendorForm] = useState(false);
@@ -2490,6 +2503,7 @@ function App() {
     fetchHeldOrders();
     // HR fetchers
     fetchStaff();
+    if (!user?.vendor_id) fetchStallManagers();
     fetchShifts();
     fetchRoster(actualRosterWeek);
     fetchAttendance(selectedAttendanceDate);
@@ -2784,6 +2798,162 @@ function App() {
       setVendorPerformance(data);
     } catch (err) {
       console.error('Failed to fetch vendor performance stats:', err);
+    }
+  };
+
+  // Stall Managers Fetchers & Handlers
+  const fetchStallManagers = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/stall-managers`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch stall managers');
+      setStallManagers(data);
+    } catch (err) {
+      console.error('Failed to fetch stall managers:', err);
+    }
+  };
+
+  const handleOpenEditManager = (manager) => {
+    setFormEditManager({
+      id: manager.id,
+      name: manager.name || '',
+      phone: manager.phone || '',
+      email: manager.email || '',
+      bank_account: manager.bank_account || manager.vendor_bank_account || '',
+      is_active: manager.is_active !== undefined ? manager.is_active : 1,
+      vendor_name: manager.vendor_name || 'Stall',
+      stall_number: manager.stall_number || '',
+      new_password: ''
+    });
+    setShowEditManagerModal(true);
+  };
+
+  const handleSaveEditManager = async (e) => {
+    if (e) e.preventDefault();
+    if (!formEditManager.name.trim()) {
+      showToast('Manager name is required', 'error');
+      return;
+    }
+    if (formEditManager.bank_account && formEditManager.bank_account.trim()) {
+      const cleanBank = formEditManager.bank_account.trim().replace(/[\s-]/g, '');
+      if (!/^\d{9,18}$/.test(cleanBank)) {
+        showToast('Bank Account must contain 9 to 18 digits (numbers only).', 'error');
+        return;
+      }
+    }
+    try {
+      const body = {
+        name: formEditManager.name.trim(),
+        phone: formEditManager.phone ? formEditManager.phone.trim() : '',
+        bank_account: formEditManager.bank_account ? formEditManager.bank_account.trim() : '',
+        is_active: formEditManager.is_active
+      };
+      if (formEditManager.new_password && formEditManager.new_password.trim()) {
+        body.password = formEditManager.new_password.trim();
+      }
+      const res = await fetch(`${API_BASE}/stall-managers/${formEditManager.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Stall Manager updated successfully', 'success');
+        setShowEditManagerModal(false);
+        fetchStallManagers();
+        fetchVendors();
+      } else {
+        showToast(data.error || 'Failed to update manager', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Network error', 'error');
+    }
+  };
+
+  const handleToggleManagerStatus = async (manager) => {
+    const nextStatus = manager.is_active ? 0 : 1;
+    const actionWord = nextStatus ? 'activate' : 'deactivate';
+    if (!confirm(`Are you sure you want to ${actionWord} Stall Manager "${manager.name}"?`)) return;
+    try {
+      const res = await fetch(`${API_BASE}/stall-managers/${manager.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: nextStatus })
+      });
+      if (res.ok) {
+        showToast(`Stall Manager ${nextStatus ? 'activated' : 'deactivated'} successfully`, 'success');
+        fetchStallManagers();
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Failed to update status', 'error');
+      }
+    } catch (err) {
+      showToast('Network error', 'error');
+    }
+  };
+
+  // Self-Service Profile Handlers
+  const handleOpenMyProfile = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/staff/me/profile`);
+      if (res.ok) {
+        const data = await res.json();
+        setFormProfile({
+          id: data.id,
+          name: data.name || '',
+          phone: data.phone || '',
+          email: data.email || '',
+          role: data.role || '',
+          vendor_id: data.vendor_id,
+          vendor_name: data.vendor_name || '',
+          stall_number: data.stall_number || '',
+          bank_account: data.bank_account || data.vendor_bank_account || ''
+        });
+        setShowProfileModal(true);
+      } else {
+        showToast('Failed to load profile', 'error');
+      }
+    } catch (err) {
+      showToast('Error loading profile', 'error');
+    }
+  };
+
+  const handleSaveMyProfile = async (e) => {
+    if (e) e.preventDefault();
+    if (!formProfile.name.trim()) {
+      showToast('Full Name cannot be empty', 'error');
+      return;
+    }
+    if (formProfile.phone && formProfile.phone.trim()) {
+      const cleanPhone = formProfile.phone.trim().replace(/[\s-]/g, '');
+      if (!/^\+?\d{10,15}$/.test(cleanPhone)) {
+        showToast('Phone must contain 10 to 15 digits', 'error');
+        return;
+      }
+    }
+    try {
+      const res = await fetch(`${API_BASE}/staff/me/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formProfile.name.trim(),
+          phone: formProfile.phone ? formProfile.phone.trim() : ''
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Profile updated successfully!', 'success');
+        setShowProfileModal(false);
+        if (user) {
+          const updatedUser = { ...user, name: formProfile.name.trim() };
+          setUser(updatedUser);
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+        }
+      } else {
+        showToast(data.error || 'Failed to update profile', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Error updating profile', 'error');
     }
   };
 
@@ -4078,11 +4248,11 @@ function App() {
         esi_enabled: formStaff.esi_enabled ? 1 : 0,
         tds_percentage: parseFloat(formStaff.tds_percentage || 0),
         bank_account: formStaff.bank_account || null,
-        vendor_id: formStaff.vendor_id ? parseInt(formStaff.vendor_id) : null,
-        exclude_from_payroll: formStaff.exclude_from_payroll ? 1 : 0,
-        exclude_from_roster: formStaff.exclude_from_roster ? 1 : 0,
-        exclude_from_attendance: formStaff.exclude_from_attendance ? 1 : 0,
-        exclude_from_performance: formStaff.exclude_from_performance ? 1 : 0,
+        vendor_id: user.vendor_id ? parseInt(user.vendor_id) : null,
+        exclude_from_payroll: 0,
+        exclude_from_roster: 0,
+        exclude_from_attendance: 0,
+        exclude_from_performance: 0,
         staff_meal_limit: parseFloat(formStaff.staff_meal_limit || 0),
         staff_meal_auto_reset: formStaff.staff_meal_auto_reset ? 1 : 0
       };
@@ -5866,6 +6036,10 @@ function App() {
                 <strong style={{ color: 'var(--text-main)' }}>{user.name}</strong>
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '8px' }}>{user.role}</div>
+              <button onClick={handleOpenMyProfile} style={{ width: '100%', padding: '6px 12px', marginBottom: '6px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#60a5fa', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s' }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                Edit My Profile
+              </button>
               <button onClick={handleLogout} style={{ width: '100%', padding: '6px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s' }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                 Logout
@@ -5898,12 +6072,15 @@ function App() {
               {activeTab === 'qr' && 'Generate table QR codes, monitor QR orders and manage self-ordering settings'}
             </p>
           </div>
-          <div class="top-bar-right">
+          <div class="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div class="tenant-selector">
               <span class="tenant-badge">
                 {!user?.vendor_id ? 'Central Canteen' : (vendors.find(v => v.id === user.vendor_id)?.name || 'Stall Dashboard')}
               </span>
             </div>
+            <button className="btn btn-secondary btn-small" onClick={handleOpenMyProfile} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', fontSize: '0.78rem' }}>
+              👤 My Profile
+            </button>
           </div>
         </header>
 
@@ -8976,11 +9153,41 @@ function App() {
                           <label>Share Area (%)</label>
                           <input type="number" step="0.01" placeholder="10.00" value={formVendor.share_area} onChange={e => setFormVendor({ ...formVendor, share_area: e.target.value })} />
                         </div>
+                        {!formVendor.id && (
+                          <div style={{ gridColumn: '1 / -1', marginTop: '12px', paddingTop: '15px', borderTop: '1px dashed rgba(255,255,255,0.15)' }}>
+                            <h5 style={{ margin: '0 0 12px 0', color: 'var(--primary, #3b82f6)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem' }}>
+                              👔 Assigned Stall Manager Account
+                            </h5>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px' }}>
+                              <div className="vendor-form-group">
+                                <label>Manager Full Name *</label>
+                                <input type="text" placeholder="e.g. Ramesh Kumar" value={formVendor.manager_name || ''} onChange={e => setFormVendor({ ...formVendor, manager_name: e.target.value })} />
+                              </div>
+                              <div className="vendor-form-group">
+                                <label>Contact Phone</label>
+                                <input type="tel" pattern="^\+?\d{10,15}$" title="Phone number must contain 10-15 digits" placeholder="10-digit mobile" value={formVendor.manager_phone || ''} onChange={e => setFormVendor({ ...formVendor, manager_phone: e.target.value })} />
+                              </div>
+                              <div className="vendor-form-group">
+                                <label>Login Email *</label>
+                                <input type="email" placeholder="e.g. manager@stall.com" value={formVendor.manager_email || ''} onChange={e => setFormVendor({ ...formVendor, manager_email: e.target.value })} />
+                              </div>
+                              <div className="vendor-form-group">
+                                <label>Initial Password *</label>
+                                <input type="password" placeholder="Min 6 characters" value={formVendor.manager_password || ''} onChange={e => setFormVendor({ ...formVendor, manager_password: e.target.value })} />
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="vendor-form-actions">
                         <button className="vendor-form-cancel" onClick={() => { setShowVendorForm(false); setFormVendor({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00' }); }}>Cancel</button>
                         <button className="vendor-form-save" onClick={async () => {
                           if (!formVendor.name.trim()) { showToast('Stall name is required', 'error'); return; }
+                          if (!formVendor.id) {
+                            if (!formVendor.manager_name?.trim()) { showToast('Manager full name is required', 'error'); return; }
+                            if (!formVendor.manager_email?.trim()) { showToast('Manager login email is required', 'error'); return; }
+                            if (!formVendor.manager_password?.trim() || formVendor.manager_password.length < 6) { showToast('Initial password must be at least 6 characters', 'error'); return; }
+                          }
                           if (formVendor.bank_account && formVendor.bank_account.trim()) {
                             const cleanBank = formVendor.bank_account.trim().replace(/[\s-]/g, '');
                             if (!/^\d{9,18}$/.test(cleanBank)) {
@@ -8991,16 +9198,25 @@ function App() {
                           try {
                             const url = formVendor.id ? `${API_BASE}/vendors/${formVendor.id}` : `${API_BASE}/vendors`;
                             const method = formVendor.id ? 'PUT' : 'POST';
-                            const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                            const payload = {
                               name: formVendor.name, gstin: formVendor.gstin, bank_account: formVendor.bank_account,
                               contact: formVendor.contact, stall_number: formVendor.stall_number,
                               commission_rate: parseFloat(formVendor.commission_rate) || 10, share_area: parseFloat(formVendor.share_area) || 10
-                            })});
+                            };
+                            if (!formVendor.id) {
+                              payload.manager_name = formVendor.manager_name;
+                              payload.manager_phone = formVendor.manager_phone;
+                              payload.manager_email = formVendor.manager_email;
+                              payload.manager_password = formVendor.manager_password;
+                            }
+                            const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                             if (res.ok) {
-                              showToast(formVendor.id ? 'Vendor updated successfully' : 'Vendor registered successfully', 'success');
+                              showToast(formVendor.id ? 'Vendor updated successfully' : 'Stall and Stall Manager registered successfully', 'success');
                               setShowVendorForm(false);
-                              setFormVendor({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00' });
+                              setFormVendor({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00', manager_name: '', manager_phone: '', manager_email: '', manager_password: '' });
                               fetchVendors();
+                              fetchStaff();
+                              fetchStallManagers();
                             } else {
                               const errData = await res.json().catch(() => ({}));
                               showToast(errData.error || 'Failed to save vendor', 'error');
@@ -9022,6 +9238,7 @@ function App() {
                           {v.stall_number && <span className="vendor-stall-badge">{v.stall_number}</span>}
                         </div>
                         <div className="vendor-card-info">
+                          <div className="vendor-info-row"><span className="info-label">👔 Manager</span><span className="info-value">{v.manager_name ? `${v.manager_name} (${v.manager_email || ''})` : '—'}</span></div>
                           <div className="vendor-info-row"><span className="info-label">📞 Contact</span><span className="info-value">{v.contact || '—'}</span></div>
                           <div className="vendor-info-row"><span className="info-label">🏛️ GSTIN</span><span className="info-value">{v.gstin || '—'}</span></div>
                           <div className="vendor-info-row"><span className="info-label">🏦 Bank A/C</span><span className="info-value">{v.bank_account || '—'}</span></div>
@@ -9706,6 +9923,7 @@ function App() {
               {/* Sub-tab Navigation */}
               <div className="hr-sub-tabs">
                 {[
+                  ...(!user?.vendor_id ? [['stall-managers', '👔 Stall Managers']] : []),
                   ['directory', '👥 Staff Directory'],
                   ['shifts', '⏰ Shift Management'],
                   ['swaps', '🔄 Shift Swaps'],
@@ -9722,6 +9940,7 @@ function App() {
                     className={`hr-sub-tab ${hrSubTab === key ? 'active' : ''}`}
                     onClick={() => {
                       setHrSubTab(key);
+                      if (key === 'stall-managers') fetchStallManagers();
                       if (key === 'directory') fetchStaff();
                       if (key === 'shifts') fetchShifts();
                       if (key === 'swaps') fetchShiftSwaps();
@@ -9737,6 +9956,72 @@ function App() {
                   </button>
                 ))}
               </div>
+
+              {/* ============ SUB-TAB: STALL MANAGERS (Central Admin Only) ============ */}
+              {hrSubTab === 'stall-managers' && (!user?.vendor_id) && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <div>
+                      <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        👔 Independent Stall Managers
+                      </h3>
+                      <p style={{ margin: '4px 0 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        Administrative heads of independent stalls. Stall Managers manage their own independent staff and are isolated from canteen payroll and daily attendance punches.
+                      </p>
+                    </div>
+                    <button className="btn btn-primary" onClick={() => { setActiveTab('vendors'); setVendorSubTab('profiles'); setShowVendorForm(true); }}>
+                      ➕ Onboard New Stall & Manager
+                    </button>
+                  </div>
+
+                  {/* Stall Managers Cards Grid */}
+                  <div className="hr-profiles-grid">
+                    {stallManagers.map(m => (
+                      <div key={m.id} className="hr-profile-card" style={{ borderTop: '3px solid #3b82f6' }}>
+                        <div className="hr-card-header">
+                          <div>
+                            <h4 style={{ margin: 0 }}>{m.name}</h4>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>👔 Stall Manager</span>
+                          </div>
+                          <span className="vendor-stall-badge" style={{ background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)' }}>
+                            🏪 {m.vendor_name || 'Stall'} {m.stall_number ? `(${m.stall_number})` : ''}
+                          </span>
+                        </div>
+                        <div className="hr-card-info">
+                          <div className="hr-info-row"><span className="info-label">✉️ Login Email</span><span className="info-value" style={{ wordBreak: 'break-all' }}>{m.email}</span></div>
+                          <div className="hr-info-row"><span className="info-label">📞 Mobile</span><span className="info-value">{m.phone || '—'}</span></div>
+                          <div className="hr-info-row"><span className="info-label">🏦 Payout Bank A/C</span><span className="info-value">{m.bank_account || m.vendor_bank_account || '—'}</span></div>
+                          <div className="hr-info-row"><span className="info-label">🏛️ Stall GSTIN</span><span className="info-value">{m.gstin || '—'}</span></div>
+                          <div className="hr-info-row"><span className="info-label">💸 Commission</span><span className="info-value">{m.commission_rate}%</span></div>
+                          <div className="hr-info-row">
+                            <span className="info-label">Status</span>
+                            <span className={`badge ${m.is_active ? 'badge-success' : 'badge-danger'}`}>
+                              {m.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="hr-card-footer">
+                          <button className="hr-btn-edit" onClick={() => handleOpenEditManager(m)}>✏️ Edit Details</button>
+                          <button
+                            className="hr-btn-delete"
+                            style={{ background: m.is_active ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)', color: m.is_active ? '#ef4444' : '#22c55e', borderColor: m.is_active ? 'rgba(239,68,68,0.3)' : 'rgba(34,197,94,0.3)' }}
+                            onClick={() => handleToggleManagerStatus(m)}
+                          >
+                            {m.is_active ? '🔴 Deactivate' : '🟢 Activate'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {stallManagers.length === 0 && (
+                      <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px dashed var(--border-color)' }}>
+                        <div style={{ fontSize: '2rem', marginBottom: '10px' }}>👔</div>
+                        <h4>No Stall Managers Found</h4>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Use the Multi-Vendor module to register a stall with an assigned manager.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* ============ SUB-TAB: STAFF DIRECTORY ============ */}
               {hrSubTab === 'directory' && (
@@ -9771,7 +10056,6 @@ function App() {
                               <div className="hr-form-group">
                                 <label>Role *</label>
                                 <select value={formStaff.role} onChange={e => setFormStaff({ ...formStaff, role: e.target.value })}>
-                                  {!user.vendor_id && <option value="Manager">Manager (Stall Manager)</option>}
                                   <option value="Cook">Cook</option>
                                   <option value="Billing Staff">Cashier</option>
                                   <option value="Helper">General Staff</option>
@@ -9822,17 +10106,13 @@ function App() {
                                   <div style={{ fontSize: '0.88rem', color: '#e2e8f0', marginTop: '4px' }}>
                                     {vendors.find(v => v.id === user.vendor_id)?.name || `Stall #${user.vendor_id}`}
                                   </div>
-                                  <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>Staff will be automatically assigned to your stall.</div>
+                                  <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>Operational staff will be assigned to your stall.</div>
                                 </div>
                               ) : (
-                                <div className="hr-form-group">
-                                  <label>Linked Stall / Vendor</label>
-                                  <select value={formStaff.vendor_id} onChange={e => setFormStaff({ ...formStaff, vendor_id: e.target.value })}>
-                                    <option value="">🏢 Central Canteen (Main)</option>
-                                    {vendors.map(v => (
-                                      <option key={v.id} value={v.id}>🏪 Stall: {v.name}</option>
-                                    ))}
-                                  </select>
+                                <div className="hr-form-group" style={{ background: 'rgba(59,130,246,0.08)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)' }}>
+                                  <label style={{ color: '#60a5fa', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>🏢 Central Canteen Operational Staff</label>
+                                  <div style={{ fontSize: '0.88rem', color: '#e2e8f0', marginTop: '4px' }}>Central Canteen (Kitchen & Counters)</div>
+                                  <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>Stalls & Stall Managers are managed via Multi-Vendor.</div>
                                 </div>
                               )}
                               {formStaff.id && (
@@ -9845,7 +10125,7 @@ function App() {
                                 </div>
                               )}
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px 20px', margin: '15px 0', padding: '15px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px 20px', margin: '15px 0', padding: '15px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
                                 <input type="checkbox" checked={formStaff.pf_enabled} onChange={e => setFormStaff({ ...formStaff, pf_enabled: e.target.checked })} />
                                 Enable PF (@12%)
@@ -9853,22 +10133,6 @@ function App() {
                               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
                                 <input type="checkbox" checked={formStaff.esi_enabled} onChange={e => setFormStaff({ ...formStaff, esi_enabled: e.target.checked })} />
                                 Enable ESI (@0.75%)
-                              </label>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
-                                <input type="checkbox" checked={formStaff.exclude_from_payroll} onChange={e => setFormStaff({ ...formStaff, exclude_from_payroll: e.target.checked })} />
-                                Exclude from Payroll
-                              </label>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
-                                <input type="checkbox" checked={formStaff.exclude_from_roster} onChange={e => setFormStaff({ ...formStaff, exclude_from_roster: e.target.checked })} />
-                                Exclude from Roster
-                              </label>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
-                                <input type="checkbox" checked={formStaff.exclude_from_attendance} onChange={e => setFormStaff({ ...formStaff, exclude_from_attendance: e.target.checked })} />
-                                Exclude from Attendance
-                              </label>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
-                                <input type="checkbox" checked={formStaff.exclude_from_performance} onChange={e => setFormStaff({ ...formStaff, exclude_from_performance: e.target.checked })} />
-                                Exclude from Performance
                               </label>
                             </div>
                             <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '12px' }}>
@@ -9900,7 +10164,7 @@ function App() {
 
                   {/* Staff Directory List */}
                   <div className="hr-profiles-grid">
-                    {staff.filter(s => s.role !== 'Owner').map(s => {
+                    {staff.filter(s => s.role !== 'Owner' && s.role !== 'Manager').map(s => {
                       const stall = vendors.find(v => v.id === s.vendor_id);
                       return (
                         <div key={s.id} className="hr-profile-card">
@@ -13240,6 +13504,166 @@ function App() {
                 <button className="btn btn-warning" onClick={handleSaveBulkClosing}>Save Closing Stock</button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Central Admin: Edit Stall Manager Modal */}
+      {showEditManagerModal && (
+        <div className="modal-overlay active" style={{ zIndex: 1200 }}>
+          <div className="modal-card" style={{ maxWidth: '520px', width: '95%' }}>
+            <div className="modal-header">
+              <h3>✏️ Edit Stall Manager — {formEditManager.vendor_name}</h3>
+              <button className="close-btn" onClick={() => setShowEditManagerModal(false)}>&times;</button>
+            </div>
+            <form onSubmit={handleSaveEditManager}>
+              <div className="modal-body">
+                <div style={{ background: 'rgba(59,130,246,0.08)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)', marginBottom: '15px' }}>
+                  <div style={{ fontSize: '0.85rem', color: '#60a5fa', fontWeight: 600 }}>Assigned Stall</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: '#f8fafc', marginTop: '2px' }}>
+                    🏪 {formEditManager.vendor_name} {formEditManager.stall_number ? `(${formEditManager.stall_number})` : ''}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Login ID: <strong style={{ color: '#e2e8f0' }}>{formEditManager.email}</strong> (Managed by Central Admin)
+                  </div>
+                </div>
+
+                <div className="hr-form-grid">
+                  <div className="hr-form-group">
+                    <label>Manager Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formEditManager.name}
+                      onChange={e => setFormEditManager({ ...formEditManager, name: e.target.value })}
+                      placeholder="e.g. Ramesh Kumar"
+                    />
+                  </div>
+                  <div className="hr-form-group">
+                    <label>Contact Phone</label>
+                    <input
+                      type="tel"
+                      pattern="^\+?\d{10,15}$"
+                      title="Phone number must contain 10-15 digits"
+                      value={formEditManager.phone}
+                      onChange={e => setFormEditManager({ ...formEditManager, phone: e.target.value })}
+                      placeholder="e.g. 9876543210"
+                    />
+                  </div>
+                  <div className="hr-form-group">
+                    <label>Payout Bank Account Number</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="^\d{9,18}$"
+                      maxLength={18}
+                      title="Bank account number must contain 9 to 18 digits (numbers only)"
+                      value={formEditManager.bank_account}
+                      onChange={e => {
+                        const val = e.target.value.replace(/\D/g, '');
+                        setFormEditManager({ ...formEditManager, bank_account: val });
+                      }}
+                      placeholder="e.g. 123456789012"
+                    />
+                    <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>Used for commercial settlement payouts</small>
+                  </div>
+                  <div className="hr-form-group">
+                    <label>Account Status</label>
+                    <select
+                      value={formEditManager.is_active}
+                      onChange={e => setFormEditManager({ ...formEditManager, is_active: parseInt(e.target.value) })}
+                    >
+                      <option value="1">Active</option>
+                      <option value="0">Inactive (Deactivated)</option>
+                    </select>
+                  </div>
+                  <div className="hr-form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label>Reset Password (Optional)</label>
+                    <input
+                      type="text"
+                      value={formEditManager.new_password}
+                      onChange={e => setFormEditManager({ ...formEditManager, new_password: e.target.value })}
+                      placeholder="Leave blank to keep existing password"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer" style={{ borderTop: '1px solid var(--border-light)', paddingTop: '15px' }}>
+                <button type="button" className="btn btn-outline-primary" onClick={() => setShowEditManagerModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Self-Service Profile Modal (Stall Managers and Staff) */}
+      {showProfileModal && (
+        <div className="modal-overlay active" style={{ zIndex: 1200 }}>
+          <div className="modal-card" style={{ maxWidth: '500px', width: '95%' }}>
+            <div className="modal-header">
+              <h3>👤 My Profile & Account Settings</h3>
+              <button className="close-btn" onClick={() => setShowProfileModal(false)}>&times;</button>
+            </div>
+            <form onSubmit={handleSaveMyProfile}>
+              <div className="modal-body">
+                {/* Locked Administrative Summary */}
+                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Assigned Role</span>
+                    <span className="badge badge-primary">{formProfile.role || 'Staff'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Stall / Scope</span>
+                    <strong style={{ fontSize: '0.9rem', color: '#f1f5f9' }}>
+                      {formProfile.vendor_name ? `🏪 ${formProfile.vendor_name} ${formProfile.stall_number ? `(${formProfile.stall_number})` : ''}` : '🏢 Central Canteen'}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Login Email</span>
+                    <span style={{ fontSize: '0.88rem', color: '#94a3b8' }}>{formProfile.email}</span>
+                  </div>
+                  {formProfile.bank_account && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Settlement Bank A/C</span>
+                      <span style={{ fontSize: '0.88rem', color: '#94a3b8', letterSpacing: '0.5px' }}>{formProfile.bank_account}</span>
+                    </div>
+                  )}
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '8px', borderTop: '1px dashed rgba(255,255,255,0.1)', paddingTop: '6px' }}>
+                    🔒 Role, assigned stall, email, and settlement bank details are administratively managed by Central Admin.
+                  </div>
+                </div>
+
+                {/* Editable Fields */}
+                <div className="hr-form-grid">
+                  <div className="hr-form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label>Full Display Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formProfile.name}
+                      onChange={e => setFormProfile({ ...formProfile, name: e.target.value })}
+                      placeholder="Your Full Name"
+                    />
+                  </div>
+                  <div className="hr-form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label>Personal Mobile Phone</label>
+                    <input
+                      type="tel"
+                      pattern="^\+?\d{10,15}$"
+                      title="Phone number must contain 10-15 digits"
+                      value={formProfile.phone}
+                      onChange={e => setFormProfile({ ...formProfile, phone: e.target.value })}
+                      placeholder="e.g. 9876543210"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer" style={{ borderTop: '1px solid var(--border-light)', paddingTop: '15px' }}>
+                <button type="button" className="btn btn-outline-primary" onClick={() => setShowProfileModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-success">Save Profile</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
