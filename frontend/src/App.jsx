@@ -8651,8 +8651,19 @@ function App() {
                             <div style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>GST: ₹{parseFloat(order.gst_amount).toFixed(2)}</div>
                           </td>
                           <td>
-                            <span className={`badge ${order.status === 'Cancelled' ? 'badge-danger' : 'badge-category'}`}>
-                              {order.status === 'Cancelled' ? 'Cancelled' : order.payment_mode}
+                            <span
+                              className={`badge ${order.status === 'Cancelled' ? 'badge-danger' : 'badge-category'}`}
+                              style={
+                                order.status === 'Cancelled' ? undefined :
+                                order.payment_mode === 'RFID Wallet' ? { background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', borderColor: 'rgba(59, 130, 246, 0.35)' } :
+                                order.payment_mode === 'Credit' ? { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.35)' } :
+                                order.payment_mode === 'UPI' ? { background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa', borderColor: 'rgba(139, 92, 246, 0.35)' } :
+                                order.payment_mode === 'Card' ? { background: 'rgba(6, 182, 212, 0.15)', color: '#22d3ee', borderColor: 'rgba(6, 182, 212, 0.35)' } :
+                                order.payment_mode === 'Cash' ? { background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', borderColor: 'rgba(34, 197, 94, 0.35)' } :
+                                undefined
+                              }
+                            >
+                              {order.status === 'Cancelled' ? 'Cancelled' : (order.payment_mode || 'Cash')}
                             </span>
                           </td>
                           <td>
@@ -8812,7 +8823,7 @@ function App() {
                                   })()}
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  <span className="kds-payment-tag">{order.payment_mode}</span>
+                                  <span className="kds-payment-tag">{order.payment_mode || 'Cash'}</span>
                                   <div className={`kds-timer ${ageClass}`}>
                                     <svg className="kds-timer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                       <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>

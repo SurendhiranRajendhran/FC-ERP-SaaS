@@ -369,6 +369,29 @@ crm.setPool(pool);
     `);
     console.log("Migration: Ensured Managers and Owners are excluded from operational metrics and stall managers have zero wage fields.");
 
+    // 14. Ensure orders.payment_mode and wallet_transactions.payment_mode support 'RFID Wallet', 'Credit', etc.
+    const [ordCols] = await conn.query("SHOW COLUMNS FROM orders LIKE 'payment_mode'");
+    if (ordCols.length > 0 && !ordCols[0].Type.toLowerCase().startsWith('varchar')) {
+      await conn.query("ALTER TABLE orders MODIFY COLUMN payment_mode VARCHAR(50) NOT NULL DEFAULT 'Cash'");
+      console.log("Migration: Altered orders.payment_mode to VARCHAR(50).");
+    }
+
+    const [wtCols] = await conn.query("SHOW COLUMNS FROM wallet_transactions LIKE 'payment_mode'");
+    if (wtCols.length > 0 && !wtCols[0].Type.toLowerCase().startsWith('varchar')) {
+      await conn.query("ALTER TABLE wallet_transactions MODIFY COLUMN payment_mode VARCHAR(50) NULL DEFAULT 'Cash'");
+      console.log("Migration: Altered wallet_transactions.payment_mode to VARCHAR(50).");
+    }
+
+    // Heal historical empty payment_mode for orders paid via RFID Wallet
+    await conn.query("UPDATE orders o JOIN wallet_transactions wt ON CAST(wt.reference_id AS UNSIGNED) = o.id SET o.payment_mode = 'RFID Wallet' WHERE (o.payment_mode = '' OR o.payment_mode IS NULL)");
+
+    // Heal historical empty payment_mode for orders in credit_ledger
+    await conn.query("UPDATE orders o JOIN credit_ledger cl ON cl.order_id = o.id SET o.payment_mode = 'Credit' WHERE (o.payment_mode = '' OR o.payment_mode IS NULL)");
+
+    // Heal any remaining blank payment_mode with default 'Cash'
+    await conn.query("UPDATE orders SET payment_mode = 'Cash' WHERE payment_mode = '' OR payment_mode IS NULL");
+    console.log("Migration: Ensured orders and wallet transactions support RFID Wallet and healed past payment modes.");
+
     conn.release();
   } catch (err) {
     console.error("Migration error on startup:", err.message);
