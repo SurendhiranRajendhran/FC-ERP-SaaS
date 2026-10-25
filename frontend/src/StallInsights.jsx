@@ -483,7 +483,7 @@ function StallInsights({ user }) {
       <div>
         <h3 style={{ fontSize: '1.2rem', marginBottom: '16px', color: '#f8fafc' }}>💳 Digital Receivables</h3>
         <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '15px' }}>
-          Amount owed <strong style={{color:'#a78bfa'}}>to your stall</strong> from digital payment transactions (Credit, RFID, Mess Plan).
+          Amount owed <strong style={{color:'#a78bfa'}}>to your stall</strong> from digital payment transactions (Credit, RFID Wallet).
         </p>
         <div style={{ background: '#16161e', borderRadius: '8px', overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>

@@ -3443,7 +3443,7 @@ function App() {
   // MENU MANAGEMENT ACTIONS
   // ==========================================
   const handleOpenAddMenu = () => {
-    setFormMenu({ id: '', name: '', category: 'Breakfast', price: '', gst_rate: '5', image_url: '', description: '', is_special: false, special_price: '', available_from: '', available_until: '', mess_eligible: false });
+    setFormMenu({ id: '', name: '', category: 'Breakfast', price: '', gst_rate: '5', image_url: '', description: '', is_special: false, special_price: '', available_from: '', available_until: '' });
     setMenuItemModal({ show: true, mode: 'add', data: null });
   };
 
@@ -3460,8 +3460,7 @@ function App() {
       special_price: item.special_price || '',
       available_from: item.available_from || '',
       available_until: item.available_until || '',
-      mess_eligible: !!item.mess_eligible
-    });
+          });
     setMenuItemModal({ show: true, mode: 'edit', data: item });
   };
 
@@ -5263,8 +5262,7 @@ function App() {
           price: parseFloat(item.is_special && item.special_price ? item.special_price : item.price),
           gst_rate: parseFloat(item.gst_rate),
           quantity: 1,
-          mess_eligible: !!item.mess_eligible,
-          vendor_id: item.vendor_id || null
+                    vendor_id: item.vendor_id || null
         }];
       }
     });
@@ -5315,7 +5313,7 @@ function App() {
 
   // --- ADVANCED POS BILLING HANDLERS ---
   const handleHoldOrder = async () => {
-        if (['RFID Wallet', 'Mess Plan'].includes(posPaymentMode) && !rfidCustomerInfo) {
+        if (posPaymentMode === 'RFID Wallet' && !rfidCustomerInfo) {
       showToast('Please scan a valid RFID card first.', 'error');
       return;
     }
@@ -5548,7 +5546,7 @@ function App() {
       if (!res.ok) throw new Error(data.error || 'RFID Tag not found or unregistered');
       setRfidCustomerInfo(data);
       setPosCustomerId(data.id);
-      setRfidStatusMsg(`✅ ${data.name} | Wallet: ₹${Number(data.wallet_balance||0).toFixed(2)} | Meals Left: ${data.mess_meals_left||0}`);
+      setRfidStatusMsg(`✅ ${data.name} | Wallet Balance: ₹${Number(data.wallet_balance||0).toFixed(2)}`);
     } catch(err) {
       setRfidStatusMsg('❌ ' + err.message);
       setRfidCustomerInfo(null);
@@ -5566,7 +5564,7 @@ function App() {
     let currentCustomerInfo = rfidCustomerInfo;
     
     // Auto-attempt validation if card ID was typed/scanned but not submitted/verified
-    if (['RFID Wallet', 'Mess Plan'].includes(posPaymentMode) && !currentCustomerInfo && rfidScanInput.trim()) {
+    if (posPaymentMode === 'RFID Wallet' && !currentCustomerInfo && rfidScanInput.trim()) {
       try {
         const res = await fetch(`${API_BASE}/wallet/rfid/${rfidScanInput.trim()}`, {
           headers: { ...(localStorage.getItem('token') ? { Authorization: `Bearer ${localStorage.getItem('token')}` } : {}) }
@@ -5580,22 +5578,13 @@ function App() {
       } catch(e) {}
     }
 
-    if (['RFID Wallet', 'Mess Plan'].includes(posPaymentMode) && !currentCustomerInfo) {
+    if (posPaymentMode === 'RFID Wallet' && !currentCustomerInfo) {
       showToast('Please scan a valid RFID card first.', 'error');
       setIsPosCheckoutLoading(false);
       return;
     }
     
-    // Validate mess eligibility for Mess Plan payment mode
-    if (posPaymentMode === 'Mess Plan') {
-      const nonEligibleItems = cart.filter(item => !item.mess_eligible);
-      if (nonEligibleItems.length > 0) {
-        const itemNames = nonEligibleItems.map(item => item.name).join(', ');
-        showToast(`Mess Plan cannot be used for: ${itemNames}. Only mess-eligible items are allowed.`, 'error');
-        setIsPosCheckoutLoading(false);
-        return;
-      }
-    }
+    
 
     if (posPaymentMode === 'Credit' && !posCustomerId && !currentCustomerInfo) {
       showToast('Please select a Loyalty Customer for Credit payments.', 'error');
@@ -6068,7 +6057,7 @@ function App() {
               {activeTab === 'hr' && 'Manage staff directory, define shifts, schedule roster, track attendance & leaves, calculate payroll and meals'}
                             {activeTab === 'reports' && 'Advanced analytics, daily sales, vendor settlements, and P&L ledger'}
               {activeTab === 'crm' && 'Customer loyalty, broadcasts, feedback, and low-stock alerts'}
-              {activeTab === 'wallet' && 'Manage RFID cards, prepaid wallets, and mess subscriptions'}
+              {activeTab === 'wallet' && 'Manage RFID cards and prepaid wallets'}
               {activeTab === 'qr' && 'Generate table QR codes, monitor QR orders and manage self-ordering settings'}
             </p>
           </div>
@@ -7825,7 +7814,7 @@ function App() {
                     <div className="payment-method-section" style={{ marginTop: '12px' }}>
                       <label>Select Payment Mode</label>
                       <div className="payment-grid">
-                        {['Cash', 'UPI', 'Card', 'Credit', 'RFID Wallet', 'Mess Plan', 'Split'].map((mode, idx) => (
+                        {['Cash', 'UPI', 'Card', 'Credit', 'RFID Wallet', 'Split'].map((mode, idx) => (
                           <button
                             key={idx}
                             type="button"
@@ -7833,7 +7822,7 @@ function App() {
                             onClick={() => {
                               setPosPaymentMode(mode);
                               // Clear RFID state when switching away from RFID modes
-                              if (!['RFID Wallet', 'Mess Plan'].includes(mode)) {
+                              if (mode !== 'RFID Wallet') {
                                 setRfidScanInput('');
                                 setRfidCustomerInfo(null);
                                 setRfidStatusMsg('');
@@ -7857,7 +7846,7 @@ function App() {
                         ))}
                       </div>
                     </div>
-                    {['RFID Wallet', 'Mess Plan'].includes(posPaymentMode) && (
+                    {posPaymentMode === 'RFID Wallet' && (
                       <div style={{ marginTop: '12px', background: 'rgba(59,130,246,0.1)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)' }}>
                         <label style={{ fontSize: '11px', color: '#60a5fa' }}>Tap Card on Reader</label>
                         <form onSubmit={handleRfidSubmit} style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
@@ -9760,7 +9749,7 @@ function App() {
                       <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                           <h3>💳 Digital Wallet & Credit Settlements</h3>
-                          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>Pending payouts to stalls for Credit, RFID, and Mess Plan transactions.</p>
+                          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>Pending payouts to stalls for Credit and RFID Wallet transactions.</p>
                         </div>
                         <button className="btn btn-outline-primary" onClick={() => { fetchWalletSettlements(); setWalletLedgerVendor(null); }}>↻ Refresh</button>
                       </div>
@@ -12316,15 +12305,7 @@ function App() {
                   <label htmlFor="is_special_toggle" style={{ margin: 0, fontWeight: 'bold', color: 'var(--accent-primary)' }}>⭐ Mark as Daily Special</label>
                 </div>
 
-                <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
-                  <input 
-                    type="checkbox" 
-                    id="mess_eligible_toggle"
-                    checked={formMenu.mess_eligible}
-                    onChange={(e) => setFormMenu(prev => ({ ...prev, mess_eligible: e.target.checked }))}
-                  />
-                  <label htmlFor="mess_eligible_toggle" style={{ margin: 0, fontWeight: 'bold', color: 'var(--accent-success)' }}>🍽️ Mess Plan Eligible</label>
-                </div>
+                
               </div>
 
               {formMenu.is_special && (

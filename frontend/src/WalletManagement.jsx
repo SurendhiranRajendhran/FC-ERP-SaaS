@@ -39,7 +39,7 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
       if (refreshCustomers) refreshCustomers();
     } catch(err) { setMsg('❌ ' + err.message); }
   };
-  const [topupForm, setTopupForm] = useState({ amount: '', meals: '', type: 'cash', desc: '', paymentMode: 'Cash' });
+  const [topupForm, setTopupForm] = useState({ amount: '', desc: '', paymentMode: 'Cash' });
   const [history, setHistory] = useState([]);
   const [msg, setMsg] = useState('');
 
@@ -67,17 +67,15 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
   const handleTopup = async (e) => {
     e.preventDefault(); setMsg('');
     try {
-      const isCash = topupForm.type === 'cash';
       await api('/api/wallet/topup', { method: 'POST', body: JSON.stringify({
         customer_id: selected.id,
-        amount: isCash ? topupForm.amount : 0,
+        amount: topupForm.amount,
         transaction_amount: topupForm.amount,
-        meals_count: isCash ? 0 : topupForm.meals,
-        description: topupForm.desc || (isCash ? 'Wallet Recharge' : 'Mess Subscription Purchase'),
+        description: topupForm.desc || 'Wallet Recharge',
         paymentMode: topupForm.paymentMode
       })});
       setMsg('✅ Top-up Successful!');
-      setShowTopup(false); setTopupForm({ amount: '', meals: '', type: 'cash', desc: '', paymentMode: 'Cash' }); load();
+      setShowTopup(false); setTopupForm({ amount: '', desc: '', paymentMode: 'Cash' }); load();
     } catch(err) { setMsg('❌ ' + err.message); }
   };
 
@@ -100,7 +98,7 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
     <div style={{ minHeight: '100vh', background: '#0f172a', padding: '24px 28px', fontFamily: "'Inter',sans-serif" }}>
       <div style={{ marginBottom: 28 }}>
         <h2 style={{ color: '#fff', fontSize: 26, fontWeight: 800, margin: '0 0 4px' }}>💳 RFID & Prepaid Wallets</h2>
-        <p style={{ color: '#6b7280', fontSize: 14, margin: 0 }}>Issue RFID meal cards, recharge wallets, and manage mess subscriptions.</p>
+        <p style={{ color: '#6b7280', fontSize: 14, margin: 0 }}>Issue RFID cards and recharge prepaid wallets.</p>
       </div>
 
       {msg && <div style={{ padding: '12px 16px', borderRadius: 8, background: msg.startsWith('✅') ? '#10b98122' : '#ef444422', color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 14, marginBottom: 16 }}>{msg}</div>}
@@ -114,21 +112,17 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: '#111827' }}>
-              {['Customer','Phone','RFID Tag','Wallet Balance','Mess Plan','Actions'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: '#6b7280', fontWeight: 600 }}>{h}</th>)}
+              {['Customer','Phone','RFID Tag','Wallet Balance','Actions'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: '#6b7280', fontWeight: 600 }}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
-            {loading ? <tr><td colSpan={6} style={{ padding: 30, textAlign: 'center', color: '#6b7280' }}>Loading...</td></tr> : customers.map(c => (
+            {loading ? <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: '#6b7280' }}>Loading...</td></tr> : customers.map(c => (
               <tr key={c.id} style={{ borderBottom: '1px solid #374151' }}>
                 <td style={{ padding: '12px 16px', color: '#f9fafb', fontWeight: 600 }}>{c.name}</td>
                 <td style={{ padding: '12px 16px', color: '#9ca3af' }}>{c.phone || '—'}</td>
                 <td style={{ padding: '12px 16px', color: c.rfid_tag ? '#3b82f6' : '#6b7280' }}>{c.rfid_tag || 'Not Assigned'}</td>
                 <td style={{ padding: '12px 16px', color: '#10b981', fontWeight: 700 }}>₹{fmt(c.wallet_balance)}</td>
-                <td style={{ padding: '12px 16px' }}>
-                  {c.is_mess_subscriber ? (
-                    <span style={{ color: '#f59e0b', background: '#f59e0b22', padding: '2px 8px', borderRadius: 12 }}>{c.mess_meals_left} Meals Left</span>
-                  ) : <span style={{ color: '#6b7280' }}>Inactive</span>}
-                </td>
+                
                 <td style={{ padding: '12px 16px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button onClick={() => { setSelected(c); setRfidInput(c.rfid_tag||''); setShowRfid(true); }} style={{ padding: '6px 12px', background: '#3b82f622', color: '#3b82f6', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Assign RFID</button>
                   <button onClick={() => { setSelected(c); setShowTopup(true); }} style={{ padding: '6px 12px', background: '#10b98122', color: '#10b981', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Top-up</button>
@@ -137,7 +131,7 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
                 </td>
               </tr>
             ))}
-            {!loading && customers.length === 0 && <tr><td colSpan={6} style={{ padding: 30, textAlign: 'center', color: '#6b7280' }}>No customers found</td></tr>}
+            {!loading && customers.length === 0 && <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: '#6b7280' }}>No customers found</td></tr>}
           </tbody>
         </table>
       </div>
@@ -163,13 +157,10 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
       {showTopup && (
         <div style={{ position: 'fixed', inset: 0, background: '#000000aa', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: '#1f2937', padding: 24, borderRadius: 12, width: 400 }}>
-            <h3 style={{ color: '#fff', marginTop: 0 }}>Wallet & Mess Top-up</h3>
-            <p style={{ color: '#9ca3af', fontSize: 13 }}>Adding funds to <b>{selected.name}</b>.</p>
+            <h3 style={{ color: '#fff', marginTop: 0 }}>Prepaid Wallet Top-up</h3>
+            <p style={{ color: '#9ca3af', fontSize: 13 }}>Adding funds to <b>{selected.name}</b>'s prepaid wallet.</p>
             
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-              <button onClick={()=>setTopupForm(p=>({...p, type:'cash'}))} style={{ flex:1, padding: 8, borderRadius: 6, border: 'none', background: topupForm.type==='cash' ? '#10b981' : '#374151', color: '#fff', cursor: 'pointer' }}>Cash Wallet</button>
-              <button onClick={()=>setTopupForm(p=>({...p, type:'mess'}))} style={{ flex:1, padding: 8, borderRadius: 6, border: 'none', background: topupForm.type==='mess' ? '#f59e0b' : '#374151', color: '#fff', cursor: 'pointer' }}>Mess Plan</button>
-            </div>
+            
 
             <form onSubmit={handleTopup}>
               <div style={{ marginBottom: 16 }}>
@@ -177,13 +168,7 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
                 <input type="number" required value={topupForm.amount} onChange={e=>setTopupForm(p=>({...p, amount: e.target.value}))} style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box' }} />
               </div>
               
-              {topupForm.type === 'mess' && (
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Number of Meals</label>
-                  <input type="number" required value={topupForm.meals} onChange={e=>setTopupForm(p=>({...p, meals: e.target.value}))} style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box' }} />
-                </div>
-              )}
-              
+
               <div style={{ marginBottom: 16 }}>
                 <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Payment Mode</label>
                 <select value={topupForm.paymentMode} onChange={e=>setTopupForm(p=>({...p, paymentMode: e.target.value}))} style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box', outline: 'none' }}>
@@ -243,7 +228,7 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
                     </div>
                   )}
                   <div style={{ color: '#6b7280', fontSize: 11, marginTop: 2 }}>
-                    Bal: ₹{fmt(t.balance_after)} | {t.meals_after} meals
+                    Balance: ₹{fmt(t.balance_after)}
                   </div>
                 </div>
               </div>

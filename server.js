@@ -1900,53 +1900,29 @@ app.post('/api/orders', async (req, res) => {
       );
     }
 
-    // ─── RFID Wallet / Mess Plan Deduction ────────────────────────────────────
-    if (payment_mode === 'RFID Wallet' || payment_mode === 'Mess Plan') {
+    // ─── RFID Wallet Deduction ──────────────────────────────────────────────
+    if (payment_mode === 'RFID Wallet') {
       if (!customer_id) {
-        throw new Error(`Customer ID is required for ${payment_mode} payments. Please scan the RFID card first.`);
+        throw new Error('Customer ID is required for RFID Wallet payments. Please scan the RFID card first.');
       }
       const custId = parseInt(customer_id);
       const [custRows] = await connection.query('SELECT * FROM customers WHERE id = ? FOR UPDATE', [custId]);
       if (custRows.length === 0) throw new Error('Customer not found for RFID payment.');
       const cust = custRows[0];
 
-      if (payment_mode === 'RFID Wallet') {
-        const currentBal = parseFloat(cust.wallet_balance || 0);
-        if (currentBal < finalPayable) {
-          throw new Error(`Insufficient wallet balance. Available: ₹${currentBal.toFixed(2)}, Required: ₹${finalPayable.toFixed(2)}`);
-        }
-        const newBal = parseFloat((currentBal - finalPayable).toFixed(2));
-        await connection.query('UPDATE customers SET wallet_balance = ? WHERE id = ?', [newBal, custId]);
-        await connection.query(
-          `INSERT INTO wallet_transactions (customer_id, vendor_id, type, amount, meals_count, balance_after, meals_after, reference_id, description)
-           VALUES (?, ?, 'debit', ?, 0, ?, ?, ?, ?)`,
-          [custId, vendor_id || null, finalPayable, newBal, cust.mess_meals_left || 0, String(orderId), `Order Payment (Token: ${tokenNumber})`]
-        );
-      } else if (payment_mode === 'Mess Plan') {
-        // Validate all items are mess-eligible
-        const nonEligible = validatedItems.filter(vi => !vi.mess_eligible);
-        if (nonEligible.length > 0) {
-          const names = nonEligible.map(i => i.name).join(', ');
-          throw new Error(`Mess Plan cannot be used for: ${names}. Only mess-eligible items can be redeemed with meal credits.`);
-        }
-        
-        // Calculate total meals required based on item quantities
-        const mealsRequired = validatedItems.reduce((sum, item) => sum + parseInt(item.quantity || 1), 0);
-        
-        const mealsLeft = parseInt(cust.mess_meals_left || 0);
-        if (mealsLeft < mealsRequired) throw new Error(`Insufficient mess meals. Required: ${mealsRequired}, Available: ${mealsLeft}`);
-        if (cust.mess_valid_until && new Date(cust.mess_valid_until) < new Date()) {
-          throw new Error('Mess subscription has expired. Please renew the plan.');
-        }
-        
-        const newMeals = mealsLeft - mealsRequired;
-        await connection.query('UPDATE customers SET mess_meals_left = ? WHERE id = ?', [newMeals, custId]);
-        await connection.query(
-          `INSERT INTO wallet_transactions (customer_id, vendor_id, type, amount, meals_count, balance_after, meals_after, reference_id, description)
-           VALUES (?, ?, 'debit', 0, ?, ?, ?, ?, ?)`,
-          [custId, vendor_id || null, -mealsRequired, parseFloat(cust.wallet_balance || 0), newMeals, String(orderId), `Mess Meal Used (${mealsRequired} items) (Token: ${tokenNumber})`]
-        );
+      const currentBal = parseFloat(cust.wallet_balance || 0);
+      if (currentBal < finalPayable) {
+        throw new Error(`Insufficient wallet balance. Available: ₹${currentBal.toFixed(2)}, Required: ₹${finalPayable.toFixed(2)}`);
       }
+      const newBal = parseFloat((currentBal - finalPayable).toFixed(2));
+      await connection.query('UPDATE customers SET wallet_balance = ? WHERE id = ?', [newBal, custId]);
+      await connection.query(
+        `INSERT INTO wallet_transactions (customer_id, vendor_id, type, amount, meals_count, balance_after, meals_after, reference_id, description)
+         VALUES (?, ?, 'debit', ?, 0, ?, 0, ?, ?)`,
+        [custId, vendor_id || null, finalPayable, newBal, String(orderId), `Order Payment (Token: ${tokenNumber})`]
+      );
+    } else if (payment_mode === 'Mess Plan') {
+      throw new Error('Mess Plan payment mode has been discontinued. Please use RFID Wallet.');
     }
     // Loyalty logic moved to after commit to prevent deadlock
 
@@ -8084,19 +8060,22 @@ app.get('/api/wallet/rfid/:tag', authenticateToken, async (req, res) => {
   }
 });
 
-// 2. Wallet/Mess Top-up (Admin/Cashier)
+// 2. Prepaid Wallet Top-up (Admin/Cashier)
 app.post('/api/wallet/topup', authenticateToken, async (req, res) => {
   if (!['Owner', 'Manager', 'Cashier', 'Admin'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Access denied' });
   }
-  const { customer_id, amount, meals_count, description, paymentMode, transaction_amount } = req.body;
+  const { customer_id, amount, description, paymentMode, transaction_amount } = req.body;
   const payMode = paymentMode || 'Cash';
   
   if (!customer_id) return res.status(400).json({ error: 'customer_id is required' });
   const amt = parseFloat(amount || 0);
   const transAmt = transaction_amount !== undefined ? parseFloat(transaction_amount) : amt;
-  const meals = parseInt(meals_count || 0);
   
+  if (amt <= 0) {
+    return res.status(400).json({ error: 'Top-up amount must be greater than zero.' });
+  }
+
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -8107,31 +8086,21 @@ app.post('/api/wallet/topup', authenticateToken, async (req, res) => {
     const customer = customers[0];
     
     const newBalance = parseFloat(customer.wallet_balance || 0) + amt;
-    const newMeals = parseInt(customer.mess_meals_left || 0) + meals;
-    const isSubscriber = newMeals > 0 ? true : customer.is_mess_subscriber;
     
-    // If adding meals, extend validity by 30 days by default (can be enhanced later)
-    let validUntilQuery = '';
-    let queryParams = [newBalance, isSubscriber, newMeals, customer_id];
-    
-    if (meals > 0) {
-      validUntilQuery = ', mess_valid_until = DATE_ADD(CURRENT_DATE, INTERVAL 30 DAY)';
-    }
-
     await connection.query(
-      `UPDATE customers SET wallet_balance = ?, is_mess_subscriber = ?, mess_meals_left = ? ${validUntilQuery} WHERE id = ?`,
-      queryParams
+      'UPDATE customers SET wallet_balance = ? WHERE id = ?',
+      [newBalance, customer_id]
     );
     
     // Log transaction
     await connection.query(
       `INSERT INTO wallet_transactions (customer_id, type, payment_mode, amount, transaction_amount, meals_count, balance_after, meals_after, description) 
-       VALUES (?, 'credit', ?, ?, ?, ?, ?, ?, ?)`,
-      [customer_id, payMode, amt, transAmt, meals, newBalance, newMeals, description || 'Manual Top-up']
+       VALUES (?, 'credit', ?, ?, ?, 0, ?, 0, ?)`,
+      [customer_id, payMode, amt, transAmt, newBalance, description || 'Wallet Recharge']
     );
     
     await connection.commit();
-    res.json({ message: 'Top-up successful', newBalance, newMeals });
+    res.json({ message: 'Top-up successful', newBalance });
   } catch (error) {
     await connection.rollback();
     console.error('Wallet top-up error:', error);
