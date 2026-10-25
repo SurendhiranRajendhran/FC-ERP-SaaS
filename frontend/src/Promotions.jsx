@@ -26,10 +26,7 @@ function Promotions({ user }) {
   const [pinFeedback, setPinFeedback] = useState(null);
   const [showPinDigits, setShowPinDigits] = useState(true); // visible by default as requested
 
-  // Central Admin editing a specific stall's PIN
-  const [editingStallId, setEditingStallId] = useState(null);
-  const [editingStallPin, setEditingStallPin] = useState('');
-  const [savingStallPin, setSavingStallPin] = useState(false);
+
 
   const getHeaders = () => ({
     'Content-Type': 'application/json',
@@ -246,35 +243,6 @@ function Promotions({ user }) {
     }
   };
 
-  const handleSaveStallPinByAdmin = async (vendorId) => {
-    const cleanPin = editingStallPin.trim();
-    if (!/^\d{4,6}$/.test(cleanPin)) {
-      alert('PIN must be 4 to 6 numeric digits.');
-      return;
-    }
-
-    setSavingStallPin(true);
-    try {
-      const res = await fetch(`${API_BASE}/cancellation-pins/stall`, {
-        method: 'PUT',
-        headers: getHeaders(),
-        body: JSON.stringify({ vendor_id: vendorId, pin: cleanPin })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setEditingStallId(null);
-        setEditingStallPin('');
-        fetchPins();
-        setPinFeedback({ type: 'success', message: `✅ Updated PIN for stall successfully.` });
-      } else {
-        alert(data.error || 'Failed to update stall PIN.');
-      }
-    } catch (err) {
-      alert('Error updating stall PIN: ' + err.message);
-    } finally {
-      setSavingStallPin(false);
-    }
-  };
 
   return (
     <div className="module-container" style={{ padding: '20px', color: '#e2e8f0' }}>
@@ -776,131 +744,6 @@ function Promotions({ user }) {
                     </div>
                   </div>
 
-                  {/* Bottom Section: All Stalls Overview & Management */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                      <div>
-                        <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#f8fafc', margin: 0 }}>
-                          🏪 Stall Cancellation PINs (Food Court Overview)
-                        </h3>
-                        <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '4px 0 0 0' }}>
-                          Each stall manager sets their own PIN. Central Admin can view and override stall PINs here.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="table-container">
-                      <table className="data-table">
-                        <thead>
-                          <tr>
-                            <th>Stall Name</th>
-                            <th>Stall #</th>
-                            <th>Active Cancellation PIN</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {pinData?.stalls && pinData.stalls.length > 0 ? (
-                            pinData.stalls.map(s => (
-                              <tr key={s.id}>
-                                <td>
-                                  <strong>🏪 {s.name}</strong>
-                                </td>
-                                <td>
-                                  <span style={{ fontSize: '0.8rem', padding: '2px 8px', background: '#374151', borderRadius: '4px', color: '#d1d5db' }}>
-                                    {s.stall_number || 'N/A'}
-                                  </span>
-                                </td>
-                                <td>
-                                  {editingStallId === s.id ? (
-                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                      <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        pattern="[0-9]{4,6}"
-                                        maxLength={6}
-                                        placeholder="New PIN"
-                                        className="input-field"
-                                        value={editingStallPin}
-                                        onChange={e => setEditingStallPin(e.target.value.replace(/\D/g, ''))}
-                                        style={{ width: '120px', textAlign: 'center', fontFamily: 'monospace', letterSpacing: '2px' }}
-                                      />
-                                      <button
-                                        type="button"
-                                        className="btn btn-xs btn-success"
-                                        disabled={savingStallPin || !editingStallPin}
-                                        onClick={() => handleSaveStallPinByAdmin(s.id)}
-                                      >
-                                        Save
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="btn btn-xs btn-outline-primary"
-                                        onClick={() => { setEditingStallId(null); setEditingStallPin(''); }}
-                                      >
-                                        Cancel
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                      <span
-                                        style={{
-                                          fontSize: '1.2rem',
-                                          fontWeight: 700,
-                                          fontFamily: 'monospace',
-                                          letterSpacing: '4px',
-                                          color: '#38bdf8',
-                                          background: '#111827',
-                                          padding: '4px 12px',
-                                          borderRadius: '6px',
-                                          border: '1px solid rgba(56, 189, 248, 0.2)'
-                                        }}
-                                      >
-                                        {showPinDigits ? s.cancel_pin : '••••'}
-                                      </span>
-                                    </div>
-                                  )}
-                                </td>
-                                <td>
-                                  <span
-                                    className={`badge ${s.is_custom ? 'badge-success' : 'badge-warning'}`}
-                                    style={{
-                                      background: s.is_custom ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
-                                      color: s.is_custom ? '#34d399' : '#fbbf24',
-                                      border: `1px solid ${s.is_custom ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`
-                                    }}
-                                  >
-                                    {s.is_custom ? '✓ Custom PIN' : '⚠️ Default (0000)'}
-                                  </span>
-                                </td>
-                                <td>
-                                  {editingStallId !== s.id && (
-                                    <button
-                                      type="button"
-                                      className="btn btn-xs btn-outline-primary"
-                                      onClick={() => {
-                                        setEditingStallId(s.id);
-                                        setEditingStallPin(s.cancel_pin === '0000' ? '' : s.cancel_pin);
-                                      }}
-                                    >
-                                      ✏️ Change PIN
-                                    </button>
-                                  )}
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan="5" style={{ textAlign: 'center', padding: '20px', color: '#64748b' }}>
-                                No stalls configured yet.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
                 </div>
               )}
             </>

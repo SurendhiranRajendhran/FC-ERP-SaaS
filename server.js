@@ -5598,20 +5598,12 @@ app.get('/api/cancellation-pins', async (req, res) => {
         }
       }
 
-      const [stalls] = await pool.query('SELECT id, name, stall_number, cancel_pin FROM vendors ORDER BY name');
       return res.json({
         mode: 'central',
         central: {
           cancel_pin: centralPin,
           is_custom: isCentralCustom
-        },
-        stalls: stalls.map(s => ({
-          id: s.id,
-          name: s.name,
-          stall_number: s.stall_number,
-          cancel_pin: s.cancel_pin || '0000',
-          is_custom: !!s.cancel_pin
-        }))
+        }
       });
     }
 
@@ -5625,18 +5617,12 @@ app.get('/api/cancellation-pins', async (req, res) => {
 // Stall Manager (or Central Admin) updates a Stall's Cancellation PIN
 app.put('/api/cancellation-pins/stall', async (req, res) => {
   try {
-    const { vendor_id, pin } = req.body;
+    const { pin } = req.body;
     const userVendorId = req.user.vendor_id || null;
-    const isOwnerOrAdmin = ['Owner', 'Super Admin'].includes(req.user.role) || (!userVendorId && req.user.role === 'Manager');
-
-    let targetVendorId;
-    if (userVendorId) {
-      targetVendorId = userVendorId;
-    } else if (isOwnerOrAdmin && vendor_id) {
-      targetVendorId = parseInt(vendor_id);
-    } else {
-      return res.status(400).json({ error: 'Vendor ID is required.' });
+    if (!userVendorId) {
+      return res.status(403).json({ error: 'Stall cancellation PINs can only be configured by the respective Stall Manager.' });
     }
+    const targetVendorId = userVendorId;
 
     const cleanPin = String(pin || '').trim();
     if (!/^\d{4,6}$/.test(cleanPin)) {
