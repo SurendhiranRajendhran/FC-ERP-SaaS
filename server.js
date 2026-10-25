@@ -392,6 +392,42 @@ crm.setPool(pool);
     await conn.query("UPDATE orders SET payment_mode = 'Cash' WHERE payment_mode = '' OR payment_mode IS NULL");
     console.log("Migration: Ensured orders and wallet transactions support RFID Wallet and healed past payment modes.");
 
+    // 15. Auto-heal any cancelled RFID Wallet orders that were not refunded to customer wallet
+    const [unrefundedCancelled] = await conn.query(`
+      SELECT o.id, o.token_number, o.total_amount, o.customer_id, o.order_date
+      FROM orders o
+      WHERE o.status = 'Cancelled'
+        AND o.payment_mode = 'RFID Wallet'
+        AND o.customer_id IS NOT NULL
+        AND o.total_amount > 0
+        AND (o.refund_status IS NULL OR o.refund_status != 'Refunded')
+    `);
+
+    for (const ord of unrefundedCancelled) {
+      const refundAmt = parseFloat(ord.total_amount || 0);
+      const custId = ord.customer_id;
+      // Check if refund was already logged in wallet_transactions
+      const [existingRef] = await conn.query(
+        "SELECT id FROM wallet_transactions WHERE customer_id = ? AND type = 'credit' AND CAST(reference_id AS UNSIGNED) = ?",
+        [custId, ord.id]
+      );
+      if (existingRef.length === 0) {
+        // Fetch current balance
+        const [cust] = await conn.query("SELECT wallet_balance FROM customers WHERE id = ?", [custId]);
+        if (cust.length > 0) {
+          const currentBal = parseFloat(cust[0].wallet_balance || 0);
+          const newBal = parseFloat((currentBal + refundAmt).toFixed(2));
+          await conn.query("UPDATE customers SET wallet_balance = ? WHERE id = ?", [newBal, custId]);
+          await conn.query(`
+            INSERT INTO wallet_transactions (customer_id, vendor_id, type, payment_mode, amount, transaction_amount, meals_count, balance_after, meals_after, reference_id, description)
+            VALUES (?, NULL, 'credit', 'RFID Wallet', ?, ?, 0, ?, 0, ?, ?)
+          `, [custId, refundAmt, refundAmt, newBal, String(ord.id), `Refund for Cancelled Order #${ord.id} (Token: ${ord.token_number || ord.id})`]);
+          console.log(`Migration: Refunded ₹${refundAmt} to customer #${custId} for cancelled order #${ord.id}.`);
+        }
+      }
+      await conn.query("UPDATE orders SET refund_status = 'Refunded', refund_amount = ? WHERE id = ?", [refundAmt, ord.id]);
+    }
+
     conn.release();
   } catch (err) {
     console.error("Migration error on startup:", err.message);
@@ -2471,7 +2507,7 @@ app.put('/api/orders/:id/status', async (req, res) => {
   }
 
   try {
-    const [existing] = await pool.query('SELECT id, status FROM orders WHERE id = ?', [id]);
+    const [existing] = await pool.query('SELECT * FROM orders WHERE id = ?', [id]);
     if (existing.length === 0) {
       return res.status(404).json({ error: 'Order not found' });
     }
@@ -2508,15 +2544,65 @@ app.put('/api/orders/:id/status', async (req, res) => {
         return res.status(400).json({ error: pinResult.error || 'Valid Manager PIN is required to cancel this order.' });
       }
 
+      const orderData = existing[0];
+      const refundAmt = parseFloat(orderData.total_amount || 0);
+      let refundMsg = '';
+
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
 
-        // Update status & cancellation reason
+        const isRfidWallet = orderData.payment_mode === 'RFID Wallet';
+        const isCredit = orderData.payment_mode === 'Credit';
+        const shouldRefund = (isRfidWallet || isCredit) && refundAmt > 0 && orderData.customer_id;
+
+        // Update status & cancellation reason & refund tracking
         await connection.query(
-          'UPDATE orders SET status = "Cancelled", cancellation_reason = ? WHERE id = ?',
-          [cancellation_reason || 'No reason provided', id]
+          'UPDATE orders SET status = "Cancelled", cancellation_reason = ?, refund_status = ?, refund_amount = ? WHERE id = ?',
+          [
+            cancellation_reason || 'No reason provided',
+            shouldRefund ? 'Refunded' : (orderData.refund_status || 'None'),
+            shouldRefund ? refundAmt : 0.00,
+            id
+          ]
         );
+
+        // Process RFID Wallet balance refund
+        if (isRfidWallet && refundAmt > 0 && orderData.customer_id) {
+          const custId = parseInt(orderData.customer_id);
+          const [custRows] = await connection.query('SELECT wallet_balance FROM customers WHERE id = ? FOR UPDATE', [custId]);
+          if (custRows.length > 0) {
+            const currentBal = parseFloat(custRows[0].wallet_balance || 0);
+            const newBal = parseFloat((currentBal + refundAmt).toFixed(2));
+            await connection.query('UPDATE customers SET wallet_balance = ? WHERE id = ?', [newBal, custId]);
+            await connection.query(
+              `INSERT INTO wallet_transactions (customer_id, vendor_id, type, payment_mode, amount, transaction_amount, meals_count, balance_after, meals_after, reference_id, description)
+               VALUES (?, NULL, 'credit', 'RFID Wallet', ?, ?, 0, ?, 0, ?, ?)`,
+              [
+                custId,
+                refundAmt,
+                refundAmt,
+                newBal,
+                String(id),
+                `Refund for Cancelled Order #${id} (Token: ${orderData.token_number || id})`
+              ]
+            );
+            refundMsg = ` and ₹${refundAmt.toFixed(2)} refunded to customer RFID Wallet`;
+          }
+        } else if (isCredit && refundAmt > 0 && orderData.customer_id) {
+          const custId = parseInt(orderData.customer_id);
+          await connection.query(
+            `INSERT INTO credit_ledger (customer_id, order_id, amount, type, notes)
+             VALUES (?, ?, ?, 'Payment', ?)`,
+            [
+              custId,
+              id,
+              refundAmt,
+              `Reversal for Cancelled Order #${id} (Token: ${orderData.token_number || id})`
+            ]
+          );
+          refundMsg = ` and credit ledger reversed for ₹${refundAmt.toFixed(2)}`;
+        }
 
         // Fetch order items
         const [orderItems] = await connection.query(
@@ -2567,6 +2653,7 @@ app.put('/api/orders/:id/status', async (req, res) => {
         }
 
         await connection.commit();
+        return res.json({ success: true, message: `Order #${id} cancelled${refundMsg} and kitchen inventory restored.` });
       } catch (err) {
         await connection.rollback();
         throw err;

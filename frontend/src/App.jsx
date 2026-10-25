@@ -8652,9 +8652,8 @@ function App() {
                           </td>
                           <td>
                             <span
-                              className={`badge ${order.status === 'Cancelled' ? 'badge-danger' : 'badge-category'}`}
+                              className="badge badge-category"
                               style={
-                                order.status === 'Cancelled' ? undefined :
                                 order.payment_mode === 'RFID Wallet' ? { background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', borderColor: 'rgba(59, 130, 246, 0.35)' } :
                                 order.payment_mode === 'Credit' ? { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.35)' } :
                                 order.payment_mode === 'UPI' ? { background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa', borderColor: 'rgba(139, 92, 246, 0.35)' } :
@@ -8663,12 +8662,32 @@ function App() {
                                 undefined
                               }
                             >
-                              {order.status === 'Cancelled' ? 'Cancelled' : (order.payment_mode || 'Cash')}
+                              {order.payment_mode || 'Cash'}
                             </span>
+                            {order.status === 'Cancelled' && (
+                              <div style={{ marginTop: '4px', display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>
+                                  Cancelled
+                                </span>
+                                {order.refund_status === 'Refunded' && (
+                                  <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', borderRadius: '4px', border: '1px solid rgba(34, 197, 94, 0.3)', fontWeight: 'bold' }}>
+                                    ↩ Refunded
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td>
-                            {order.status !== 'Cancelled' && (
+                            {order.status !== 'Cancelled' ? (
                               <button className="btn btn-danger-small" onClick={() => setCancelModal({ show: true, orderId: order.id, tokenNumber: order.token_number, pin: '', reason: '', step: 1 })}>Cancel</button>
+                            ) : (
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                {order.refund_status === 'Refunded' ? (
+                                  <span style={{ color: '#10b981', fontWeight: 600 }}>Refunded ₹{parseFloat(order.refund_amount || order.total_amount).toFixed(2)}</span>
+                                ) : (
+                                  <span>Order Cancelled</span>
+                                )}
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -12200,17 +12219,23 @@ function App() {
                         })
                       }).then(async res => {
                         setIsCancelling(false);
+                        const data = await res.json().catch(() => ({}));
                         if (res.ok) {
-                          showToast('Order Cancelled and Stock Reversed', 'success');
+                          showToast(data.message || 'Order Cancelled and Stock Reversed', 'success');
                           const cancelledId = cancelModal.orderId;
                           setCancelModal({ show: false, orderId: null, tokenNumber: null, pin: '', reason: '', step: 1 });
                           // Optimistically update local pastOrders state immediately
-                          setPastOrders(prev => (prev || []).map(o => o.id === cancelledId ? { ...o, status: 'Cancelled' } : o));
+                          setPastOrders(prev => (prev || []).map(o => o.id === cancelledId ? {
+                            ...o,
+                            status: 'Cancelled',
+                            refund_status: (o.payment_mode === 'RFID Wallet' || o.payment_mode === 'Credit') ? 'Refunded' : 'None',
+                            refund_amount: o.total_amount
+                          } : o));
                           if (activeTab === 'kds') fetchKdsOrders();
                           fetchOrders();
+                          if (typeof fetchCustomers === 'function') fetchCustomers();
                         } else {
-                          const errData = await res.json().catch(() => ({}));
-                          showToast(errData.error || 'Failed to cancel order', 'error');
+                          showToast(data.error || 'Failed to cancel order', 'error');
                         }
                       }).catch(err => {
                         setIsCancelling(false);
