@@ -12556,6 +12556,12 @@ function App() {
                 <div><strong>Email:</strong> {supplierViewModal.data.email || '-'}</div>
                 <div><strong>GST No:</strong> {supplierViewModal.data.gst_no || '-'}</div>
                 <div><strong>Payment Terms:</strong> {supplierViewModal.data.payment_terms || '-'}</div>
+                <div>
+                  <strong>Outstanding:</strong>{' '}
+                  <span className={parseFloat(supplierViewModal.data.outstanding_balance || 0) > 0 ? 'text-danger' : 'text-success'} style={{ fontWeight: 'bold' }}>
+                    ₹{parseFloat(supplierViewModal.data.outstanding_balance || 0).toFixed(2)}
+                  </span>
+                </div>
                 <div style={{ gridColumn: 'span 2' }}><strong>Address:</strong> {supplierViewModal.data.address || '-'}</div>
                 <div style={{ gridColumn: 'span 2' }}><strong>Category:</strong> {supplierViewModal.data.items_supplied || '-'}</div>
                 <div style={{ gridColumn: 'span 2' }}><strong>Delivery Schedule:</strong> {supplierViewModal.data.delivery_schedule || '-'}</div>
@@ -12586,17 +12592,38 @@ function App() {
                    setSupplierViewModal({ show: false, data: null });
                    handleOpenSupplierHistory(supplierViewModal.data);
                 }}>History 🕒</button>
-                <button className="btn btn-danger" style={{marginLeft: '10px'}} onClick={async () => {
-                  if(!window.confirm('Delete supplier?')) return;
-                  try {
-                    const res = await fetch(`${API_BASE}/suppliers/${supplierViewModal.data.id}`, { method: 'DELETE' });
-                    if(res.ok) { 
-                      showToast('Deleted', 'success'); 
-                      setSupplierViewModal({ show: false, data: null });
-                      fetchSuppliers(); 
+                <button
+                  className="btn btn-danger"
+                  style={{
+                    marginLeft: '10px',
+                    opacity: parseFloat(supplierViewModal.data.outstanding_balance || 0) > 0 ? 0.6 : 1,
+                    cursor: parseFloat(supplierViewModal.data.outstanding_balance || 0) > 0 ? 'not-allowed' : 'pointer'
+                  }}
+                  title={parseFloat(supplierViewModal.data.outstanding_balance || 0) > 0 ? "Cannot delete supplier with outstanding balance. Settle pending bills first." : "Delete supplier"}
+                  onClick={async () => {
+                    const outstanding = parseFloat(supplierViewModal.data.outstanding_balance || 0);
+                    if (outstanding > 0) {
+                      showToast(`Cannot delete supplier "${supplierViewModal.data.name}" because there is an outstanding balance of ₹${outstanding.toFixed(2)}. Please settle pending bills first.`, 'error');
+                      return;
                     }
-                  } catch(e) { showToast('Error', 'error'); }
-                }}>Delete 🗑️</button>
+                    if (!window.confirm(`Are you sure you want to delete supplier "${supplierViewModal.data.name}"?`)) return;
+                    try {
+                      const res = await fetch(`${API_BASE}/suppliers/${supplierViewModal.data.id}`, { method: 'DELETE' });
+                      const data = await res.json().catch(() => ({}));
+                      if (res.ok) { 
+                        showToast(data.message || 'Supplier deleted successfully', 'success'); 
+                        setSupplierViewModal({ show: false, data: null });
+                        fetchSuppliers(); 
+                      } else {
+                        showToast(data.error || 'Failed to delete supplier', 'error');
+                      }
+                    } catch (e) {
+                      showToast('Network error while deleting supplier: ' + e.message, 'error');
+                    }
+                  }}
+                >
+                  Delete 🗑️
+                </button>
               </div>
               <button type="button" className="btn btn-outline-primary" onClick={() => setSupplierViewModal({ show: false, data: null })}>Close</button>
             </div>

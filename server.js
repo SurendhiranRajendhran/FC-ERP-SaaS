@@ -6831,11 +6831,39 @@ app.put('/api/suppliers/:id', async (req, res) => {
 app.delete('/api/suppliers/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    const [supRows] = await pool.query('SELECT id, name, outstanding_balance FROM suppliers WHERE id = ?', [id]);
+    if (supRows.length === 0) {
+      return res.status(404).json({ error: 'Supplier not found.' });
+    }
+    const supplier = supRows[0];
+
+    // Check for pending bills and outstanding balance
+    const [balRows] = await pool.query(`
+      SELECT IFNULL(SUM(CASE WHEN log_type = 'Purchase' AND payment_status = 'Pending' THEN recorded_cost ELSE 0 END), 0) as outstanding_balance,
+             COUNT(CASE WHEN log_type = 'Purchase' AND payment_status = 'Pending' THEN 1 END) as pending_bills_count
+      FROM stock_logs
+      WHERE supplier_id = ?
+    `, [id]);
+
+    const calculatedOutstanding = parseFloat(balRows[0]?.outstanding_balance || 0);
+    const recordedOutstanding = parseFloat(supplier.outstanding_balance || 0);
+    const outstanding = Math.max(calculatedOutstanding, recordedOutstanding);
+    const pendingCount = parseInt(balRows[0]?.pending_bills_count || 0);
+
+    if (outstanding > 0 || pendingCount > 0) {
+      return res.status(400).json({
+        error: `Cannot delete supplier "${supplier.name}" because there is an outstanding balance of ₹${outstanding.toFixed(2)}${pendingCount > 0 ? ` (${pendingCount} pending bill${pendingCount > 1 ? 's' : ''})` : ''}. Please settle all pending bills before deleting.`
+      });
+    }
+
+    // Safely decouple any historical paid stock logs from this supplier to preserve logs
+    await pool.query('UPDATE stock_logs SET supplier_id = NULL WHERE supplier_id = ?', [id]);
+
     await pool.query('DELETE FROM suppliers WHERE id = ?', [id]);
-    res.json({ success: true, message: 'Supplier deleted successfully.' });
+    res.json({ success: true, message: `Supplier "${supplier.name}" deleted successfully.` });
   } catch (error) {
     console.error('Error deleting supplier:', error);
-    res.status(500).json({ error: 'Failed to delete supplier' });
+    res.status(500).json({ error: 'Failed to delete supplier: ' + error.message });
   }
 });
 
