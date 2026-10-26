@@ -979,9 +979,13 @@ app.get('/api/items', async (req, res) => {
     if (req.user && req.user.vendor_id) {
       query += ' AND vendor_id = ?';
       params.push(req.user.vendor_id);
-    } else if (req.query.vendor_id) {
-      query += ' AND vendor_id = ?';
-      params.push(req.query.vendor_id);
+    } else if (req.query.vendor_id !== undefined) {
+      if (req.query.vendor_id === 'null' || req.query.vendor_id === 'central') {
+        query += ' AND vendor_id IS NULL';
+      } else if (req.query.vendor_id !== 'all' && req.query.vendor_id !== '') {
+        query += ' AND vendor_id = ?';
+        params.push(parseInt(req.query.vendor_id));
+      }
     }
     
     query += ' ORDER BY category, name';
@@ -1000,9 +1004,12 @@ app.post('/api/items', async (req, res) => {
     return res.status(400).json({ error: 'Name, Category and Price are required.' });
   }
 
-  let final_vendor_id = vendor_id ? parseInt(vendor_id) : null;
+  let final_vendor_id = null;
   if (req.user && req.user.vendor_id) {
     final_vendor_id = req.user.vendor_id;
+  } else if (!req.user || !req.user.vendor_id) {
+    // Central Admin creates items strictly for Central Canteen
+    final_vendor_id = null;
   }
 
   try {
@@ -1056,6 +1063,19 @@ app.put('/api/items/:id', async (req, res) => {
     }
 
     const item = existing[0];
+
+    // Enforce stall vs Central Canteen ownership
+    if (req.user) {
+      if (req.user.vendor_id) {
+        if (item.vendor_id !== req.user.vendor_id) {
+          return res.status(403).json({ error: 'Forbidden: You can only edit food items belonging to your stall.' });
+        }
+      } else {
+        if (item.vendor_id !== null) {
+          return res.status(403).json({ error: 'Forbidden: Central Admin cannot edit food items belonging to other stalls.' });
+        }
+      }
+    }
     const updateName = name !== undefined ? name : item.name;
     const updateCategory = category !== undefined ? category : item.category;
     const updatePrice = price !== undefined ? price : item.price;
@@ -1120,6 +1140,29 @@ app.delete('/api/items/:id', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+
+    const [existing] = await connection.query('SELECT * FROM items WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    const item = existing[0];
+
+    // Enforce stall vs Central Canteen ownership
+    if (req.user) {
+      if (req.user.vendor_id) {
+        if (item.vendor_id !== req.user.vendor_id) {
+          await connection.rollback();
+          return res.status(403).json({ error: 'Forbidden: You can only delete food items belonging to your stall.' });
+        }
+      } else {
+        if (item.vendor_id !== null) {
+          await connection.rollback();
+          return res.status(403).json({ error: 'Forbidden: Central Admin cannot delete food items belonging to other stalls.' });
+        }
+      }
+    }
 
     // Check if the item is present in order history or staff meals (sales records)
     const [orderRows] = await connection.query('SELECT id FROM order_items WHERE item_id = ? LIMIT 1', [id]);

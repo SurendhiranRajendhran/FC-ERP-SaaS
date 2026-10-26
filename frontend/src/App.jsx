@@ -3443,6 +3443,14 @@ function App() {
   };
 
   const handleOpenEditMenu = (item) => {
+    if (!user?.vendor_id && item.vendor_id != null) {
+      showToast('Cannot edit food items belonging to other stalls in Central Canteen module.', 'error');
+      return;
+    }
+    if (user?.vendor_id && item.vendor_id !== user.vendor_id) {
+      showToast('Cannot edit food items belonging to other stalls.', 'error');
+      return;
+    }
     setFormMenu({
       id: item.id,
       name: item.name,
@@ -3455,7 +3463,8 @@ function App() {
       special_price: item.special_price || '',
       available_from: item.available_from || '',
       available_until: item.available_until || '',
-          });
+      vendor_id: item.vendor_id || ''
+    });
     setMenuItemModal({ show: true, mode: 'edit', data: item });
   };
 
@@ -3465,11 +3474,21 @@ function App() {
     const url = isEdit ? `${API_BASE}/items/${formMenu.id}` : `${API_BASE}/items`;
     const method = isEdit ? 'PUT' : 'POST';
 
+    // Central Admin creates items strictly for Central Canteen (vendor_id = null)
+    // Stall Manager creates items strictly for their stall (vendor_id = user.vendor_id)
+    const payload = {
+      ...formMenu,
+      vendor_id: user?.vendor_id ? user.vendor_id : null
+    };
+
     try {
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formMenu)
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify(payload)
       });
       if (res.ok) {
         showToast(isEdit ? 'Menu item updated successfully!' : 'Menu item created successfully!', 'success');
@@ -3477,7 +3496,7 @@ function App() {
         fetchItems();
         fetchDashboard();
       } else {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         showToast(err.error || 'Failed to save menu item', 'error');
       }
     } catch (error) {
@@ -3486,9 +3505,21 @@ function App() {
   };
 
   const handleDeleteMenuItem = async (id) => {
+    const targetItem = items.find(i => i.id === id);
+    if (!user?.vendor_id && targetItem?.vendor_id != null) {
+      showToast('Cannot delete food items belonging to other stalls.', 'error');
+      return;
+    }
+    if (user?.vendor_id && targetItem?.vendor_id !== user.vendor_id) {
+      showToast('Cannot delete food items belonging to other stalls.', 'error');
+      return;
+    }
     if (!window.confirm('Are you sure you want to delete this menu item? All associated recipes will be removed.')) return;
     try {
-      const res = await fetch(`${API_BASE}/items/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/items/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
       if (res.ok) {
         showToast('Menu item deleted successfully!', 'success');
         fetchItems();
@@ -3497,6 +3528,9 @@ function App() {
           setSelectedRecipeItem(null);
           setRecipeRows([]);
         }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'Failed to delete item', 'error');
       }
     } catch (err) {
       showToast('Failed to delete item', 'error');
@@ -3504,16 +3538,30 @@ function App() {
   };
 
   const handleToggleItemActive = async (item) => {
+    if (!user?.vendor_id && item.vendor_id != null) {
+      showToast('Cannot modify food items belonging to other stalls.', 'error');
+      return;
+    }
+    if (user?.vendor_id && item.vendor_id !== user.vendor_id) {
+      showToast('Cannot modify food items belonging to other stalls.', 'error');
+      return;
+    }
     const nextActive = item.is_active === 1 ? 0 : 1;
     try {
       const res = await fetch(`${API_BASE}/items/${item.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
         body: JSON.stringify({ is_active: nextActive })
       });
       if (res.ok) {
         setItems(prev => prev.map(i => i.id === item.id ? { ...i, is_active: nextActive } : i));
         showToast(nextActive ? `"${item.name}" Activated for today.` : `"${item.name}" Deactivated.`, 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'Toggle status failed', 'error');
       }
     } catch (err) {
       showToast('Toggle status failed', 'error');
@@ -5672,16 +5720,17 @@ function App() {
   });
 
   const filteredMenuItems = items.filter(item => {
+    // In Central Admin login, the Central Canteen's Items (Menu) module displays ONLY Central Canteen items (vendor_id == null).
+    // In Stall Manager login, it displays ONLY that stall's items (vendor_id === user.vendor_id).
+    const isCentralUser = !user?.vendor_id;
+    const matchVendor = isCentralUser ? (item.vendor_id == null) : (item.vendor_id === user.vendor_id);
+    if (!matchVendor) return false;
+
     const matchSearch = item.name.toLowerCase().includes(menuSearch.toLowerCase()) || 
                         (item.description && item.description.toLowerCase().includes(menuSearch.toLowerCase()));
     const matchCategory = menuCategoryFilter === 'All' || item.category === menuCategoryFilter;
-    const matchGlobalVendor = selectedVendorId === 'all' || selectedVendorId === 'null' || item.vendor_id === parseInt(selectedVendorId);
-    
-    let matchLocalVendor = true;
-    if (menuVendorFilter === 'Central') matchLocalVendor = item.vendor_id == null;
-    else if (menuVendorFilter !== 'All') matchLocalVendor = item.vendor_id === parseInt(menuVendorFilter);
 
-    return matchSearch && matchCategory && matchGlobalVendor && matchLocalVendor;
+    return matchSearch && matchCategory;
   });
 
   const filteredMaterials = materials.filter(mat => {
@@ -7869,19 +7918,9 @@ function App() {
                     <option value="Combos">Combos</option>
                     <option value="Specials">Specials</option>
                   </select>
-                  {!user?.vendor_id && (
-                    <select 
-                      value={menuVendorFilter}
-                      onChange={(e) => setMenuVendorFilter(e.target.value)}
-                      style={{ marginLeft: '10px' }}
-                    >
-                      <option value="All">All Stalls & Central</option>
-                      <option value="Central">Central Canteen Items</option>
-                      {vendors.map(v => (
-                        <option key={v.id} value={v.id}>{v.name} Items</option>
-                      ))}
-                    </select>
-                  )}
+                  <span style={{ marginLeft: '10px', fontSize: '0.8rem', padding: '6px 12px', background: 'rgba(59, 130, 246, 0.12)', color: '#60a5fa', borderRadius: '6px', border: '1px solid rgba(59, 130, 246, 0.25)', fontWeight: '600' }}>
+                    🏪 {!user?.vendor_id ? 'Central Canteen Menu' : 'Stall Menu'}
+                  </span>
                 </div>
                 <button className="btn btn-primary" onClick={handleOpenAddMenu}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style={{width: 18, height: 18, marginRight: 6}}>
