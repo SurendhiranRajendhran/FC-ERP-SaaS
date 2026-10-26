@@ -2226,11 +2226,6 @@ function App() {
   const [tempSupplierItem, setTempSupplierItem] = useState('');
   const [showSupplierItemSuggestions, setShowSupplierItemSuggestions] = useState(false);
   
-  // Bulk Stock Modals States
-  const [showBulkOpeningModal, setShowBulkOpeningModal] = useState(false);
-  const [bulkOpeningItems, setBulkOpeningItems] = useState([]);
-  const [showBulkClosingModal, setShowBulkClosingModal] = useState(false);
-  const [bulkClosingItems, setBulkClosingItems] = useState([]);
   
   // Overheads & Customers Modal States
   const [showOverheadModal, setShowOverheadModal] = useState(false);
@@ -3548,74 +3543,7 @@ function App() {
     }
   };
 
-  const handleOpenBulkOpening = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/stock/opening-sheet`);
-      const data = await res.json();
-      setBulkOpeningItems(data.map(item => ({
-        material_id: item.id,
-        name: item.name,
-        unit: item.unit,
-        yesterday_closing: item.yesterday_closing,
-        opening_qty: item.yesterday_closing
-      })));
-      setShowBulkOpeningModal(true);
-    } catch (err) {
-      showToast('Error connecting to backend for opening sheet', 'error');
-    }
-  };
 
-  const handleSaveBulkOpening = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/stock/opening-entry`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries: bulkOpeningItems })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast('Opening stock updated successfully.', 'success');
-        fetchMaterials();
-        setShowBulkOpeningModal(false);
-      } else {
-        showToast(data.error || 'Failed to save opening stock', 'error');
-      }
-    } catch (err) {
-      showToast('Error sending opening stock data', 'error');
-    }
-  };
-
-  const handleOpenBulkClosing = () => {
-    setBulkClosingItems(materials.map(item => ({
-      material_id: item.id,
-      name: item.name,
-      unit: item.unit,
-      system_qty: parseFloat(item.stock_level),
-      physical_qty: parseFloat(item.stock_level),
-      variance: 0
-    })));
-    setShowBulkClosingModal(true);
-  };
-
-  const handleSaveBulkClosing = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/stock/closing-entry`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries: bulkClosingItems })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast('Closing stock recorded successfully.', 'success');
-        fetchMaterials();
-        setShowBulkClosingModal(false);
-      } else {
-        showToast(data.error || 'Failed to save closing stock', 'error');
-      }
-    } catch (err) {
-      showToast('Error sending closing stock data', 'error');
-    }
-  };
 
   // ==========================================
   // INVENTORY INGREDIENT ACTIONS
@@ -8088,12 +8016,7 @@ function App() {
                       <button className="btn btn-outline-primary" onClick={() => handleOpenStockAction('')}>
                         New Purchase Entry / Stock Action
                       </button>
-                      <button className="btn btn-outline-success" onClick={handleOpenBulkOpening}>
-                        Bulk Opening Stock
-                      </button>
-                      <button className="btn btn-outline-warning" onClick={handleOpenBulkClosing}>
-                        Closing Stock Entry
-                      </button>
+
                     </div>
                   </div>
 
@@ -13404,126 +13327,9 @@ function App() {
         </div>
       )}
 
-      {/* ==========================================
-           MODAL: BULK OPENING STOCK
-           ========================================== */}
-      {showBulkOpeningModal && (
-        <div className="modal-overlay active" style={{ zIndex: 1100 }}>
-          <div className="modal-card" style={{ maxWidth: '700px', maxHeight: '85vh', overflow: 'auto' }}>
-            <div className="modal-header">
-              <h3>📦 Bulk Opening Stock Entry</h3>
-              <button className="close-btn" onClick={() => setShowBulkOpeningModal(false)}>&times;</button>
-            </div>
-            <div style={{ padding: '20px' }}>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: '15px' }}>
-                Set the initial opening stock quantities for all raw materials at the start of the day. Yesterday's closing is pre-filled as the default opening value.
-              </p>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Material</th>
-                    <th>Unit</th>
-                    <th>Yesterday Closing</th>
-                    <th>Opening Qty (Today)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bulkOpeningItems.map((item, idx) => (
-                    <tr key={idx}>
-                      <td><strong>{item.name}</strong></td>
-                      <td><span className="badge badge-category">{item.unit}</span></td>
-                      <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{parseFloat(item.yesterday_closing).toFixed(3)}</td>
-                      <td>
-                        <input 
-                          type="number" 
-                          min="0" 
-                          step="0.001"
-                          value={item.opening_qty}
-                          onChange={(e) => {
-                            const updated = [...bulkOpeningItems];
-                            updated[idx] = { ...updated[idx], opening_qty: parseFloat(e.target.value) || 0 };
-                            setBulkOpeningItems(updated);
-                          }}
-                          style={{ width: '110px', padding: '5px 8px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border-light)', background: 'var(--bg-app)', color: 'var(--text-light)' }}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '15px' }}>
-                <button className="btn btn-outline-primary" onClick={() => setShowBulkOpeningModal(false)}>Cancel</button>
-                <button className="btn btn-success" onClick={handleSaveBulkOpening}>Save Opening Stock</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* ==========================================
-           MODAL: CLOSING STOCK VARIANCE
-           ========================================== */}
-      {showBulkClosingModal && (
-        <div className="modal-overlay active" style={{ zIndex: 1100 }}>
-          <div className="modal-card" style={{ maxWidth: '750px', maxHeight: '85vh', overflow: 'auto' }}>
-            <div className="modal-header">
-              <h3>📋 Closing Stock Variance Entry</h3>
-              <button className="close-btn" onClick={() => setShowBulkClosingModal(false)}>&times;</button>
-            </div>
-            <div style={{ padding: '20px' }}>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: '15px' }}>
-                Enter the actual physical count of each material. The system will calculate the variance (shrinkage/surplus) and adjust stock levels accordingly.
-              </p>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Material</th>
-                    <th>Unit</th>
-                    <th>System Stock</th>
-                    <th>Physical Count</th>
-                    <th>Variance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bulkClosingItems.map((item, idx) => {
-                    const variance = (item.physical_qty - item.system_qty).toFixed(3);
-                    const varColor = parseFloat(variance) < 0 ? '#ef4444' : parseFloat(variance) > 0 ? '#22c55e' : 'var(--text-muted)';
-                    return (
-                      <tr key={idx}>
-                        <td><strong>{item.name}</strong></td>
-                        <td><span className="badge badge-category">{item.unit}</span></td>
-                        <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{item.system_qty.toFixed(3)}</td>
-                        <td>
-                          <input 
-                            type="number" 
-                            min="0" 
-                            step="0.001"
-                            value={item.physical_qty}
-                            onChange={(e) => {
-                              const updated = [...bulkClosingItems];
-                              const physQty = parseFloat(e.target.value) || 0;
-                              updated[idx] = { ...updated[idx], physical_qty: physQty, variance: physQty - item.system_qty };
-                              setBulkClosingItems(updated);
-                            }}
-                            style={{ width: '110px', padding: '5px 8px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border-light)', background: 'var(--bg-app)', color: 'var(--text-light)' }}
-                          />
-                        </td>
-                        <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: varColor }}>
-                          {parseFloat(variance) > 0 ? '+' : ''}{variance} {item.unit}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '15px' }}>
-                <button className="btn btn-outline-primary" onClick={() => setShowBulkClosingModal(false)}>Cancel</button>
-                <button className="btn btn-warning" onClick={handleSaveBulkClosing}>Save Closing Stock</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+
+
 
       {/* Central Admin: Edit Stall Manager Modal */}
       {showEditManagerModal && (
