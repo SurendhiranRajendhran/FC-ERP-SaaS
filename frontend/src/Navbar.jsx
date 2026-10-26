@@ -64,7 +64,7 @@ export default function Navbar() {
             borderRadius: '12px', 
             fontWeight: '600',
             letterSpacing: '0.5px'
-          }}>v1.1.3</span>
+          }}>v1.1.4</span>
         </a>
         <div className="lp-nav-links">
           <a href="/" className={`lp-nav-link ${currentPath === '/' ? 'active' : ''}`}>Platform</a>

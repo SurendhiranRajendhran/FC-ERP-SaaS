@@ -903,7 +903,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                 borderRadius: '12px', 
                 fontWeight: '600',
                 letterSpacing: '0.5px'
-              }}>v1.1.3</span>
+              }}>v1.1.4</span>
             </p>
             <p style={saStyles.logoSub}>SaaS Control Panel</p>
           </div>
@@ -1563,7 +1563,7 @@ function LoginScreen({ onLogin }) {
               letterSpacing: '0.5px',
               marginLeft: '12px',
               verticalAlign: 'middle'
-            }}>v1.1.3</span>
+            }}>v1.1.4</span>
           </h1>
           <p>Login to your account</p>
         </div>
@@ -5798,7 +5798,7 @@ function App() {
                 borderRadius: '12px', 
                 fontWeight: '600',
                 letterSpacing: '0.5px'
-              }}>v1.1.3</span>
+              }}>v1.1.4</span>
             </h1>
             <span style={{ marginTop: '2px', display: 'block' }}>Canteen ERP</span>
           </div>

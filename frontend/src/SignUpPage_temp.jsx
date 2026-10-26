@@ -96,7 +96,7 @@ export default function SignUpPage() {
                 letterSpacing: '0.5px',
                 marginLeft: '12px',
                 verticalAlign: 'middle'
-              }}>v1.1.3</span>
+              }}>v1.1.4</span>
             </div>
             <div style={styles.subtitle}>Register your Food Court</div>
             <form onSubmit={handleSubmit}>
