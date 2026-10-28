@@ -12,8 +12,32 @@ const cors = require('cors');
 const mysql = require('mysql2/promise');
 const path = require('path');
 const os = require('os');
+const cluster = require('cluster');
 require('dotenv').config();
 const crm = require('./crm-service');
+
+// Multi-Core Process Clustering Configuration
+const isPrimary = cluster.isPrimary ?? cluster.isMaster;
+const isClusterEnabled = process.env.ENABLE_CLUSTER !== 'false';
+
+function getWorkerCount() {
+  if (process.env.CLUSTER_WORKERS) {
+    const parsed = parseInt(process.env.CLUSTER_WORKERS, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  const totalCores = os.cpus() ? os.cpus().length : 1;
+  if (process.env.NODE_ENV === 'production') {
+    // In production/Docker containers, scale across all available cores (capped at 8)
+    return Math.min(totalCores, 8);
+  }
+  // In local development / testing, use 2 workers if multi-core, or 1 if single-core
+  return Math.min(totalCores, 2);
+}
+
+const workerCount = getWorkerCount();
+const isClustered = isClusterEnabled && workerCount > 1;
+const shouldRunCronAndMigrations = !isClustered || isPrimary;
+const shouldStartHttpServer = !isClustered || !isPrimary;
 
 
 // Helper: get LAN (Wi-Fi/Ethernet) IP address for QR code generation
@@ -160,13 +184,14 @@ app.get('/api/server-info', (req, res) => {
 // connectionLimit raised from 10 → 25 based on JMeter load test findings:
 // With 100 concurrent users, 10 connections caused queuing delays (~2.5s avg).
 // 25 connections allow more parallel queries, reducing peak-rush response times below 1s.
+// Database Connection Pool (Main - High-Priority Transactions: POS Orders, Tokens, KDS, Wallets)
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'erp',
   waitForConnections: true,
-  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 25,
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || (isClustered ? 15 : 25),
   queueLimit: 0,
   connectTimeout: 10000,   // 10s max wait when establishing a new DB connection
   enableKeepAlive: true,   // Keep idle connections alive to avoid reconnect overhead
@@ -175,10 +200,25 @@ const pool = mysql.createPool({
 
 crm.setPool(pool);
 
+// Dedicated Connection Pool for Heavy MIS Reports and Analytics
+// Completely isolates analytical SELECT queries so they never starve or block cashier POS / KDS transactions
+const reportPool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'erp',
+  waitForConnections: true,
+  connectionLimit: parseInt(process.env.DB_REPORT_CONNECTION_LIMIT, 10) || 5,
+  queueLimit: 0,
+  connectTimeout: 15000,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 30000,
+});
+
 // ==========================================
 // AUTOMATIC SCHEMA MIGRATIONS (Ensure Live & Local sync)
 // ==========================================
-(async () => {
+async function runStartupMigrations() {
   try {
     const conn = await pool.getConnection();
     
@@ -438,7 +478,12 @@ crm.setPool(pool);
   } catch (err) {
     console.error("Migration error on startup:", err.message);
   }
-})();
+}
+
+// In cluster mode, only the Primary process runs schema migrations to prevent concurrency conflicts
+if (shouldRunCronAndMigrations) {
+  runStartupMigrations();
+}
 
 // ==========================================
 // SAAS MULTI-TENANT QUERY ISOLATION WRAPPER
@@ -593,20 +638,61 @@ pool.getConnection = async function() {
   });
 };
 
-crm.startDailySummaryScheduler();
-crm.startScheduledBroadcastsRunner();
-console.log('[CRM] Notifications & CRM Engine initialized');
+// Wrap reportPool with identical tenant isolation
+const originalReportPoolQuery = reportPool.query;
+reportPool.query = async function(sql, params) {
+  const context = tenantStorage.getStore();
+  const tenantId = context ? context.tenant_id : null;
+  const { sql: newSql, params: newParams } = rewriteQuery(sql, params, tenantId);
+  return originalReportPoolQuery.apply(reportPool, [newSql, newParams]);
+};
 
-// Test Connection and Pool
-(async () => {
-  try {
-    const connection = await pool.getConnection();
-    console.log('Express connected to XAMPP MySQL Pool successfully.');
-    connection.release();
-  } catch (error) {
-    console.error('CRITICAL: Express failed to connect to XAMPP MySQL:', error.message);
-  }
-})();
+const originalReportPoolExecute = reportPool.execute;
+reportPool.execute = async function(sql, params) {
+  const context = tenantStorage.getStore();
+  const tenantId = context ? context.tenant_id : null;
+  const { sql: newSql, params: newParams } = rewriteQuery(sql, params, tenantId);
+  return originalReportPoolExecute.apply(reportPool, [newSql, newParams]);
+};
+
+const originalReportGetConnection = reportPool.getConnection;
+reportPool.getConnection = async function() {
+  const conn = await originalReportGetConnection.apply(reportPool);
+  return new Proxy(conn, {
+    get(target, prop, receiver) {
+      if (prop === 'query' || prop === 'execute') {
+        return async function(sql, params) {
+          const context = tenantStorage.getStore();
+          const tenantId = context ? context.tenant_id : null;
+          const { sql: newSql, params: newParams } = rewriteQuery(sql, params, tenantId);
+          return target[prop](newSql, newParams);
+        };
+      }
+      const val = Reflect.get(target, prop, receiver);
+      if (typeof val === 'function') {
+        return val.bind(target);
+      }
+      return val;
+    }
+  });
+};
+
+if (shouldRunCronAndMigrations) {
+  crm.startDailySummaryScheduler();
+  crm.startScheduledBroadcastsRunner();
+  console.log('[CRM] Notifications & CRM Engine initialized');
+
+  // Test Connection and Pool
+  (async () => {
+    try {
+      const connection = await pool.getConnection();
+      console.log('Express connected to MySQL Pool successfully.');
+      connection.release();
+    } catch (error) {
+      console.error('CRITICAL: Express failed to connect to MySQL:', error.message);
+    }
+  })();
+}
 
 // ==========================================
 // AUTHENTICATION & RBAC MIDDLEWARES
@@ -1010,9 +1096,48 @@ app.get('/api/dashboard', async (req, res) => {
 // 2. MENU ITEMS API
 // ==========================================
 
+// In-Memory Cache for Menu Items
+// Eliminates repetitive MySQL queries for menu fetches during high-concurrency rushes.
+// Invalidated instantly across all cluster workers via IPC on any item create/update/delete.
+const menuItemsCache = new Map();
+const MENU_CACHE_TTL_MS = 5 * 60 * 1000; // 5-minute fallback TTL
+
+function invalidateMenuItemsCache(broadcast = true) {
+  menuItemsCache.clear();
+  if (broadcast && process.send) {
+    try {
+      process.send({ type: 'INVALIDATE_ITEMS_CACHE' });
+    } catch (e) {
+      // IPC not available or ignored
+    }
+  }
+}
+
+// In worker processes, listen for broadcasted cache invalidation from Primary
+if (cluster.isWorker) {
+  process.on('message', (msg) => {
+    if (msg && msg.type === 'INVALIDATE_ITEMS_CACHE') {
+      invalidateMenuItemsCache(false);
+    }
+  });
+}
+
 // Get all menu items
 app.get('/api/items', async (req, res) => {
   try {
+    const tenantContext = tenantStorage.getStore();
+    const currentTenantId = tenantContext ? tenantContext.tenant_id : (req.user ? req.user.tenant_id : 'public');
+    const vendorFilter = (req.user && req.user.vendor_id) 
+      ? `user_${req.user.vendor_id}` 
+      : `query_${req.query.vendor_id !== undefined ? req.query.vendor_id : 'all'}`;
+    const cacheKey = `${currentTenantId}_${vendorFilter}`;
+
+    const cached = menuItemsCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && (now - cached.timestamp) < MENU_CACHE_TTL_MS) {
+      return res.json(cached.data);
+    }
+
     let query = 'SELECT * FROM items WHERE is_deleted = 0';
     let params = [];
     
@@ -1031,6 +1156,7 @@ app.get('/api/items', async (req, res) => {
     query += ' ORDER BY category, name';
     
     const [rows] = await pool.query(query, params);
+    menuItemsCache.set(cacheKey, { data: rows, timestamp: now });
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch menu items' });
@@ -1070,6 +1196,7 @@ app.post('/api/items', async (req, res) => {
         mess_eligible ? 1 : 0
       ]
     );
+    invalidateMenuItemsCache();
     res.status(201).json({ 
       id: result.insertId, 
       name, 
@@ -1153,6 +1280,7 @@ app.put('/api/items/:id', async (req, res) => {
       ]
     );
 
+    invalidateMenuItemsCache();
     res.json({
       id: parseInt(id),
       name: updateName,
@@ -1212,6 +1340,7 @@ app.delete('/api/items/:id', async (req, res) => {
       // Soft delete: mark as deleted so historical logs/reports remain valid
       await connection.query('UPDATE items SET is_deleted = 1 WHERE id = ?', [id]);
       await connection.commit();
+      invalidateMenuItemsCache();
       return res.json({ success: true, message: 'Item has sales history; softly deleted.' });
     }
 
@@ -1226,6 +1355,7 @@ app.delete('/api/items/:id', async (req, res) => {
     await connection.query('DELETE FROM items WHERE id = ?', [id]);
 
     await connection.commit();
+    invalidateMenuItemsCache();
     res.json({ success: true, message: 'Item deleted successfully' });
   } catch (error) {
     await connection.rollback();
@@ -6077,7 +6207,7 @@ app.get('/api/reports/sales', async (req, res) => {
       salesParams = [startStr, endStr];
     }
 
-    const [salesRows] = await pool.query(salesQuery, salesParams);
+    const [salesRows] = await reportPool.query(salesQuery, salesParams);
     const summary = salesRows[0];
     const totalRevenue = parseFloat(summary.total_revenue || 0);
     const totalOrders = parseInt(summary.total_orders || 0);
@@ -6107,7 +6237,7 @@ app.get('/api/reports/sales', async (req, res) => {
         ORDER BY qty DESC`;
       itemParams = [startStr, endStr];
     }
-    const [itemRows] = await pool.query(itemQuery, itemParams);
+    const [itemRows] = await reportPool.query(itemQuery, itemParams);
 
     // Payment Mode Split
     let payQuery, payParams;
@@ -6129,7 +6259,7 @@ app.get('/api/reports/sales', async (req, res) => {
         GROUP BY payment_mode`;
       payParams = [startStr, endStr];
     }
-    const [payRows] = await pool.query(payQuery, payParams);
+    const [payRows] = await reportPool.query(payQuery, payParams);
 
     // Cost of Goods Sold (COGS)
     let cogsQuery, cogsParams;
@@ -6150,7 +6280,7 @@ app.get('/api/reports/sales', async (req, res) => {
         WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled'`;
       cogsParams = [startStr, endStr];
     }
-    const [cogsRows] = await pool.query(cogsQuery, cogsParams);
+    const [cogsRows] = await reportPool.query(cogsQuery, cogsParams);
     const cogsVal = parseFloat(cogsRows[0].cogs || 0);
 
     // Wastage Costs
@@ -6173,23 +6303,23 @@ app.get('/api/reports/sales', async (req, res) => {
         WHERE sl.logged_at BETWEEN ? AND ? AND sl.log_type = 'Wastage'`;
       wastageParams = [startStr, endStr];
     }
-    const [wastageRows] = await pool.query(wastageQuery, wastageParams);
+    const [wastageRows] = await reportPool.query(wastageQuery, wastageParams);
     const wastageVal = parseFloat(wastageRows[0].wastage || 0);
 
     // Overhead Expenses Split
     let overheadsVal = 0;
     if (!vendor_id || vendor_id === 'null') {
-      const [overheadsRows] = await pool.query(
+      const [overheadsRows] = await reportPool.query(
         'SELECT IFNULL(SUM(amount), 0) as amount FROM overheads WHERE expense_date BETWEEN ? AND ?',
         [startDate || '1970-01-01', endDate || '9999-12-31']
       );
       overheadsVal = parseFloat(overheadsRows[0].amount || 0);
     } else {
       const vId = parseInt(vendor_id);
-      const [vendorRows] = await pool.query('SELECT share_area FROM vendors WHERE id = ?', [vId]);
+      const [vendorRows] = await reportPool.query('SELECT share_area FROM vendors WHERE id = ?', [vId]);
       if (vendorRows.length > 0) {
         const sharePct = parseFloat(vendorRows[0].share_area || 0);
-        const [overheadsRows] = await pool.query(
+        const [overheadsRows] = await reportPool.query(
           'SELECT IFNULL(SUM(amount), 0) as amount FROM overheads WHERE expense_date BETWEEN ? AND ?',
           [startDate || '1970-01-01', endDate || '9999-12-31']
         );
@@ -6220,7 +6350,7 @@ app.get('/api/reports/sales', async (req, res) => {
         WHERE (year * 12 + month) BETWEEN ? AND ?`;
       staffParams = [startYear * 12 + startMonth, endYear * 12 + endMonth];
     }
-    const [staffRows] = await pool.query(staffQuery, staffParams);
+    const [staffRows] = await reportPool.query(staffQuery, staffParams);
     staffCostVal = parseFloat(staffRows[0].cost || 0);
 
     const netProfit = totalRevenue - cogsVal - wastageVal - overheadsVal - staffCostVal;
@@ -6272,12 +6402,12 @@ app.get('/api/reports/stock', async (req, res) => {
     }
     matQuery += ' ORDER BY name';
 
-    const [materials] = await pool.query(matQuery, matParams);
+    const [materials] = await reportPool.query(matQuery, matParams);
     const stockReport = [];
 
     for (const mat of materials) {
       // Calculate changes after EndDate (to compute Closing Stock at EndDate)
-      const [futureLogs] = await pool.query(
+      const [futureLogs] = await reportPool.query(
         'SELECT IFNULL(SUM(change_qty), 0) as change_sum FROM stock_logs WHERE material_id = ? AND logged_at > ?',
         [mat.id, endStr]
       );
@@ -6285,7 +6415,7 @@ app.get('/api/reports/stock', async (req, res) => {
       const closingStock = parseFloat(mat.stock_level) - futureChanges;
 
       // Calculate changes in range
-      const [rangeLogs] = await pool.query(
+      const [rangeLogs] = await reportPool.query(
         `SELECT 
           IFNULL(SUM(CASE WHEN log_type = 'Purchase' THEN change_qty ELSE 0 END), 0) as purchases,
           IFNULL(SUM(CASE WHEN log_type = 'Sale Deduction' THEN ABS(change_qty) ELSE 0 END), 0) as usage_qty,
@@ -6341,7 +6471,7 @@ app.get('/api/reports/stock', async (req, res) => {
     } else if (vendor_id === 'null') {
       summaryQuery += ' AND rm.vendor_id IS NULL';
     }
-    const [summaryRows] = await pool.query(summaryQuery, summaryParams);
+    const [summaryRows] = await reportPool.query(summaryQuery, summaryParams);
 
     let cogsQuery = `SELECT IFNULL(SUM(oi.recorded_cogs), 0) as totalConsumed
        FROM order_items oi
@@ -6356,7 +6486,7 @@ app.get('/api/reports/stock', async (req, res) => {
     } else if (vendor_id === 'null') {
       cogsQuery += ' AND i.vendor_id IS NULL';
     }
-    const [cogsRows] = await pool.query(cogsQuery, cogsParams);
+    const [cogsRows] = await reportPool.query(cogsQuery, cogsParams);
 
     const totalPurchased = parseFloat(summaryRows[0].totalPurchased || 0);
     const totalWasted = parseFloat(summaryRows[0].totalWasted || 0);
@@ -6387,10 +6517,10 @@ app.get('/api/reports/vendors', async (req, res) => {
   const endStr = endDate ? `${endDate} 23:59:59` : '9999-12-31 23:59:59';
 
   try {
-    const [vendors] = await pool.query('SELECT * FROM vendors ORDER BY name');
+    const [vendors] = await reportPool.query('SELECT * FROM vendors ORDER BY name');
     
     // Sum total overheads in this range to split common costs
-    const [overheads] = await pool.query(
+    const [overheads] = await reportPool.query(
       'SELECT IFNULL(SUM(amount), 0) as amount FROM overheads WHERE expense_date BETWEEN ? AND ?',
       [startDate || '1970-01-01', endDate || '9999-12-31']
     );
@@ -6400,7 +6530,7 @@ app.get('/api/reports/vendors', async (req, res) => {
 
     for (const v of vendors) {
       // Vendor Sales
-      const [sales] = await pool.query(
+      const [sales] = await reportPool.query(
         `SELECT COUNT(DISTINCT o.id) as orders_count, 
                 IFNULL(SUM(oi.quantity * oi.price), 0) as revenue
          FROM orders o
@@ -6487,7 +6617,7 @@ app.get('/api/reports/peak-hours', async (req, res) => {
       params = [startStr, endStr];
     }
 
-    const [rows] = await pool.query(query, params);
+    const [rows] = await reportPool.query(query, params);
     
     // Fill in all 24 hours of the day
     const hourlyData = Array.from({ length: 24 }, (_, i) => ({
@@ -6541,7 +6671,7 @@ app.get('/api/reports/monthly-pl', async (req, res) => {
         salesQuery = "SELECT IFNULL(SUM(total_amount), 0) as revenue FROM orders WHERE order_date BETWEEN ? AND ? AND status != 'Cancelled'";
         salesParams = [monthStart, monthEnd];
       }
-      const [sales] = await pool.query(salesQuery, salesParams);
+      const [sales] = await reportPool.query(salesQuery, salesParams);
       const revenue = parseFloat(sales[0].revenue || 0);
 
       // 2. COGS (Cost of Goods Sold)
@@ -6563,7 +6693,7 @@ app.get('/api/reports/monthly-pl', async (req, res) => {
           WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled'`;
         cogsParams = [monthStart, monthEnd];
       }
-      const [cogsRows] = await pool.query(cogsQuery, cogsParams);
+      const [cogsRows] = await reportPool.query(cogsQuery, cogsParams);
       const cogs = parseFloat(cogsRows[0].cogs || 0);
 
       // 3. Staff Salaries
@@ -6580,23 +6710,23 @@ app.get('/api/reports/monthly-pl', async (req, res) => {
         staffQuery = 'SELECT IFNULL(SUM(gross_salary), 0) as salaries FROM payroll WHERE month = ? AND year = ?';
         staffParams = [month, currentYear];
       }
-      const [staffRows] = await pool.query(staffQuery, staffParams);
+      const [staffRows] = await reportPool.query(staffQuery, staffParams);
       const staffSalaries = parseFloat(staffRows[0].salaries || 0);
 
       // 4. Overheads (Expenses logged for this month)
       let overheadsVal = 0;
       if (!vendor_id || vendor_id === 'null' || vendor_id === 'all') {
-        const [overheadsRows] = await pool.query(
+        const [overheadsRows] = await reportPool.query(
           'SELECT IFNULL(SUM(amount), 0) as amount FROM overheads WHERE expense_date BETWEEN ? AND ?',
           [`${currentYear}-${month.toString().padStart(2, '0')}-01`, `${currentYear}-${month.toString().padStart(2, '0')}-${lastDay}`]
         );
         overheadsVal = parseFloat(overheadsRows[0].amount || 0);
       } else {
         const vId = parseInt(vendor_id);
-        const [vendorRows] = await pool.query('SELECT share_area FROM vendors WHERE id = ?', [vId]);
+        const [vendorRows] = await reportPool.query('SELECT share_area FROM vendors WHERE id = ?', [vId]);
         if (vendorRows.length > 0) {
           const sharePct = parseFloat(vendorRows[0].share_area || 0);
-          const [overheadsRows] = await pool.query(
+          const [overheadsRows] = await reportPool.query(
             'SELECT IFNULL(SUM(amount), 0) as amount FROM overheads WHERE expense_date BETWEEN ? AND ?',
             [`${currentYear}-${month.toString().padStart(2, '0')}-01`, `${currentYear}-${month.toString().padStart(2, '0')}-${lastDay}`]
           );
@@ -6622,7 +6752,7 @@ app.get('/api/reports/monthly-pl', async (req, res) => {
           WHERE sl.logged_at BETWEEN ? AND ? AND sl.log_type = 'Wastage'`;
         wastageParams = [monthStart, monthEnd];
       }
-      const [wastageRows] = await pool.query(wastageQuery, wastageParams);
+      const [wastageRows] = await reportPool.query(wastageQuery, wastageParams);
       const wastage = parseFloat(wastageRows[0].wastage || 0);
 
       // 6. Total Purchases (cash outflow)
@@ -6642,7 +6772,7 @@ app.get('/api/reports/monthly-pl', async (req, res) => {
           WHERE sl.logged_at BETWEEN ? AND ? AND sl.log_type = 'Purchase'`;
         purchaseParams = [monthStart, monthEnd];
       }
-      const [purchaseRows] = await pool.query(purchaseQuery, purchaseParams);
+      const [purchaseRows] = await reportPool.query(purchaseQuery, purchaseParams);
       const totalPurchases = parseFloat(purchaseRows[0].purchases || 0);
 
       const grossProfit = revenue - cogs;
@@ -6673,15 +6803,15 @@ app.get('/api/reports/monthly-pl', async (req, res) => {
 app.get('/api/reports/customer-analytics', async (req, res) => {
   try {
     // Total registered customers
-    const [custCountRows] = await pool.query('SELECT COUNT(id) as total FROM customers');
+    const [custCountRows] = await reportPool.query('SELECT COUNT(id) as total FROM customers');
     const totalCustomers = custCountRows[0].total;
 
     // Total outstanding loyalty points
-    const [loyaltyRows] = await pool.query('SELECT SUM(loyalty_points) as total FROM customers');
+    const [loyaltyRows] = await reportPool.query('SELECT SUM(loyalty_points) as total FROM customers');
     const totalLoyaltyPoints = loyaltyRows[0].total || 0;
 
     // Loyalty leaderboard (Top 10 customers with total visits & spent)
-    const [leaderboard] = await pool.query(`
+    const [leaderboard] = await reportPool.query(`
       SELECT c.id, c.name, c.phone, c.loyalty_points,
              COUNT(o.id) as total_visits,
              IFNULL(SUM(o.total_amount), 0) as total_spent
@@ -6693,7 +6823,7 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
     `);
 
     // Repeat customer rate (Customers with more than 1 order)
-    const [repeatRows] = await pool.query(`
+    const [repeatRows] = await reportPool.query(`
       SELECT 
         COUNT(CASE WHEN order_count > 1 THEN 1 END) as repeat_count,
         COUNT(id) as total_customers_with_orders
@@ -6710,7 +6840,7 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
     const repeatCustomerRate = totalCustomersWithOrders > 0 ? (repeatCount / totalCustomersWithOrders) * 100 : 0;
 
     // Average rating score
-    const [feedbackRows] = await pool.query(
+    const [feedbackRows] = await reportPool.query(
       'SELECT COUNT(id) as count, AVG(rating) as avg_rating FROM customer_feedback'
     );
     
@@ -6718,7 +6848,7 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
     const avgRating = parseFloat(feedbackRows[0].avg_rating || 0);
 
     // Rating distribution
-    const [ratingDistRows] = await pool.query(
+    const [ratingDistRows] = await reportPool.query(
       'SELECT rating, COUNT(id) as count FROM customer_feedback GROUP BY rating ORDER BY rating DESC'
     );
 
@@ -6728,7 +6858,7 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
     }
 
     // Recent feedback entries (limit to 10)
-    const [feedback] = await pool.query(
+    const [feedback] = await reportPool.query(
       'SELECT id, customer_name, rating, comments, DATE_FORMAT(feedback_date, "%Y-%m-%d") as feedback_date FROM customer_feedback ORDER BY feedback_date DESC, id DESC LIMIT 10'
     );
 
@@ -8709,12 +8839,14 @@ app.get('*', (req, res) => {
 });
 
 // ==========================================
-// Scheduled Jobs
+// Scheduled Jobs (Cron & Safety Nets)
 // ==========================================
-const cron = require('node-cron');
+// In cluster mode, scheduled jobs run ONLY on the Primary process to avoid duplicate executions
+if (shouldRunCronAndMigrations) {
+  const cron = require('node-cron');
 
-// 1. Run every hour to mark absent staff whose shift has ended
-cron.schedule('0 * * * *', async () => {
+  // 1. Run every hour to mark absent staff whose shift has ended
+  cron.schedule('0 * * * *', async () => {
   try {
     const [tenants] = await pool.query('SELECT id FROM tenants');
     for (const t of tenants) {
@@ -8786,32 +8918,70 @@ cron.schedule('*/15 * * * *', () => {
   timezone: 'Asia/Kolkata'
 });
 
-// Startup reconciliation: auto-close any unclosed punches from past days
-autoCheckoutOpenPunches('startup-reconciliation');
+  // Startup reconciliation: auto-close any unclosed punches from past days
+  autoCheckoutOpenPunches('startup-reconciliation');
+}
 
-// Start Server — listen on all interfaces so mobile devices can connect
+// ==========================================
+// HTTP Server & Cluster Worker Distribution
+// ==========================================
 const LAN_IP = getLanIp();
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`ERP Backend running successfully on http://localhost:${PORT}`);
-  console.log(`📱 QR Menu accessible at: http://${LAN_IP}:${PORT}/menu`);
-  console.log(`   (Share this URL with phones on the same Wi-Fi network)`);
-});
 
-// Socket & Keep-Alive Timeouts (Performance Improvement from Load Testing)
-// Prevents lingering idle TCP connections from tying up server resources.
-// - timeout: Max time (ms) a request can take before the server closes it (30s)
-// - keepAliveTimeout: How long an idle keep-alive connection stays open (65s)
-// - headersTimeout: Max time to receive complete HTTP headers (70s, must be > keepAliveTimeout)
-server.timeout = 30000;
-server.keepAliveTimeout = 65000;
-server.headersTimeout = 70000;
+if (isClustered && isPrimary) {
+  console.log(`\n==================================================`);
+  console.log(`🚀 [Cluster Primary PID:${process.pid}] Multi-Core Clustering Enabled`);
+  console.log(`⚙️  Target: Spawning ${workerCount} worker processes across ${os.cpus().length} CPU cores...`);
+  console.log(`==================================================\n`);
 
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`\n❌ Error: Port ${PORT} is already in use by another running process.`);
-    console.error(`👉 Solution: Close the other process occupying port ${PORT} or run: Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force\n`);
-    process.exit(1);
-  } else {
-    console.error('Server error:', err);
+  for (let i = 0; i < workerCount; i++) {
+    cluster.fork();
   }
-});
+
+  // IPC Message Broker: broadcast cache invalidations from any worker to all other workers
+  cluster.on('message', (worker, message) => {
+    if (message && message.type === 'INVALIDATE_ITEMS_CACHE') {
+      for (const id in cluster.workers) {
+        const w = cluster.workers[id];
+        if (w && w.id !== worker.id) {
+          try {
+            w.send(message);
+          } catch (err) {}
+        }
+      }
+    }
+  });
+
+  // Self-Healing Worker Recovery: If a worker exits unexpectedly, restart it immediately
+  cluster.on('exit', (worker, code, signal) => {
+    console.warn(`⚠️ [Cluster Primary] Worker ${worker.process.pid} exited (code: ${code}, signal: ${signal}). Spawning replacement...`);
+    cluster.fork();
+  });
+
+} else if (shouldStartHttpServer) {
+  // Start Server in Worker process (or Single Process when clustering is disabled)
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    const workerTag = isClustered ? `[Worker PID:${process.pid}] ` : '';
+    console.log(`${workerTag}ERP Backend running successfully on http://localhost:${PORT}`);
+    console.log(`📱 QR Menu accessible at: http://${LAN_IP}:${PORT}/menu`);
+    console.log(`   (Share this URL with phones on the same Wi-Fi network)`);
+  });
+
+  // Socket & Keep-Alive Timeouts (Performance Improvement from Load Testing)
+  // Prevents lingering idle TCP connections from tying up server resources.
+  // - timeout: Max time (ms) a request can take before the server closes it (30s)
+  // - keepAliveTimeout: How long an idle keep-alive connection stays open (65s)
+  // - headersTimeout: Max time to receive complete HTTP headers (70s, must be > keepAliveTimeout)
+  server.timeout = 30000;
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 70000;
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n❌ Error: Port ${PORT} is already in use by another running process.`);
+      console.error(`👉 Solution: Close the other process occupying port ${PORT} or run: Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force\n`);
+      process.exit(1);
+    } else {
+      console.error('Server error:', err);
+    }
+  });
+}
