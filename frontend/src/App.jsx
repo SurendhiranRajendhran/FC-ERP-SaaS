@@ -1989,6 +1989,7 @@ function App() {
   const [kdsShowHistory, setKdsShowHistory] = useState(false);
   const [kdsElapsedOffsets, setKdsElapsedOffsets] = useState({}); // tracks local elapsed per order
   const [kdsThresholds] = useState({ warning: 300, critical: 600 }); // 5 min, 10 min in seconds
+  const [kdsUpdatingOrders, setKdsUpdatingOrders] = useState({}); // Optimistic locking to prevent duplicate concurrent status clicks
 
   // Multi-vendor States
   const [vendors, setVendors] = useState([]);
@@ -3351,6 +3352,8 @@ function App() {
   };
 
   const handleKdsStart = async (orderId) => {
+    if (kdsUpdatingOrders[orderId]) return;
+    setKdsUpdatingOrders(prev => ({ ...prev, [orderId]: true }));
     try {
       let targetVendorId;
       if (user && user.role !== 'Owner' && user.role !== 'Super Admin') {
@@ -3374,10 +3377,18 @@ function App() {
       }
     } catch (err) {
       showToast('API communication failed', 'error');
+    } finally {
+      setKdsUpdatingOrders(prev => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
     }
   };
 
   const handleKdsStatusUpdate = async (orderId, newStatus) => {
+    if (kdsUpdatingOrders[orderId]) return;
+    setKdsUpdatingOrders(prev => ({ ...prev, [orderId]: true }));
     try {
       let endpoint = `${API_BASE}/orders/${orderId}/status`;
       let payload = { status: newStatus };
@@ -3409,6 +3420,12 @@ function App() {
       }
     } catch (err) {
       showToast('API communication failed', 'error');
+    } finally {
+      setKdsUpdatingOrders(prev => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
     }
   };
 
@@ -8940,9 +8957,10 @@ function App() {
                                         <button
                                           className="kds-action-btn start"
                                           onClick={() => handleKdsStart(order.id)}
-                                          style={{ flex: 1 }}
+                                          disabled={!!kdsUpdatingOrders[order.id]}
+                                          style={{ flex: 1, opacity: kdsUpdatingOrders[order.id] ? 0.6 : 1, cursor: kdsUpdatingOrders[order.id] ? 'not-allowed' : 'pointer' }}
                                         >
-                                          ▶ Start
+                                          {kdsUpdatingOrders[order.id] ? '⏳ Starting...' : '▶ Start'}
                                         </button>
                                       )}
                                       {!hasPending && allPreparing && (
@@ -8959,9 +8977,10 @@ function App() {
                                           <button
                                             className="kds-action-btn ready"
                                             onClick={() => handleKdsStatusUpdate(order.id, 'Ready')}
-                                            style={{ flex: 1 }}
+                                            disabled={!!kdsUpdatingOrders[order.id]}
+                                            style={{ flex: 1, opacity: kdsUpdatingOrders[order.id] ? 0.6 : 1, cursor: kdsUpdatingOrders[order.id] ? 'not-allowed' : 'pointer' }}
                                           >
-                                            ✓ Ready
+                                            {kdsUpdatingOrders[order.id] ? '⏳ Updating...' : '✓ Ready'}
                                           </button>
                                         )
                                       )}

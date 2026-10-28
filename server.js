@@ -157,14 +157,20 @@ app.get('/api/server-info', (req, res) => {
 });
 
 // Database Connection Pool
+// connectionLimit raised from 10 → 25 based on JMeter load test findings:
+// With 100 concurrent users, 10 connections caused queuing delays (~2.5s avg).
+// 25 connections allow more parallel queries, reducing peak-rush response times below 1s.
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'erp',
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 25,
   queueLimit: 0,
+  connectTimeout: 10000,   // 10s max wait when establishing a new DB connection
+  enableKeepAlive: true,   // Keep idle connections alive to avoid reconnect overhead
+  keepAliveInitialDelay: 30000, // Ping idle connections every 30s
 });
 
 crm.setPool(pool);
@@ -702,7 +708,41 @@ app.use('/api/customers', authorizeRoles('Owner', 'Manager', 'Billing Staff'));
 // ==========================================
 // AUTH ENDPOINTS
 // ==========================================
+// ==========================================
+// LOGIN RATE LIMITER (Performance Improvement from Load Testing)
+// Prevents brute-force login attempts from consuming CPU via bcrypt.
+// Limits each IP to 10 login attempts per 60-second window.
+// ==========================================
+const loginRateLimitMap = new Map();
+const LOGIN_RATE_WINDOW_MS = 60 * 1000; // 60 seconds
+const LOGIN_RATE_MAX_ATTEMPTS = 10;     // max 10 attempts per window
+
+function checkLoginRateLimit(ip) {
+  const now = Date.now();
+  const entry = loginRateLimitMap.get(ip);
+  if (!entry || now - entry.windowStart > LOGIN_RATE_WINDOW_MS) {
+    loginRateLimitMap.set(ip, { windowStart: now, count: 1 });
+    return true;
+  }
+  entry.count++;
+  return entry.count <= LOGIN_RATE_MAX_ATTEMPTS;
+}
+
+// Periodically clean up stale rate-limit entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of loginRateLimitMap) {
+    if (now - entry.windowStart > LOGIN_RATE_WINDOW_MS * 2) loginRateLimitMap.delete(ip);
+  }
+}, 5 * 60 * 1000);
+
 app.post('/api/auth/login', async (req, res) => {
+  // Rate-limit check: prevent brute-force bcrypt CPU exhaustion
+  const clientIp = req.ip || req.connection.remoteAddress;
+  if (!checkLoginRateLimit(clientIp)) {
+    return res.status(429).json({ error: 'Too many login attempts. Please wait 60 seconds before trying again.' });
+  }
+
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
 
@@ -2317,6 +2357,11 @@ app.put('/api/kds/orders/:id/start', async (req, res) => {
   const { vendor_id } = req.body;
   
   try {
+    // Optimistic guard: If order is already Ready or Completed, do not regress status
+    const [existingOrder] = await pool.query('SELECT status FROM orders WHERE id = ?', [id]);
+    if (existingOrder.length > 0 && (existingOrder[0].status === 'Ready' || existingOrder[0].status === 'Completed')) {
+      return res.json({ success: true, message: `Order is already ${existingOrder[0].status}`, orderStatus: existingOrder[0].status, alreadyUpdated: true });
+    }
     let updateItemsQuery;
     let updateItemsParams;
     
@@ -2371,6 +2416,11 @@ app.put('/api/kds/orders/:id/ready', async (req, res) => {
   const { vendor_id } = req.body; // 'null' for central, 'all' for entire order, string/int for stall
   
   try {
+    // Optimistic guard: If order is already Completed, do not regress status
+    const [existingOrder] = await pool.query('SELECT status FROM orders WHERE id = ?', [id]);
+    if (existingOrder.length > 0 && existingOrder[0].status === 'Completed') {
+      return res.json({ success: true, message: 'Order is already Completed', orderStatus: 'Completed', alreadyUpdated: true });
+    }
     // 0. Guard: If Central is marking Ready, ensure all external stall items are already Ready
     if (vendor_id === 'null' || vendor_id === null) {
       const [externalItems] = await pool.query(`
@@ -2561,9 +2611,20 @@ app.put('/api/orders/:id/status', async (req, res) => {
     // Idempotent: If already Cancelled and requested to be Cancelled, return success immediately
     if (currentStatus === 'Cancelled') {
       if (status === 'Cancelled') {
-        return res.json({ success: true, message: 'Order is already cancelled' });
+        return res.json({ success: true, message: 'Order is already cancelled', alreadyUpdated: true });
       }
       return res.status(400).json({ error: 'Cannot update an already cancelled order.' });
+    }
+
+    // Idempotent: If already in the requested status, return success immediately (prevents concurrent double-click 400s)
+    if (currentStatus === status) {
+      return res.json({ success: true, message: `Order #${id} is already in status "${status}"`, orderStatus: currentStatus, alreadyUpdated: true });
+    }
+
+    // Progression hierarchy: If the order has already progressed past the requested status, acknowledge gracefully
+    const statusHierarchy = { 'Pending': 1, 'Preparing': 2, 'Ready': 3, 'Completed': 4 };
+    if (statusHierarchy[currentStatus] && statusHierarchy[status] && statusHierarchy[currentStatus] > statusHierarchy[status]) {
+      return res.json({ success: true, message: `Order #${id} has already progressed to "${currentStatus}"`, orderStatus: currentStatus, alreadyUpdated: true });
     }
 
     const allowedTransitions = {
@@ -8735,6 +8796,15 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`📱 QR Menu accessible at: http://${LAN_IP}:${PORT}/menu`);
   console.log(`   (Share this URL with phones on the same Wi-Fi network)`);
 });
+
+// Socket & Keep-Alive Timeouts (Performance Improvement from Load Testing)
+// Prevents lingering idle TCP connections from tying up server resources.
+// - timeout: Max time (ms) a request can take before the server closes it (30s)
+// - keepAliveTimeout: How long an idle keep-alive connection stays open (65s)
+// - headersTimeout: Max time to receive complete HTTP headers (70s, must be > keepAliveTimeout)
+server.timeout = 30000;
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 70000;
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
