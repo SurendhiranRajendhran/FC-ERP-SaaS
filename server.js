@@ -8963,7 +8963,7 @@ if (isClustered && isPrimary) {
     const workerTag = isClustered ? `[Worker PID:${process.pid}] ` : '';
     console.log(`${workerTag}ERP Backend running successfully on http://localhost:${PORT}`);
     console.log(`📱 QR Menu accessible at: http://${LAN_IP}:${PORT}/menu`);
-    console.log(`   (Share this URL with phones on the same Wi-Fi network)`);
+    console.log(`   (Local dev: same Wi-Fi required | Production: works on any network)`);
   });
 
   // Socket & Keep-Alive Timeouts (Performance Improvement from Load Testing)

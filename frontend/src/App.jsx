@@ -1813,15 +1813,26 @@ function QRManagementPanel({ user }) {
         </a>
       </div>
 
-      {/* LAN IP Info Banner */}
-      {lanIp && (
+      {/* QR Network Info Banner — context-aware */}
+      {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? (
+        lanIp && (
+          <div style={{ background: '#065f46', border: '1px solid #f59e0b', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+            <div>
+              <strong style={{ color: '#f59e0b' }}>Local Development Mode — LAN IP: {lanIp}</strong>
+              <div style={{ color: '#fde68a', fontSize: '0.85rem', marginTop: '0.2rem' }}>
+                QR codes use your local network IP. Phones must be on the <strong>same Wi-Fi network</strong> as this PC to scan and order.
+              </div>
+            </div>
+          </div>
+        )
+      ) : (
         <div style={{ background: '#065f46', border: '1px solid #34d399', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '1.2rem' }}>📡</span>
+          <span style={{ fontSize: '1.2rem' }}>🌐</span>
           <div>
-            <strong style={{ color: '#34d399' }}>Your PC's Wi-Fi IP: {lanIp}</strong>
+            <strong style={{ color: '#34d399' }}>Production Mode — QR codes work on any network</strong>
             <div style={{ color: '#a7f3d0', fontSize: '0.85rem', marginTop: '0.2rem' }}>
-              Mobile URL: <code style={{ background: 'rgba(0,0,0,0.3)', padding: '0.1rem 0.4rem', borderRadius: '3px' }}>{baseUrl.includes('?') ? `${baseUrl}&table=1` : `${baseUrl}?table=1`}</code>
-              &nbsp;— Make sure your <strong>phone and PC are on the same Wi-Fi network</strong>.
+              Customers can scan QR codes using <strong>mobile data, any Wi-Fi, or any network</strong>. No same-network restriction.
             </div>
           </div>
         </div>
