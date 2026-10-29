@@ -2270,12 +2270,52 @@ function App() {
       setPosCashierId('');
     }
   }, [user]);
+  // Wipe cart, discounts, RFID, and checkout state on user/session boundaries
+  const resetPosState = () => {
+    setCart([]);
+    setDiscountType('None');
+    setDiscountValue(0);
+    setDiscountAmount(0);
+    setDiscountReference('');
+    setCouponCode('');
+    setSelectedStaffId('');
+    setLoyaltyRedeemPoints('');
+    setLoyaltyCustomerInfo(null);
+    setPosCustomerId('');
+    setRfidScanInput('');
+    setRfidCustomerInfo(null);
+    setRfidStatusMsg('');
+    setSplitPayments([
+      { mode: 'Cash', amount: '' },
+      { mode: 'UPI', amount: '' }
+    ]);
+    setShowSplitModal(false);
+    setPosPaymentMode('Cash');
+    setPosSearch('');
+  };
+
+  // Multi-Vendor Cart Isolation Guard: Whenever the active vendor changes, purge any non-matching items from the cart
+  useEffect(() => {
+    if (user?.vendor_id) {
+      const userVendorId = user.vendor_id;
+      setCart(prev => {
+        const foreignItems = prev.filter(i => (i.vendor_id || null) !== userVendorId);
+        if (foreignItems.length > 0) {
+          console.warn('[POS Guard] Purged foreign stall items from active cart:', foreignItems);
+          return prev.filter(i => (i.vendor_id || null) === userVendorId);
+        }
+        return prev;
+      });
+    }
+  }, [user?.vendor_id]);
+
   const handleLogin = (userData, authToken) => {
     localStorage.setItem('token', authToken);
     localStorage.setItem('user', JSON.stringify(userData));
     setToken(authToken);
     setUser(userData);
     setSelectedVendorId(userData.vendor_id ? String(userData.vendor_id) : 'null');
+    resetPosState(); // Clean slate for new user
 
     // Clean URL so /signin?email=... transitions cleanly to /app without full page reload
     if (window.location.pathname === '/signin' || window.location.pathname === '/login' || window.location.search.includes('email=')) {
@@ -2294,6 +2334,7 @@ function App() {
     localStorage.removeItem('user');
     setToken(null);
     setUser(null);
+    resetPosState(); // Wipe cart and POS memory on logout
     setActiveTab('dashboard');
   };
 
@@ -5247,6 +5288,15 @@ function App() {
     if (item.is_active !== 1) {
       showToast('This item is marked as sold out today.', 'error');
       return;
+    }
+
+    // Multi-Vendor Guard: If user belongs to a specific stall (Stall Manager), only allow their stall's items
+    if (user?.vendor_id) {
+      const itemVendorId = item.vendor_id || null;
+      if (itemVendorId !== user.vendor_id) {
+        showToast('You can only add items that belong to your assigned stall.', 'error');
+        return;
+      }
     }
 
     setCart(prev => {

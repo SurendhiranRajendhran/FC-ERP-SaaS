@@ -2056,6 +2056,21 @@ app.post('/api/orders', async (req, res) => {
       });
     }
 
+    // Strict Multi-Vendor Isolation Check:
+    // If the cashier/staff belongs to a specific stall (Stall Manager / vendor staff),
+    // they can strictly ONLY bill items that belong to their own stall.
+    if (req.user && req.user.vendor_id != null) {
+      const userVendorId = parseInt(req.user.vendor_id);
+      for (const valItem of validatedItems) {
+        const itemVendorId = valItem.vendor_id != null ? parseInt(valItem.vendor_id) : null;
+        if (itemVendorId !== userVendorId) {
+          throw new Error(
+            `Stall Managers can only process orders for their own stall. Item "${valItem.name}" does not belong to your stall.`
+          );
+        }
+      }
+    }
+
     // 2. Ingredient stock validation & deduction based on recipe mappings (handles combo items recursively)
     for (const valItem of validatedItems) {
       // Check if this item is a combo item
