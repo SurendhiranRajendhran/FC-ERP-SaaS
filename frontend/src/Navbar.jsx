@@ -72,7 +72,7 @@ export default function Navbar() {
           <a href="/contact" className={`lp-nav-link ${currentPath === '/contact' ? 'active' : ''}`}>Contact Sales</a>
         </div>
         <div className="lp-nav-actions">
-          <button className="lp-btn-ghost" onClick={() => window.location.href = '/app'}>Sign In</button>
+          <button className="lp-btn-ghost" onClick={() => window.location.href = '/signin'}>Sign In</button>
           <button className="lp-btn-solid" onClick={() => window.location.href = '/signup'}>Start Free Trial</button>
         </div>
       </nav>

@@ -8540,7 +8540,8 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
       await conn.commit();
 
       // Send approval email
-      const loginUrl = (req.headers.origin || process.env.APP_URL || `${req.protocol}://${req.get('host')}`) + '/signin';
+      const baseUrl = req.headers.origin || process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+      const loginUrl = `${baseUrl}/signin?email=${encodeURIComponent(loginEmail)}`;
       const html = `
         <h2>Welcome to FC-ERP!</h2>
         <p>Dear ${reg.owner_name},</p>
@@ -8580,11 +8581,14 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
       await conn.commit();
 
       // Send rejection email
+      const baseUrl = req.headers.origin || process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+      const portalUrl = `${baseUrl}/`;
       const html = `
         <h2>FC-ERP Registration Update</h2>
         <p>Dear ${reg.owner_name},</p>
         <p>Thank you for your interest in FC-ERP. Unfortunately, we are unable to approve your registration for <b>${reg.food_court_name}</b> at this time.</p>
         ${admin_notes ? `<p><b>Reason:</b> ${admin_notes}</p>` : ''}
+        <p>If you have any questions or wish to submit a new inquiry, visit our portal: <a href="${portalUrl}">${portalUrl}</a></p>
         <br/><p>Regards,<br/>The FC-ERP Team</p>
       `;
       const rejectEmailResult = await crm.sendEmail(reg.email, 'Update on your FC-ERP Registration', html, settings);

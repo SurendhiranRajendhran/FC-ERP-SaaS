@@ -1515,7 +1515,14 @@ function SuperAdminDashboard({ user, onLogout }) {
 
 // --- LOGIN SCREEN COMPONENT ---
 function LoginScreen({ onLogin }) {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('email') || '';
+    } catch (e) {
+      return '';
+    }
+  });
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -2221,8 +2228,23 @@ function App() {
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '' });
 
   // ── Authentication State ──
-  const [token, setToken] = useState(localStorage.getItem('token') || null);
-  const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem('user')); } catch(e) { return null; } });
+  const isExplicitLoginRoute = typeof window !== 'undefined' && (
+    window.location.pathname === '/signin' || 
+    window.location.pathname === '/login' ||
+    new URLSearchParams(window.location.search).get('action') === 'login'
+  );
+
+  // If directly accessing /signin or /login, purge any lingering prior session so login screen is guaranteed
+  if (isExplicitLoginRoute && typeof localStorage !== 'undefined' && localStorage.getItem('token')) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  }
+
+  const [token, setToken] = useState(() => isExplicitLoginRoute ? null : (localStorage.getItem('token') || null));
+  const [user, setUser] = useState(() => {
+    if (isExplicitLoginRoute) return null;
+    try { return JSON.parse(localStorage.getItem('user')); } catch(e) { return null; }
+  });
 
   // Enforce default tab based on role
   useEffect(() => {
@@ -2254,6 +2276,12 @@ function App() {
     setToken(authToken);
     setUser(userData);
     setSelectedVendorId(userData.vendor_id ? String(userData.vendor_id) : 'null');
+
+    // Clean URL so /signin?email=... transitions cleanly to /app without full page reload
+    if (window.location.pathname === '/signin' || window.location.pathname === '/login' || window.location.search.includes('email=')) {
+      window.history.replaceState({}, '', '/app');
+    }
+
     if (userData.role === 'Cook') setActiveTab('kds');
     else if (userData.role === 'Billing Staff') setActiveTab('pos');
     else if (userData.role === 'Helper') setActiveTab('employee-portal');
