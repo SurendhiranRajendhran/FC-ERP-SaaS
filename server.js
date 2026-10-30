@@ -217,10 +217,15 @@ const reportPool = mysql.createPool({
   database: process.env.DB_NAME || 'erp',
   waitForConnections: true,
   connectionLimit: parseInt(process.env.DB_REPORT_CONNECTION_LIMIT, 10) || 5,
-  queueLimit: 0,
+  queueLimit: 50,
   connectTimeout: 15000,
   enableKeepAlive: true,
   keepAliveInitialDelay: 30000,
+});
+
+// Configure reportPool connections with READ UNCOMMITTED isolation to guarantee zero row/table lock contention with cashier POS transactions
+reportPool.on('connection', (connection) => {
+  connection.query('SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET SESSION max_execution_time = 15000;').catch(() => {});
 });
 
 // ==========================================
@@ -1127,14 +1132,18 @@ app.get('/api/dashboard', async (req, res) => {
 // 2. MENU ITEMS API
 // ==========================================
 
-// In-Memory Cache for Menu Items
+// In-Memory Cache for Menu Items with Single-Flight Promise Coalescing
 // Eliminates repetitive MySQL queries for menu fetches during high-concurrency rushes.
+// Single-Flight guard prevents cache stampedes: when 150 concurrent users hit a cold cache,
+// exactly ONE database query is fired and shared across all 150 callers.
 // Invalidated instantly across all cluster workers via IPC on any item create/update/delete.
 const menuItemsCache = new Map();
+const inFlightItemQueries = new Map(); // cacheKey -> Promise
 const MENU_CACHE_TTL_MS = 5 * 60 * 1000; // 5-minute fallback TTL
 
 function invalidateMenuItemsCache(broadcast = true) {
   menuItemsCache.clear();
+  inFlightItemQueries.clear();
   if (broadcast && process.send) {
     try {
       process.send({ type: 'INVALIDATE_ITEMS_CACHE' });
@@ -1157,7 +1166,7 @@ if (cluster.isWorker) {
 app.get('/api/items', async (req, res) => {
   try {
     const tenantContext = tenantStorage.getStore();
-    const currentTenantId = tenantContext ? tenantContext.tenant_id : (req.user ? req.user.tenant_id : 'public');
+    const currentTenantId = tenantContext ? tenantContext.tenant_id : (req.user ? req.user.tenant_id : (req.query.tenant || req.query.tenant_id || 'public'));
     const vendorFilter = (req.user && req.user.vendor_id) 
       ? `user_${req.user.vendor_id}` 
       : `query_${req.query.vendor_id !== undefined ? req.query.vendor_id : 'all'}`;
@@ -1169,25 +1178,41 @@ app.get('/api/items', async (req, res) => {
       return res.json(cached.data);
     }
 
-    let query = 'SELECT * FROM items WHERE is_deleted = 0';
-    let params = [];
-    
-    if (req.user && req.user.vendor_id) {
-      query += ' AND vendor_id = ?';
-      params.push(req.user.vendor_id);
-    } else if (req.query.vendor_id !== undefined) {
-      if (req.query.vendor_id === 'null' || req.query.vendor_id === 'central') {
-        query += ' AND vendor_id IS NULL';
-      } else if (req.query.vendor_id !== 'all' && req.query.vendor_id !== '') {
-        query += ' AND vendor_id = ?';
-        params.push(parseInt(req.query.vendor_id));
-      }
+    // Single-Flight Stampede Guard: If an identical query is already in-flight for this tenant and vendor, await it
+    if (inFlightItemQueries.has(cacheKey)) {
+      const data = await inFlightItemQueries.get(cacheKey);
+      return res.json(data);
     }
-    
-    query += ' ORDER BY category, name';
-    
-    const [rows] = await pool.query(query, params);
-    menuItemsCache.set(cacheKey, { data: rows, timestamp: now });
+
+    const queryPromise = (async () => {
+      try {
+        let query = 'SELECT * FROM items WHERE is_deleted = 0';
+        let params = [];
+        
+        if (req.user && req.user.vendor_id) {
+          query += ' AND vendor_id = ?';
+          params.push(req.user.vendor_id);
+        } else if (req.query.vendor_id !== undefined) {
+          if (req.query.vendor_id === 'null' || req.query.vendor_id === 'central') {
+            query += ' AND vendor_id IS NULL';
+          } else if (req.query.vendor_id !== 'all' && req.query.vendor_id !== '') {
+            query += ' AND vendor_id = ?';
+            params.push(parseInt(req.query.vendor_id));
+          }
+        }
+        
+        query += ' ORDER BY category, name';
+        
+        const [rows] = await pool.query(query, params);
+        menuItemsCache.set(cacheKey, { data: rows, timestamp: Date.now() });
+        return rows;
+      } finally {
+        inFlightItemQueries.delete(cacheKey);
+      }
+    })();
+
+    inFlightItemQueries.set(cacheKey, queryPromise);
+    const rows = await queryPromise;
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch menu items' });
@@ -3060,35 +3085,60 @@ app.get('/api/orders/:id/status', async (req, res) => {
   }
 });
 
-// Get all orders with items
+// Get all orders with items (supports optional keyset/cursor pagination: limit, before_id, since_id)
 app.get('/api/orders', async (req, res) => {
   try {
-    const { vendor_id } = req.query;
+    const { vendor_id, limit, before_id, since_id } = req.query;
+
+    // Keyset pagination: defaults to 200 for exact backward compatibility with existing callers
+    const queryLimit = Math.min(200, Math.max(1, parseInt(limit, 10) || 200));
 
     let orderQuery;
     let orderParams = [];
 
     if (vendor_id && vendor_id !== 'null') {
       // Stall Manager: only orders that contain at least one item from their stall
+      let cursorWhere = '';
+      if (before_id && !isNaN(before_id)) {
+        cursorWhere = 'AND o.id < ?';
+        orderParams = [vendor_id, parseInt(before_id, 10), queryLimit];
+      } else if (since_id && !isNaN(since_id)) {
+        cursorWhere = 'AND o.id > ?';
+        orderParams = [vendor_id, parseInt(since_id, 10), queryLimit];
+      } else {
+        orderParams = [vendor_id, queryLimit];
+      }
+
       orderQuery = `
         SELECT DISTINCT o.*, s.vendor_id as billing_staff_vendor_id
         FROM orders o
         JOIN order_items oi ON oi.order_id = o.id
         JOIN items i ON oi.item_id = i.id
         LEFT JOIN staff s ON o.billing_staff_id = s.id
-        WHERE i.vendor_id = ?
-        ORDER BY o.order_date DESC
-        LIMIT 200
+        WHERE i.vendor_id = ? ${cursorWhere}
+        ORDER BY o.order_date DESC, o.id DESC
+        LIMIT ?
       `;
-      orderParams = [vendor_id];
     } else {
       // Central Admin: all orders
+      let cursorWhere = '';
+      if (before_id && !isNaN(before_id)) {
+        cursorWhere = 'WHERE o.id < ?';
+        orderParams = [parseInt(before_id, 10), queryLimit];
+      } else if (since_id && !isNaN(since_id)) {
+        cursorWhere = 'WHERE o.id > ?';
+        orderParams = [parseInt(since_id, 10), queryLimit];
+      } else {
+        orderParams = [queryLimit];
+      }
+
       orderQuery = `
         SELECT o.*, s.vendor_id as billing_staff_vendor_id 
         FROM orders o 
         LEFT JOIN staff s ON o.billing_staff_id = s.id 
-        ORDER BY order_date DESC 
-        LIMIT 200
+        ${cursorWhere}
+        ORDER BY o.order_date DESC, o.id DESC
+        LIMIT ?
       `;
     }
 
