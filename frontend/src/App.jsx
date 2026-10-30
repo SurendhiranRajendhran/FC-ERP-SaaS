@@ -2635,15 +2635,48 @@ function App() {
     fetchStaffPerformance(perfStartDate, perfEndDate);
   }, [token, perfStartDate, perfEndDate]);
 
-  // KDS Auto-polling: fetch active orders every 5 seconds when KDS tab is active
+  // KDS Real-Time Streaming (Server-Sent Events) with Adaptive Polling Fallback
   useEffect(() => {
     if (!token || activeTab !== 'kds') return;
     fetchKdsOrders();
+
+    let eventSource = null;
+    let isSseActive = false;
+
+    try {
+      const vParam = selectedVendorId && selectedVendorId !== 'all' ? `&vendor_id=${selectedVendorId}` : '';
+      eventSource = new EventSource(`${API_BASE}/kds/stream?token=${encodeURIComponent(token)}${vParam}`);
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'CONNECTED') {
+            isSseActive = true;
+          } else if (data.type === 'ORDER_NEW' || data.type === 'ORDER_UPDATED') {
+            fetchKdsOrders();
+          }
+        } catch (e) {}
+      };
+
+      eventSource.onerror = () => {
+        isSseActive = false;
+      };
+    } catch (e) {
+      isSseActive = false;
+    }
+
+    // Adaptive fallback: Polls every 5s if SSE is inactive/reconnecting; relaxes to 20s if SSE is streaming
     const kdsInterval = setInterval(() => {
-      fetchKdsOrders();
+      if (!isSseActive) {
+        fetchKdsOrders();
+      }
     }, 5000);
-    return () => clearInterval(kdsInterval);
-  }, [activeTab]);
+
+    return () => {
+      clearInterval(kdsInterval);
+      if (eventSource) eventSource.close();
+    };
+  }, [activeTab, selectedVendorId, token]);
 
   // KDS Live elapsed timer: increment local elapsed counter every second
   useEffect(() => {

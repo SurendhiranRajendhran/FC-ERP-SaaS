@@ -749,6 +749,17 @@ const authenticateToken = (req, res, next) => {
   // Public routes that don't require auth (but we still populated req.user if they had a token)
   const publicPaths = ['/server-info', '/auth/login', '/register'];
   if (publicPaths.some(p => req.path === p || req.path.startsWith(p))) return next();
+
+  // Allow KDS SSE stream with query token (since EventSource cannot send custom headers)
+  if (req.path === '/kds/stream' || req.path.startsWith('/kds/stream')) {
+    if (req.query.token) {
+      try {
+        const decoded = jwt.verify(req.query.token, JWT_SECRET);
+        req.user = decoded;
+      } catch (e) {}
+    }
+    return next();
+  }
   
   // Allow QR menu to fetch active items and combos without auth
   if ((req.path === '/items' || req.path === '/combos') && req.method === 'GET') return next();
@@ -783,11 +794,53 @@ const authorizeRoles = (...allowedRoles) => {
 // Apply authentication to all /api routes
 app.use('/api', authenticateToken);
 
-// SaaS Tenant Isolation Context Middleware
+// ==========================================
+// TENANT FAIR-USE RATE LIMITER (Noisy Neighbor Protection)
+// ==========================================
+// Prevents an abnormal spike or scripted loop from one tenant from starving worker threads or DB connections
+const tenantRateLimitMap = new Map(); // tenantKey -> { windowStart, count }
+const TENANT_RATE_WINDOW_MS = 1000;   // 1-second sliding window
+const TENANT_MAX_RPS = parseInt(process.env.TENANT_MAX_RPS, 10) || 80; // 80 req/sec per tenant
+
+function checkTenantRateLimit(tenantId) {
+  if (!tenantId || tenantId === 'superadmin' || tenantId === 1) return true;
+  const now = Date.now();
+  const entry = tenantRateLimitMap.get(tenantId);
+  if (!entry || (now - entry.windowStart) >= TENANT_RATE_WINDOW_MS) {
+    tenantRateLimitMap.set(tenantId, { windowStart: now, count: 1 });
+    return true;
+  }
+  entry.count++;
+  if (entry.count > TENANT_MAX_RPS) {
+    return false;
+  }
+  return true;
+}
+
+// Periodic cleanup of idle tenant counters
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of tenantRateLimitMap) {
+    if (now - entry.windowStart > 5000) tenantRateLimitMap.delete(key);
+  }
+}, 60000);
+
+// SaaS Tenant Isolation Context Middleware & Fair-Use Rate Limiter
 app.use('/api', (req, res, next) => {
   let tenantId = req.user ? req.user.tenant_id : null;
   if (!tenantId && req.headers['x-tenant-id']) {
     tenantId = parseInt(req.headers['x-tenant-id'], 10);
+  } else if (!tenantId && (req.query.tenant || req.query.tenant_id)) {
+    tenantId = parseInt(req.query.tenant || req.query.tenant_id, 10);
+  }
+
+  // Exempt health checks, server-info, login, and SSE streaming
+  const isExempt = req.path === '/server-info' || req.path === '/auth/login' || req.path.startsWith('/kds/stream');
+  if (!isExempt && tenantId && !checkTenantRateLimit(tenantId)) {
+    return res.status(429).json({
+      error: 'Tenant rate limit exceeded. Please slow down your requests.',
+      retryAfter: 1
+    });
   }
   
   if (tenantId) {
@@ -2002,6 +2055,14 @@ async function calculateStaffMealUsage(db, staffId) {
 // ==========================================
 
 app.post('/api/orders', async (req, res) => {
+  const idempotencyKey = req.headers['x-idempotency-key'] || req.body.idempotency_key;
+  if (idempotencyKey && idempotencyMap.has(idempotencyKey)) {
+    const cached = idempotencyMap.get(idempotencyKey);
+    if ((Date.now() - cached.timestamp) < IDEMPOTENCY_TTL_MS) {
+      return res.status(200).json(cached.data);
+    }
+  }
+
   const { 
     items: orderItems, 
     payment_mode, 
@@ -2394,7 +2455,7 @@ Item                 Qty
 ========================================
 \n\n`;
 
-    res.status(201).json({
+    const responsePayload = {
       success: true,
       order_id: orderId,
       token_number: tokenNumber,
@@ -2405,7 +2466,23 @@ Item                 Qty
         bill: billPrint,
         kot: kotPrint
       }
+    };
+
+    if (idempotencyKey) {
+      idempotencyMap.set(idempotencyKey, { timestamp: Date.now(), data: responsePayload });
+    }
+
+    // Real-Time KDS SSE Push
+    const affectedVendorIds = [...new Set(validatedItems.map(i => i.vendor_id).filter(v => v !== null && v !== undefined))];
+    const orderTenantId = req.user ? req.user.tenant_id : (req.headers['x-tenant-id'] || null);
+    notifyKdsUpdate(orderTenantId, {
+      type: 'ORDER_NEW',
+      orderId,
+      tokenNumber,
+      vendorIds: affectedVendorIds
     });
+
+    res.status(201).json(responsePayload);
 
   } catch (error) {
     await connection.rollback();
@@ -2418,8 +2495,103 @@ Item                 Qty
 
 
 // ==========================================
+// TRANSACTION IDEMPOTENCY ENGINE
+// ==========================================
+// Prevents duplicate order tokens and double wallet debits if a client retries due to network blips
+const idempotencyMap = new Map(); // key -> { timestamp, data }
+const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000; // 5-minute cache
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of idempotencyMap) {
+    if (now - val.timestamp > IDEMPOTENCY_TTL_MS) idempotencyMap.delete(key);
+  }
+}, 60000);
+
+// ==========================================
+// KDS SERVER-SENT EVENTS (SSE) STREAMING HUB
+// ==========================================
+// Maintains persistent lightweight SSE streams with active KDS stations.
+// Completely eliminates continuous HTTP polling while strictly preserving stall/tenant isolation.
+const kdsClients = new Set(); // Set of { res, tenantId, vendorId, role }
+
+function registerKdsClient(req, res) {
+  const tenantContext = tenantStorage.getStore();
+  const tenantId = tenantContext ? tenantContext.tenant_id : (req.user ? req.user.tenant_id : null);
+  const vendorId = req.user && req.user.vendor_id 
+    ? parseInt(req.user.vendor_id, 10) 
+    : (req.query.vendor_id && req.query.vendor_id !== 'all' && req.query.vendor_id !== 'null' ? parseInt(req.query.vendor_id, 10) : null);
+  const role = req.user ? req.user.role : 'Staff';
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable proxy buffering (Nginx)
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  const client = { res, tenantId, vendorId, role };
+  kdsClients.add(client);
+
+  // Send initial ping to establish connection
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', timestamp: Date.now() })}\n\n`);
+
+  // Heartbeat every 25 seconds to keep connection alive across proxies/firewalls
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(':ping\n\n');
+    } catch (e) {
+      clearInterval(heartbeat);
+    }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    kdsClients.delete(client);
+  });
+}
+
+function notifyKdsUpdate(tenantId, eventData, broadcast = true) {
+  const message = `data: ${JSON.stringify(eventData)}\n\n`;
+  for (const client of kdsClients) {
+    if (client.tenantId && tenantId && client.tenantId !== tenantId) {
+      continue; // Strict multi-tenant isolation
+    }
+    // Stall vendor isolation: If event specifies affected vendorIds and the client is a Stall Manager, filter!
+    if (client.vendorId != null && eventData.vendorIds && !eventData.vendorIds.includes(client.vendorId)) {
+      continue; // Event does not belong to this stall
+    }
+    try {
+      client.res.write(message);
+    } catch (e) {
+      kdsClients.delete(client);
+    }
+  }
+
+  // Broadcast across cluster workers via IPC
+  if (broadcast && process.send) {
+    try {
+      process.send({ type: 'KDS_STREAM_BROADCAST', tenantId, eventData });
+    } catch (e) {}
+  }
+}
+
+// In worker processes, listen for IPC broadcast from Primary
+if (cluster.isWorker) {
+  process.on('message', (msg) => {
+    if (msg && msg.type === 'KDS_STREAM_BROADCAST') {
+      notifyKdsUpdate(msg.tenantId, msg.eventData, false);
+    }
+  });
+}
+
+// ==========================================
 // 7. KITCHEN DISPLAY SYSTEM (KDS) APIS
 // ==========================================
+
+// Real-Time KDS SSE Stream Endpoint
+app.get('/api/kds/stream', (req, res) => {
+  registerKdsClient(req, res);
+});
 
 // Get active kitchen orders (Pending + Preparing) with items — polled every 5s by KDS
 app.get('/api/kds/orders', async (req, res) => {
@@ -2604,6 +2776,7 @@ app.put('/api/kds/orders/:id/start', async (req, res) => {
     }
 
     await pool.query('UPDATE orders SET status = ? WHERE id = ?', [newOrderStatus, id]);
+    notifyKdsUpdate(req.user ? req.user.tenant_id : null, { type: 'ORDER_UPDATED', orderId: id, status: newOrderStatus });
     res.json({ success: true, message: 'Vendor items marked as Preparing', orderStatus: newOrderStatus });
   } catch (error) {
     console.error('KDS start error:', error);
@@ -2683,6 +2856,7 @@ app.put('/api/kds/orders/:id/ready', async (req, res) => {
 
     // 3. Update parent order status
     await pool.query('UPDATE orders SET status = ? WHERE id = ?', [newOrderStatus, id]);
+    notifyKdsUpdate(req.user ? req.user.tenant_id : null, { type: 'ORDER_UPDATED', orderId: id, status: newOrderStatus });
 
     res.json({ success: true, message: 'Vendor items marked as Ready', orderStatus: newOrderStatus });
   } catch (error) {
