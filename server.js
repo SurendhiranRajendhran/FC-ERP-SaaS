@@ -65,6 +65,14 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
+const compression = require('compression');
+app.use(compression({
+  threshold: 1024, // Only compress responses larger than 1 KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
+}));
 app.use(express.json());
 
 // Auto-trim whitespace from all string fields in request body
@@ -473,6 +481,29 @@ async function runStartupMigrations() {
       }
       await conn.query("UPDATE orders SET refund_status = 'Refunded', refund_amount = ? WHERE id = ?", [refundAmt, ord.id]);
     }
+
+    // 16. Ensure Multi-Tenant Composite Database Indexes for High-Concurrency Performance
+    const ensureIndex = async (tableName, indexName, columnsSql) => {
+      try {
+        const [existing] = await conn.query(`SHOW INDEX FROM ${tableName} WHERE Key_name = ?`, [indexName]);
+        if (existing.length === 0) {
+          await conn.query(`ALTER TABLE ${tableName} ADD INDEX ${indexName} (${columnsSql})`);
+          console.log(`Migration: Added composite index ${indexName} on ${tableName}(${columnsSql})`);
+        }
+      } catch (idxErr) {
+        console.warn(`[Migration] Index check for ${indexName} on ${tableName}:`, idxErr.message);
+      }
+    };
+
+    await ensureIndex('orders', 'idx_orders_tenant_date', 'tenant_id, order_date DESC');
+    await ensureIndex('orders', 'idx_orders_tenant_status_date', 'tenant_id, status, order_date');
+    await ensureIndex('order_items', 'idx_order_items_order_item', 'order_id, item_id');
+    await ensureIndex('order_items', 'idx_order_items_status_order', 'status, order_id');
+    await ensureIndex('stock_logs', 'idx_stock_logs_tenant_mat_date', 'tenant_id, material_id, logged_at DESC');
+    await ensureIndex('stock_logs', 'idx_stock_logs_tenant_vendor_date', 'tenant_id, vendor_id, logged_at DESC');
+    await ensureIndex('attendance', 'idx_attendance_tenant_date_staff', 'tenant_id, attendance_date, staff_id');
+    await ensureIndex('wallet_transactions', 'idx_wallet_tx_cust_date', 'customer_id, created_at DESC');
+    await ensureIndex('items', 'idx_items_tenant_vendor_active', 'tenant_id, vendor_id, is_active, is_deleted');
 
     conn.release();
   } catch (err) {
@@ -4622,22 +4653,22 @@ async function autoCheckoutOpenPunches(source = 'cron') {
   }
 }
 
-// Get attendance for a date
+// Get attendance for a date (gracefully defaults to current local date if omitted)
 app.get('/api/attendance', async (req, res) => {
-  const { date } = req.query;
-  if (!date) {
-    return res.status(400).json({ error: 'date query parameter is required (YYYY-MM-DD).' });
+  const now = new Date();
+  const nowLocal = formatLocalTimestamp(now);
+  const todayDateStr = nowLocal.split(' ')[0];
+  const currentTimeStr = nowLocal.split(' ')[1];
+
+  let targetDate = req.query.date ? String(req.query.date).trim() : todayDateStr;
+  if (req.query.date && !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+    return res.status(400).json({ error: 'Invalid date format. Expected YYYY-MM-DD.' });
   }
 
   try {
     // If fetching attendance for a past date or after 23:59 today, ensure open punches are auto-closed first
-    const now = new Date();
-    const nowLocal = formatLocalTimestamp(now);
-    const todayDateStr = nowLocal.split(' ')[0];
-    const currentTimeStr = nowLocal.split(' ')[1];
-
-    if (date < todayDateStr || (date === todayDateStr && currentTimeStr >= '23:59:00')) {
-      await autoCheckoutOpenPunches(`fetch-${date}`);
+    if (targetDate < todayDateStr || (targetDate === todayDateStr && currentTimeStr >= '23:59:00')) {
+      await autoCheckoutOpenPunches(`fetch-${targetDate}`);
     }
     const scopeClause = req.user.vendor_id
       ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role NOT IN ('Manager', 'Owner')`
@@ -4652,7 +4683,7 @@ app.get('/api/attendance', async (req, res) => {
       LEFT JOIN shifts sh ON a.shift_id = sh.id
       WHERE a.attendance_date = ? ${scopeClause}
       ORDER BY s.name
-    `, [date]);
+    `, [targetDate]);
 
     res.json(rows);
   } catch (error) {
