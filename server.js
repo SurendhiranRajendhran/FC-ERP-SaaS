@@ -274,7 +274,7 @@ const reportPool = mysql.createPool({
 
 // Configure reportPool connections with READ UNCOMMITTED isolation to guarantee zero row/table lock contention with cashier POS transactions
 reportPool.on('connection', (connection) => {
-  connection.query('SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET SESSION max_execution_time = 15000;').catch(() => {});
+  connection.query('SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED', () => {});
 });
 
 // ==========================================
