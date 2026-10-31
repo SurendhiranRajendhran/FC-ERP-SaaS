@@ -65,14 +65,63 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
-const compression = require('compression');
-app.use(compression({
-  threshold: 1024, // Only compress responses larger than 1 KB
-  filter: (req, res) => {
-    if (req.headers['x-no-compression']) return false;
-    return compression.filter(req, res);
+
+// Native zero-dependency HTTP response compression middleware using Node.js built-in core zlib
+const zlib = require('zlib');
+app.use((req, res, next) => {
+  const acceptEncoding = req.headers['accept-encoding'] || '';
+  if (!acceptEncoding.includes('gzip') && !acceptEncoding.includes('deflate')) {
+    return next();
   }
-}));
+  if (req.headers['x-no-compression']) {
+    return next();
+  }
+
+  const originalSend = res.send;
+  res.send = function (body) {
+    const contentType = res.getHeader('Content-Type') || '';
+    if (typeof contentType === 'string' && contentType.includes('text/event-stream')) {
+      return originalSend.call(this, body);
+    }
+
+    let buffer;
+    if (Buffer.isBuffer(body)) {
+      buffer = body;
+    } else if (typeof body === 'string') {
+      buffer = Buffer.from(body);
+    } else if (body && typeof body === 'object') {
+      buffer = Buffer.from(JSON.stringify(body));
+      if (!res.getHeader('Content-Type')) {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      }
+    } else {
+      return originalSend.call(this, body);
+    }
+
+    // Only compress responses >= 1 KB (1024 bytes) to avoid CPU overhead on tiny payloads
+    if (buffer.length < 1024) {
+      return originalSend.call(this, buffer);
+    }
+
+    res.setHeader('Vary', 'Accept-Encoding');
+    const useGzip = acceptEncoding.includes('gzip');
+    const compressionFn = useGzip ? zlib.gzip : zlib.deflate;
+    const encodingHeader = useGzip ? 'gzip' : 'deflate';
+
+    compressionFn(buffer, (err, compressed) => {
+      if (err || !compressed) {
+        return originalSend.call(res, buffer);
+      }
+      res.setHeader('Content-Encoding', encodingHeader);
+      res.removeHeader('Content-Length');
+      res.setHeader('Content-Length', compressed.length);
+      return originalSend.call(res, compressed);
+    });
+  };
+
+  next();
+});
+
 app.use(express.json());
 
 // Auto-trim whitespace from all string fields in request body
