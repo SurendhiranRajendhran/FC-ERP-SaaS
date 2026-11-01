@@ -6,3 +6,5 @@ coverage/
 dist/
 build/
 *.log
+
+loadtest_results_live_suite/

@@ -248,7 +248,7 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'erp',
   waitForConnections: true,
-  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || (isClustered ? 15 : 25),
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || (isClustered ? 20 : 30),
   queueLimit: 0,
   connectTimeout: 10000,   // 10s max wait when establishing a new DB connection
   enableKeepAlive: true,   // Keep idle connections alive to avoid reconnect overhead
@@ -265,8 +265,8 @@ const reportPool = mysql.createPool({
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'erp',
   waitForConnections: true,
-  connectionLimit: parseInt(process.env.DB_REPORT_CONNECTION_LIMIT, 10) || 5,
-  queueLimit: 50,
+  connectionLimit: parseInt(process.env.DB_REPORT_CONNECTION_LIMIT, 10) || (isClustered ? 10 : 15),
+  queueLimit: 100,
   connectTimeout: 15000,
   enableKeepAlive: true,
   keepAliveInitialDelay: 30000,
@@ -1532,6 +1532,7 @@ app.delete('/api/items/:id', async (req, res) => {
 // Get all raw materials
 app.get('/api/raw-materials', async (req, res) => {
   try {
+    res.set('Cache-Control', 'private, must-revalidate');
     let query = 'SELECT * FROM raw_materials';
     let params = [];
     
@@ -4633,6 +4634,7 @@ app.delete('/api/staff/:id', async (req, res) => {
 // Get all shifts
 app.get('/api/shifts', async (req, res) => {
   try {
+    res.set('Cache-Control', 'private, must-revalidate');
     let query = 'SELECT * FROM shifts WHERE vendor_id ';
     const params = [];
     if (req.user.vendor_id) {
@@ -6199,6 +6201,7 @@ app.delete('/api/coupons/:id', async (req, res) => {
 // Get Cancellation PIN(s) for the current user
 app.get('/api/cancellation-pins', async (req, res) => {
   try {
+    res.set('Cache-Control', 'private, must-revalidate');
     const userVendorId = req.user.vendor_id || null;
     const isOwnerOrAdmin = ['Owner', 'Super Admin'].includes(req.user.role) || (!userVendorId && req.user.role === 'Manager');
 
@@ -7203,6 +7206,7 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
 // Get all combos
 app.get('/api/combos', async (req, res) => {
   try {
+    res.set('Cache-Control', 'private, must-revalidate');
     const [rows] = await pool.query(`
       SELECT ci.combo_id, ci.child_item_id, ci.quantity, 
              i.name as child_name, i.price as child_price,
@@ -7250,6 +7254,7 @@ app.post('/api/combos', async (req, res) => {
 // Suppliers CRUD
 app.get('/api/suppliers', async (req, res) => {
   try {
+    res.set('Cache-Control', 'private, must-revalidate');
     let query = `
       SELECT s.*, IFNULL(SUM(CASE WHEN l.log_type = 'Purchase' AND l.payment_status = 'Pending' THEN l.recorded_cost ELSE 0 END), 0) as outstanding_balance
       FROM suppliers s
@@ -8168,6 +8173,7 @@ app.put('/api/shifts/swap/:id/reject', async (req, res) => {
 // Holidays list (strictly isolated by vendor_id between Central Canteen and Stalls)
 app.get('/api/holidays', async (req, res) => {
   try {
+    res.set('Cache-Control', 'private, must-revalidate');
     let query, params;
     // Strict stall isolation:
     // - Stall staff / Stall managers (vendor_id present) see ONLY holidays marked for their specific stall.
@@ -9297,6 +9303,9 @@ if (isClustered && isPrimary) {
   server.timeout = 30000;
   server.keepAliveTimeout = 65000;
   server.headersTimeout = 70000;
+  if (server.requestTimeout !== undefined) {
+    server.requestTimeout = 30000;
+  }
 
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
