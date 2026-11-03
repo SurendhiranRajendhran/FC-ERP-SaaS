@@ -559,6 +559,56 @@ async function runStartupMigrations() {
     await ensureIndex('wallet_transactions', 'idx_wallet_tx_cust_date', 'customer_id, created_at DESC');
     await ensureIndex('items', 'idx_items_tenant_vendor_active', 'tenant_id, vendor_id, is_active, is_deleted');
 
+    // 17. Ensure Plan Entitlements columns on tenants and registrations
+    const [tPlanCols] = await conn.query("SHOW COLUMNS FROM tenants LIKE 'plan_name'");
+    if (tPlanCols.length === 0) {
+      await conn.query("ALTER TABLE tenants ADD COLUMN plan_name VARCHAR(50) NOT NULL DEFAULT 'Food Court'");
+      console.log("Migration: Added plan_name column to tenants table.");
+    }
+    const [tSubCols] = await conn.query("SHOW COLUMNS FROM tenants LIKE 'subscription_status'");
+    if (tSubCols.length === 0) {
+      await conn.query("ALTER TABLE tenants ADD COLUMN subscription_status ENUM('trial', 'active', 'expired', 'suspended') NOT NULL DEFAULT 'active'");
+      console.log("Migration: Added subscription_status column to tenants table.");
+    }
+    const [tExpCols] = await conn.query("SHOW COLUMNS FROM tenants LIKE 'subscription_expires_at'");
+    if (tExpCols.length === 0) {
+      await conn.query("ALTER TABLE tenants ADD COLUMN subscription_expires_at TIMESTAMP NULL DEFAULT NULL");
+      console.log("Migration: Added subscription_expires_at column to tenants table.");
+    }
+
+    // Standardize legacy 'plan' values to plan_name for existing tenants
+    await conn.query(`
+      UPDATE tenants 
+      SET plan_name = CASE 
+        WHEN plan = 'basic' THEN 'Canteen Basic'
+        WHEN plan = 'pro' THEN 'Canteen Pro'
+        ELSE 'Food Court'
+      END 
+      WHERE plan_name IS NULL OR plan_name = '' OR plan_name = 'trial'
+    `);
+
+    // Ensure registrations table has plan_name, subscription_type, payment_reference, payment_amount
+    const [rPlanCols] = await conn.query("SHOW COLUMNS FROM registrations LIKE 'plan_name'");
+    if (rPlanCols.length === 0) {
+      await conn.query("ALTER TABLE registrations ADD COLUMN plan_name VARCHAR(50) NOT NULL DEFAULT 'Food Court'");
+      console.log("Migration: Added plan_name column to registrations table.");
+    }
+    const [rSubCols] = await conn.query("SHOW COLUMNS FROM registrations LIKE 'subscription_type'");
+    if (rSubCols.length === 0) {
+      await conn.query("ALTER TABLE registrations ADD COLUMN subscription_type ENUM('trial', 'annual') NOT NULL DEFAULT 'annual'");
+      console.log("Migration: Added subscription_type column to registrations table.");
+    }
+    const [rPrefCols] = await conn.query("SHOW COLUMNS FROM registrations LIKE 'payment_reference'");
+    if (rPrefCols.length === 0) {
+      await conn.query("ALTER TABLE registrations ADD COLUMN payment_reference VARCHAR(100) NULL DEFAULT NULL");
+      console.log("Migration: Added payment_reference column to registrations table.");
+    }
+    const [rPamtCols] = await conn.query("SHOW COLUMNS FROM registrations LIKE 'payment_amount'");
+    if (rPamtCols.length === 0) {
+      await conn.query("ALTER TABLE registrations ADD COLUMN payment_amount DECIMAL(10,2) NULL DEFAULT 0.00");
+      console.log("Migration: Added payment_amount column to registrations table.");
+    }
+
     conn.release();
   } catch (err) {
     console.error("Migration error on startup:", err.message);
@@ -780,6 +830,138 @@ if (shouldRunCronAndMigrations) {
 }
 
 // ==========================================
+// SAAS PRICING PLANS & FEATURE ENTITLEMENTS
+// ==========================================
+const PLAN_ENTITLEMENTS = {
+  'Canteen Basic': {
+    name: 'Canteen Basic',
+    price_annual: 12000,
+    daily_menu: true,
+    basic_stock: true,
+    full_stock_recipes: false,
+    counter_pos: true,
+    upi_card_payments: true,
+    qr_ordering: false,
+    kds: false,
+    rfid_wallet: false,
+    multi_vendor: false,
+    commissions: false,
+    mess_subscription: false,
+    hr_payroll: false,
+    mobile_app: false,
+    whatsapp_alerts: 'basic',
+    multi_branch: false,
+    allowed_tabs: ['dashboard', 'pos', 'menu', 'materials', 'orders', 'reports', 'employee-portal']
+  },
+  'Canteen Pro': {
+    name: 'Canteen Pro',
+    price_annual: 20000,
+    daily_menu: true,
+    basic_stock: true,
+    full_stock_recipes: true,
+    counter_pos: true,
+    upi_card_payments: true,
+    qr_ordering: true,
+    kds: true,
+    rfid_wallet: true,
+    multi_vendor: false,
+    commissions: false,
+    mess_subscription: true,
+    hr_payroll: true,
+    mobile_app: true,
+    whatsapp_alerts: 'full',
+    multi_branch: false,
+    allowed_tabs: ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'hr', 'crm', 'wallet', 'reports', 'employee-portal']
+  },
+  'Food Court': {
+    name: 'Food Court',
+    price_annual: 40000,
+    daily_menu: true,
+    basic_stock: true,
+    full_stock_recipes: true,
+    counter_pos: true,
+    upi_card_payments: true,
+    qr_ordering: true,
+    kds: true,
+    rfid_wallet: true,
+    multi_vendor: true,
+    commissions: true,
+    mess_subscription: false,
+    hr_payroll: true,
+    mobile_app: true,
+    whatsapp_alerts: 'full',
+    multi_branch: false,
+    allowed_tabs: ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'vendors', 'stall-insights', 'promotions', 'hr', 'crm', 'wallet', 'reports', 'employee-portal']
+  },
+  'Enterprise': {
+    name: 'Enterprise',
+    price_annual: 75000,
+    daily_menu: true,
+    basic_stock: true,
+    full_stock_recipes: true,
+    counter_pos: true,
+    upi_card_payments: true,
+    qr_ordering: true,
+    kds: true,
+    rfid_wallet: true,
+    multi_vendor: true,
+    commissions: true,
+    mess_subscription: true,
+    hr_payroll: true,
+    mobile_app: true,
+    whatsapp_alerts: 'priority',
+    multi_branch: true,
+    allowed_tabs: ['*']
+  }
+};
+
+const tenantPlanCache = new Map(); // tenantId -> { plan_name, subscription_status, subscription_expires_at, is_active, _cachedAt }
+
+async function resolveTenantPlan(tenantId) {
+  if (!tenantId || tenantId === 1 || tenantId === 'superadmin') {
+    return { plan_name: 'Enterprise', subscription_status: 'active', subscription_expires_at: null, is_active: 1 };
+  }
+  const cached = tenantPlanCache.get(tenantId);
+  if (cached && (Date.now() - cached._cachedAt < 60000)) {
+    return cached;
+  }
+  try {
+    const [rows] = await pool.query('SELECT plan_name, subscription_status, subscription_expires_at, is_active FROM tenants WHERE id = ?', [tenantId]);
+    if (rows.length > 0) {
+      const info = {
+        plan_name: rows[0].plan_name || 'Food Court',
+        subscription_status: rows[0].subscription_status || 'active',
+        subscription_expires_at: rows[0].subscription_expires_at || null,
+        is_active: rows[0].is_active !== undefined ? rows[0].is_active : 1,
+        _cachedAt: Date.now()
+      };
+      tenantPlanCache.set(tenantId, info);
+      return info;
+    }
+  } catch (err) {
+    console.error(`[resolveTenantPlan] Error fetching plan for tenant ${tenantId}:`, err.message);
+  }
+  return { plan_name: 'Food Court', subscription_status: 'active', subscription_expires_at: null, is_active: 1 };
+}
+
+const requirePlanFeature = (featureKey) => {
+  return (req, res, next) => {
+    if (req.user?.role === 'Super Admin' || req.user?.tenant_id === 1) return next();
+    const planName = req.tenantPlan || 'Food Court';
+    const planConfig = PLAN_ENTITLEMENTS[planName] || PLAN_ENTITLEMENTS['Food Court'];
+
+    if (!planConfig || !planConfig[featureKey]) {
+      return res.status(403).json({
+        error: `The '${featureKey.replace(/_/g, ' ')}' feature is not included in your ${planName} subscription tier. Please upgrade your plan to unlock this module.`,
+        required_feature: featureKey,
+        current_plan: planName
+      });
+    }
+    next();
+  };
+};
+
+// ==========================================
 // AUTHENTICATION & RBAC MIDDLEWARES
 // ==========================================
 const authenticateToken = (req, res, next) => {
@@ -874,8 +1056,8 @@ setInterval(() => {
   }
 }, 60000);
 
-// SaaS Tenant Isolation Context Middleware & Fair-Use Rate Limiter
-app.use('/api', (req, res, next) => {
+// SaaS Tenant Isolation Context Middleware, Fair-Use Rate Limiter & Subscription Guard
+app.use('/api', async (req, res, next) => {
   let tenantId = req.user ? req.user.tenant_id : null;
   if (!tenantId && req.headers['x-tenant-id']) {
     tenantId = parseInt(req.headers['x-tenant-id'], 10);
@@ -883,13 +1065,40 @@ app.use('/api', (req, res, next) => {
     tenantId = parseInt(req.query.tenant || req.query.tenant_id, 10);
   }
 
-  // Exempt health checks, server-info, login, and SSE streaming
-  const isExempt = req.path === '/server-info' || req.path === '/auth/login' || req.path.startsWith('/kds/stream');
+  // Exempt health checks, server-info, login, register, and SSE streaming
+  const isExempt = req.path === '/server-info' || req.path === '/auth/login' || req.path === '/register' || req.path.startsWith('/kds/stream');
   if (!isExempt && tenantId && !checkTenantRateLimit(tenantId)) {
     return res.status(429).json({
       error: 'Tenant rate limit exceeded. Please slow down your requests.',
       retryAfter: 1
     });
+  }
+
+  // Attach Plan Entitlements & Subscription Status to Request
+  if (req.user?.role === 'Super Admin' || tenantId === 1) {
+    req.tenantPlan = 'Enterprise';
+    req.subscriptionStatus = 'active';
+  } else if (tenantId) {
+    const planInfo = await resolveTenantPlan(tenantId);
+    req.tenantPlan = planInfo.plan_name || 'Food Court';
+    req.subscriptionStatus = planInfo.subscription_status || 'active';
+    req.subscriptionExpiresAt = planInfo.subscription_expires_at || null;
+
+    // Check if subscription has expired
+    if (planInfo.subscription_status === 'expired' || (planInfo.subscription_expires_at && new Date(planInfo.subscription_expires_at) < new Date())) {
+      req.subscriptionStatus = 'expired';
+      // Block transactions/orders/mutations if expired, but allow reads so records remain intact
+      if (['POST', 'PUT', 'DELETE'].includes(req.method) && !req.path.startsWith('/auth') && !req.path.startsWith('/subscription')) {
+        return res.status(402).json({
+          error: 'Your subscription has expired. Please renew your plan to perform transactions.',
+          subscription_status: 'expired',
+          plan_name: req.tenantPlan
+        });
+      }
+    }
+  } else {
+    req.tenantPlan = 'Food Court';
+    req.subscriptionStatus = 'active';
   }
   
   if (tenantId) {
@@ -899,30 +1108,34 @@ app.use('/api', (req, res, next) => {
   }
 });
 
-// Apply RBAC based on route prefixes
-app.use('/api/hr', authorizeRoles('Owner', 'Manager'));
+// Apply RBAC and Plan Entitlements based on route prefixes
+app.use('/api/hr', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager'));
 app.use('/api/staff', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
-app.use('/api/shifts', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
-app.use('/api/shift-swaps', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
-app.use('/api/roster', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
-app.use('/api/attendance', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
-app.use('/api/leaves', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
-app.use('/api/leave-balance', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
-app.use('/api/holidays', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
-app.use('/api/payroll', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
-app.use('/api/payslip', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
-app.use('/api/staff-meals', authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
-app.use('/api/performance', authorizeRoles('Owner', 'Manager'));
-app.use('/api/stall-managers', authorizeRoles('Owner', 'Manager', 'Super Admin'));
+app.use('/api/shifts', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/shift-swaps', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/roster', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/attendance', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/leaves', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/leave-balance', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/holidays', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/payroll', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/payslip', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/staff-meals', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager', 'Billing Staff', 'Cook', 'Helper'));
+app.use('/api/performance', requirePlanFeature('hr_payroll'), authorizeRoles('Owner', 'Manager'));
+app.use('/api/stall-managers', requirePlanFeature('multi_vendor'), authorizeRoles('Owner', 'Manager', 'Super Admin'));
 app.use('/api/staff/me/profile', authorizeRoles('All'));
 
 app.use('/api/inventory', authorizeRoles('Owner', 'Manager', 'Cook'));
+app.use('/api/recipes', requirePlanFeature('full_stock_recipes'), authorizeRoles('Owner', 'Manager'));
 app.use('/api/reports', authorizeRoles('Owner', 'Manager'));
-app.use('/api/vendors', authorizeRoles('Owner', 'Manager'));
+app.use('/api/vendors', requirePlanFeature('multi_vendor'), authorizeRoles('Owner', 'Manager'));
 app.use('/api/overheads', authorizeRoles('Owner', 'Manager'));
 
 // KDS endpoints
-app.use('/api/kds', authorizeRoles('Owner', 'Manager', 'Cook'));
+app.use('/api/kds', requirePlanFeature('kds'), authorizeRoles('Owner', 'Manager', 'Cook'));
+
+// Wallet & RFID endpoints
+app.use('/api/wallet', requirePlanFeature('rfid_wallet'));
 
 // POS endpoints
 app.use('/api/pos', authorizeRoles('Owner', 'Manager', 'Billing Staff'));
@@ -980,15 +1193,52 @@ app.post('/api/auth/login', async (req, res) => {
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) return res.status(401).json({ error: 'Invalid credentials.' });
 
+    // Resolve tenant plan and subscription status
+    let tenantPlan = 'Food Court';
+    let subscriptionStatus = 'active';
+    let subscriptionExpiresAt = null;
+
+    if (user.role === 'Super Admin' || user.tenant_id === 1) {
+      tenantPlan = 'Enterprise';
+      subscriptionStatus = 'active';
+    } else if (user.tenant_id) {
+      const planInfo = await resolveTenantPlan(user.tenant_id);
+      if (planInfo.is_active === 0) {
+        return res.status(403).json({ error: 'This organization account has been suspended or deactivated. Please contact support.' });
+      }
+      tenantPlan = planInfo.plan_name || 'Food Court';
+      subscriptionStatus = planInfo.subscription_status || 'active';
+      subscriptionExpiresAt = planInfo.subscription_expires_at || null;
+    }
+
     const token = jwt.sign(
-      { id: user.id, name: user.name, role: user.role, vendor_id: user.vendor_id, tenant_id: user.tenant_id },
+      {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        vendor_id: user.vendor_id,
+        tenant_id: user.tenant_id,
+        tenant_plan: tenantPlan,
+        subscription_status: subscriptionStatus
+      },
       JWT_SECRET,
       { expiresIn: '12h' }
     );
 
     res.json({
       token,
-      user: { id: user.id, name: user.name, role: user.role, email: user.email, vendor_id: user.vendor_id, tenant_id: user.tenant_id }
+      user: {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        email: user.email,
+        vendor_id: user.vendor_id,
+        tenant_id: user.tenant_id,
+        tenant_plan: tenantPlan,
+        subscription_status: subscriptionStatus,
+        subscription_expires_at: subscriptionExpiresAt,
+        entitlements: PLAN_ENTITLEMENTS[tenantPlan] || PLAN_ENTITLEMENTS['Food Court']
+      }
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -996,9 +1246,32 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.get('/api/auth/me', (req, res) => {
+app.get('/api/auth/me', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
-  res.json({ user: req.user });
+
+  let tenantPlan = req.user.tenant_plan || 'Food Court';
+  let subscriptionStatus = req.user.subscription_status || 'active';
+  let subscriptionExpiresAt = null;
+
+  if (req.user.role === 'Super Admin' || req.user.tenant_id === 1) {
+    tenantPlan = 'Enterprise';
+    subscriptionStatus = 'active';
+  } else if (req.user.tenant_id) {
+    const planInfo = await resolveTenantPlan(req.user.tenant_id);
+    tenantPlan = planInfo.plan_name || 'Food Court';
+    subscriptionStatus = planInfo.subscription_status || 'active';
+    subscriptionExpiresAt = planInfo.subscription_expires_at || null;
+  }
+
+  res.json({
+    user: {
+      ...req.user,
+      tenant_plan: tenantPlan,
+      subscription_status: subscriptionStatus,
+      subscription_expires_at: subscriptionExpiresAt,
+      entitlements: PLAN_ENTITLEMENTS[tenantPlan] || PLAN_ENTITLEMENTS['Food Court']
+    }
+  });
 });
 
 // Helper to format date in local YYYY-MM-DD HH:mm:ss format
@@ -8737,11 +9010,21 @@ app.post('/api/register', async (req, res) => {
     email,
     phone = payload.phone || payload.phoneNumber,
     city = payload.city,
-    message = payload.message
+    message = payload.message,
+    plan_name = payload.planName,
+    subscription_type = payload.subscriptionType,
+    payment_reference = payload.paymentReference,
+    payment_amount = payload.paymentAmount
   } = payload;
   if (!food_court_name || !owner_name || !email) {
-    return res.status(400).json({ error: 'Food Court Name, Owner Name, and Email are required.' });
+    return res.status(400).json({ error: 'Food Court / Canteen Name, Owner Name, and Email are required.' });
   }
+
+  // Validate plan name
+  const validPlans = ['Canteen Basic', 'Canteen Pro', 'Food Court', 'Enterprise'];
+  const sanitizedPlan = validPlans.includes(plan_name) ? plan_name : 'Canteen Pro';
+  const sanitizedSubType = (subscription_type === 'trial' && sanitizedPlan !== 'Enterprise') ? 'trial' : 'annual';
+
   const conn = await pool.getConnection();
   try {
     const [existingStaff] = await conn.query('SELECT id FROM staff WHERE email = ?', [email]);
@@ -8753,10 +9036,23 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ error: 'A registration request for this email is already pending review.' });
     }
     await conn.query(
-      'INSERT INTO registrations (food_court_name, owner_name, email, phone, city, message) VALUES (?, ?, ?, ?, ?, ?)',
-      [food_court_name, owner_name, email, phone || null, city || null, message || null]
+      `INSERT INTO registrations 
+       (food_court_name, owner_name, email, phone, city, message, plan_name, subscription_type, payment_reference, payment_amount) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        food_court_name,
+        owner_name,
+        email,
+        phone || null,
+        city || null,
+        message || null,
+        sanitizedPlan,
+        sanitizedSubType,
+        payment_reference || null,
+        parseFloat(payment_amount) || 0.00
+      ]
     );
-    res.status(201).json({ success: true, message: 'Registration submitted successfully' });
+    res.status(201).json({ success: true, message: 'Registration submitted successfully. Pending Super Admin verification.' });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ error: 'Failed to submit registration' });
@@ -8799,7 +9095,7 @@ app.get('/api/superadmin/registrations', authenticateToken, authorizeRoles('Supe
 // Super Admin: Review registration (Approve/Reject)
 app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
   const { id } = req.params;
-  const { action, admin_notes, custom_password, custom_email } = req.body; // action: 'approve' or 'reject'
+  const { action, admin_notes, custom_password, custom_email, assigned_plan } = req.body; // action: 'approve' or 'reject'
 
   if (action !== 'approve' && action !== 'reject') {
     return res.status(400).json({ error: 'Invalid action. Must be approve or reject.' });
@@ -8833,12 +9129,27 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
     };
 
     if (action === 'approve') {
-      // 1. Create tenant
+      const finalPlan = assigned_plan || reg.plan_name || 'Canteen Pro';
+      const isTrial = (reg.subscription_type === 'trial');
+      const subStatus = isTrial ? 'trial' : 'active';
+      const durationDays = isTrial ? 7 : 365;
+
+      // 1. Create tenant with plan entitlements
       const [tenantResult] = await conn.query(
-        'INSERT INTO tenants (name, owner_email) VALUES (?, ?)',
-        [reg.food_court_name, reg.email]
+        `INSERT INTO tenants (name, owner_email, plan_name, subscription_status, subscription_expires_at) 
+         VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? DAY))`,
+        [reg.food_court_name, reg.email, finalPlan, subStatus, durationDays]
       );
       const tenantId = tenantResult.insertId;
+
+      // Cache tenant plan immediately
+      tenantPlanCache.set(tenantId, {
+        plan_name: finalPlan,
+        subscription_status: subStatus,
+        subscription_expires_at: new Date(Date.now() + durationDays * 86400000),
+        is_active: 1,
+        _cachedAt: Date.now()
+      });
 
       // 2. Create owner user with custom or random password
       const bcrypt = require('bcryptjs');
@@ -8871,6 +9182,7 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
         <h2>Welcome to FC-ERP!</h2>
         <p>Dear ${reg.owner_name},</p>
         <p>Your registration for <b>${reg.food_court_name}</b> has been approved!</p>
+        <p><b>Subscription Tier:</b> <span style="color:#8b5cf6;font-weight:bold;">${finalPlan}</span> (${isTrial ? '7-Day Free Trial' : 'Active 1-Year Subscription'})</p>
         <p>Here are your login credentials:</p>
         <ul>
           <li><b>Login Email:</b> ${loginEmail}</li>
@@ -8945,7 +9257,7 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
 app.get('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT t.id, t.name, t.owner_email, t.plan, t.is_active, t.created_at, s.name as owner_name, s.email as login_id
+      SELECT t.id, t.name, t.owner_email, t.plan, t.plan_name, t.subscription_status, t.subscription_expires_at, t.is_active, t.created_at, s.name as owner_name, s.email as login_id
       FROM tenants t
       LEFT JOIN staff s ON t.id = s.tenant_id AND s.role = 'Owner'
       ORDER BY t.id DESC
@@ -8958,10 +9270,14 @@ app.get('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async 
 });
 
 app.post('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
-  const { name, owner_name, email, password } = req.body;
+  const { name, owner_name, email, password, plan_name, subscription_status, duration_days } = req.body;
   if (!name || !owner_name || !email || !password) {
     return res.status(400).json({ error: 'All fields are required' });
   }
+
+  const selectedPlan = plan_name || 'Food Court';
+  const subStatus = subscription_status || 'active';
+  const days = parseInt(duration_days, 10) || (subStatus === 'trial' ? 7 : 365);
 
   const conn = await pool.getConnection();
   try {
@@ -8975,10 +9291,19 @@ app.post('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async
 
     // 2. Create the tenant
     const [tenantResult] = await conn.query(
-      'INSERT INTO tenants (name, owner_email) VALUES (?, ?)',
-      [name, email]
+      `INSERT INTO tenants (name, owner_email, plan_name, subscription_status, subscription_expires_at) 
+       VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? DAY))`,
+      [name, email, selectedPlan, subStatus, days]
     );
     const tenantId = tenantResult.insertId;
+
+    tenantPlanCache.set(tenantId, {
+      plan_name: selectedPlan,
+      subscription_status: subStatus,
+      subscription_expires_at: new Date(Date.now() + days * 86400000),
+      is_active: 1,
+      _cachedAt: Date.now()
+    });
 
     // 3. Create the owner user
     const bcrypt = require('bcryptjs');
@@ -9009,7 +9334,7 @@ app.post('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async
 
 app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
   const { id } = req.params;
-  const { name, email, password, is_active } = req.body;
+  const { name, email, password, is_active, plan_name, subscription_status, duration_days } = req.body;
   if (!name || !email) {
     return res.status(400).json({ error: 'Name and Login ID are required' });
   }
@@ -9020,10 +9345,28 @@ app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), as
 
     // Update tenant record
     const updateTenantActive = is_active !== undefined ? (is_active ? 1 : 0) : 1;
-    await conn.query(
-      'UPDATE tenants SET name = ?, owner_email = ?, is_active = ? WHERE id = ?',
-      [name, email, updateTenantActive, id]
-    );
+    let tenantUpdateSql = 'UPDATE tenants SET name = ?, owner_email = ?, is_active = ?';
+    const tenantParams = [name, email, updateTenantActive];
+
+    if (plan_name) {
+      tenantUpdateSql += ', plan_name = ?';
+      tenantParams.push(plan_name);
+    }
+    if (subscription_status) {
+      tenantUpdateSql += ', subscription_status = ?';
+      tenantParams.push(subscription_status);
+    }
+    if (duration_days) {
+      tenantUpdateSql += ', subscription_expires_at = DATE_ADD(NOW(), INTERVAL ? DAY)';
+      tenantParams.push(parseInt(duration_days, 10));
+    }
+    tenantUpdateSql += ' WHERE id = ?';
+    tenantParams.push(id);
+
+    await conn.query(tenantUpdateSql, tenantParams);
+
+    // Invalidate cache
+    tenantPlanCache.delete(parseInt(id, 10));
 
     // Update owner user record
     let passwordQuerySegment = '';

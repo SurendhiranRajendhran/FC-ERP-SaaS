@@ -550,7 +550,7 @@ function SuperAdminDashboard({ user, onLogout }) {
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [formParams, setFormParams] = useState({ name: '', owner_name: '', email: '', password: '' });
+  const [formParams, setFormParams] = useState({ name: '', owner_name: '', email: '', password: '', plan_name: 'Food Court' });
   const [adding, setAdding] = useState(false);
 
   // Tabs
@@ -562,6 +562,7 @@ function SuperAdminDashboard({ user, onLogout }) {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [reviewAction, setReviewAction] = useState(null); // 'approve' or 'reject'
   const [reviewingRegId, setReviewingRegId] = useState(null);
+  const [assignedPlan, setAssignedPlan] = useState('Canteen Pro');
   const [adminNotes, setAdminNotes] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
   const [showPendingAlert, setShowPendingAlert] = useState(false);
@@ -608,7 +609,13 @@ function SuperAdminDashboard({ user, onLogout }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({ action: reviewAction, admin_notes: adminNotes, custom_password: customPassword, custom_email: customEmail })
+        body: JSON.stringify({
+          action: reviewAction,
+          admin_notes: adminNotes,
+          custom_password: customPassword,
+          custom_email: customEmail,
+          assigned_plan: assignedPlan
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to review registration');
@@ -736,7 +743,9 @@ function SuperAdminDashboard({ user, onLogout }) {
       owner_name: t.owner_name || '',
       email: t.login_id || t.owner_email || '',
       password: '', // Leave blank unless changing
-      is_active: t.is_active === 1 || t.is_active === true
+      is_active: t.is_active === 1 || t.is_active === true,
+      plan_name: t.plan_name || t.plan || 'Food Court',
+      subscription_status: t.subscription_status || 'active'
     });
     setShowEditModal(true);
   };
@@ -1049,8 +1058,26 @@ function SuperAdminDashboard({ user, onLogout }) {
                         <td style={{...saStyles.td, fontWeight: 700, color: '#8b5cf6'}}>{t.name}</td>
                         <td style={{...saStyles.td, color: '#94a3b8'}}>{t.owner_email}</td>
                         <td style={saStyles.td}>
-                          <span style={{background: 'rgba(255,255,255,0.04)', padding: '4px 12px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '1px', color: '#94a3b8'}}>
-                            {t.plan}
+                          <span style={{
+                            fontSize: '0.76rem',
+                            fontWeight: '700',
+                            padding: '3px 9px',
+                            borderRadius: '12px',
+                            background: (t.plan_name === 'Canteen Basic') ? 'rgba(59, 130, 246, 0.15)' :
+                                        (t.plan_name === 'Canteen Pro') ? 'rgba(139, 92, 246, 0.15)' :
+                                        (t.plan_name === 'Enterprise') ? 'rgba(234, 179, 8, 0.15)' :
+                                        'rgba(16, 185, 129, 0.15)',
+                            color: (t.plan_name === 'Canteen Basic') ? '#60a5fa' :
+                                   (t.plan_name === 'Canteen Pro') ? '#c084fc' :
+                                   (t.plan_name === 'Enterprise') ? '#fbbf24' :
+                                   '#34d399',
+                            border: `1px solid ${(t.plan_name === 'Canteen Basic') ? 'rgba(59, 130, 246, 0.3)' :
+                                                 (t.plan_name === 'Canteen Pro') ? 'rgba(139, 92, 246, 0.3)' :
+                                                 (t.plan_name === 'Enterprise') ? 'rgba(234, 179, 8, 0.3)' :
+                                                 'rgba(16, 185, 129, 0.3)'}`
+                          }}>
+                            {t.plan_name || t.plan || 'Food Court'}
+                            {t.subscription_status === 'trial' ? ' · Trial' : ''}
                           </span>
                         </td>
                         <td style={{...saStyles.td, textAlign: 'center'}}>
@@ -1137,6 +1164,8 @@ function SuperAdminDashboard({ user, onLogout }) {
                         <th style={saStyles.th}>Email</th>
                         <th style={saStyles.th}>Phone</th>
                         <th style={saStyles.th}>City</th>
+                        <th style={saStyles.th}>Selected Plan</th>
+                        <th style={saStyles.th}>Billing Mode</th>
                         <th style={{...saStyles.th, textAlign: 'center'}}>Status</th>
                         <th style={{...saStyles.th, textAlign: 'right'}}>Submitted</th>
                         <th style={{...saStyles.th, textAlign: 'center'}}>Actions</th>
@@ -1153,6 +1182,42 @@ function SuperAdminDashboard({ user, onLogout }) {
                           <td style={{...saStyles.td, color: '#94a3b8'}}>{r.email}</td>
                           <td style={{...saStyles.td, color: '#94a3b8'}}>{r.phone || '—'}</td>
                           <td style={{...saStyles.td, color: '#94a3b8'}}>{r.city || '—'}</td>
+                          <td style={saStyles.td}>
+                            <span style={{
+                              fontSize: '0.76rem',
+                              fontWeight: '700',
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              background: (r.plan_name === 'Canteen Basic') ? 'rgba(59, 130, 246, 0.15)' :
+                                          (r.plan_name === 'Canteen Pro') ? 'rgba(139, 92, 246, 0.15)' :
+                                          (r.plan_name === 'Enterprise') ? 'rgba(234, 179, 8, 0.15)' :
+                                          'rgba(16, 185, 129, 0.15)',
+                              color: (r.plan_name === 'Canteen Basic') ? '#60a5fa' :
+                                     (r.plan_name === 'Canteen Pro') ? '#c084fc' :
+                                     (r.plan_name === 'Enterprise') ? '#fbbf24' :
+                                     '#34d399',
+                              border: `1px solid ${(r.plan_name === 'Canteen Basic') ? 'rgba(59, 130, 246, 0.3)' :
+                                                   (r.plan_name === 'Canteen Pro') ? 'rgba(139, 92, 246, 0.3)' :
+                                                   (r.plan_name === 'Enterprise') ? 'rgba(234, 179, 8, 0.3)' :
+                                                   'rgba(16, 185, 129, 0.3)'}`
+                            }}>
+                              {r.plan_name || 'Canteen Pro'}
+                            </span>
+                          </td>
+                          <td style={{...saStyles.td, fontSize: '0.82rem'}}>
+                            {r.subscription_type === 'trial' ? (
+                              <span style={{ color: '#38bdf8', fontWeight: 600 }}>7-Day Trial</span>
+                            ) : (
+                              <div>
+                                <span style={{ color: '#4ade80', fontWeight: 600 }}>Paid Annual</span>
+                                {r.payment_reference && (
+                                  <div style={{ color: '#94a3b8', fontSize: '0.72rem', marginTop: '2px' }} title={r.payment_reference}>
+                                    Ref: {r.payment_reference.length > 12 ? r.payment_reference.slice(0, 12) + '...' : r.payment_reference}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </td>
                           <td style={{...saStyles.td, textAlign: 'center'}}>
                             {r.status === 'pending' ? (
                               <span style={{display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#eab308', background: 'rgba(234,179,8,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600}}>
@@ -1174,7 +1239,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                           <td style={{...saStyles.td, textAlign: 'center'}}>
                             {r.status === 'pending' ? (
                               <div style={{display: 'flex', gap: '6px', justifyContent: 'center'}}>
-                                <button onClick={() => { setReviewingRegId(r.id); setReviewAction('approve'); setAdminNotes(''); setShowReviewModal(true); }}
+                                <button onClick={() => { setReviewingRegId(r.id); setReviewAction('approve'); setAssignedPlan(r.plan_name || 'Canteen Pro'); setAdminNotes(''); setShowReviewModal(true); }}
                                   style={{background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600}}>
                                   ✓ Approve
                                 </button>
@@ -1253,6 +1318,19 @@ function SuperAdminDashboard({ user, onLogout }) {
                     </button>
                   </div>
                 </div>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Subscription Plan</label>
+                  <select 
+                    style={saStyles.formInput} 
+                    value={formParams.plan_name || 'Food Court'}
+                    onChange={e => setFormParams({...formParams, plan_name: e.target.value})}
+                  >
+                    <option value="Canteen Basic">Canteen Basic (₹12,000/yr - School/College)</option>
+                    <option value="Canteen Pro">Canteen Pro (₹20,000/yr - Corporate/Hospital)</option>
+                    <option value="Food Court">Food Court (₹40,000/yr - Mall Food Courts)</option>
+                    <option value="Enterprise">Enterprise (₹75,000+/yr - Multi-Branch)</option>
+                  </select>
+                </div>
                 <div style={saStyles.modalActions}>
                   <button type="button" style={saStyles.cancelBtn} onClick={() => setShowAddModal(false)}>Cancel</button>
                   <button type="submit" style={saStyles.submitBtn(adding)} disabled={adding}>
@@ -1305,6 +1383,32 @@ function SuperAdminDashboard({ user, onLogout }) {
                       )}
                     </button>
                   </div>
+                </div>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Subscription Plan</label>
+                  <select 
+                    style={saStyles.formInput} 
+                    value={editFormParams.plan_name || 'Food Court'}
+                    onChange={e => setEditFormParams({...editFormParams, plan_name: e.target.value})}
+                  >
+                    <option value="Canteen Basic">Canteen Basic (₹12,000/yr - School/College)</option>
+                    <option value="Canteen Pro">Canteen Pro (₹20,000/yr - Corporate/Hospital)</option>
+                    <option value="Food Court">Food Court (₹40,000/yr - Mall Food Courts)</option>
+                    <option value="Enterprise">Enterprise (₹75,000+/yr - Multi-Branch)</option>
+                  </select>
+                </div>
+                <div style={saStyles.formGroup}>
+                  <label style={saStyles.formLabel}>Subscription Status</label>
+                  <select 
+                    style={saStyles.formInput} 
+                    value={editFormParams.subscription_status || 'active'}
+                    onChange={e => setEditFormParams({...editFormParams, subscription_status: e.target.value})}
+                  >
+                    <option value="active">Active</option>
+                    <option value="trial">7-Day Free Trial</option>
+                    <option value="expired">Expired</option>
+                    <option value="suspended">Suspended</option>
+                  </select>
                 </div>
                 <div style={saStyles.formGroup}>
                   <label style={{display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', ...saStyles.formLabel}}>
@@ -2246,7 +2350,49 @@ function App() {
     try { return JSON.parse(localStorage.getItem('user')); } catch(e) { return null; }
   });
 
-  // Enforce default tab based on role
+  // ==========================================
+  // PLAN ENTITLEMENTS — Frontend Module Visibility (Option 2: Strict Hiding)
+  // ==========================================
+  const PLAN_ALLOWED_TABS = {
+    'Canteen Basic': ['dashboard', 'pos', 'menu', 'materials', 'orders', 'reports', 'employee-portal'],
+    'Canteen Pro': ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'employee-portal', 'hr', 'crm', 'wallet', 'reports', 'promotions'],
+    'Food Court': ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'employee-portal', 'stall-insights', 'vendors', 'promotions', 'hr', 'crm', 'wallet', 'reports'],
+    'Enterprise': ['*']
+  };
+
+  const PLAN_FEATURES = {
+    'Canteen Basic': { kds: false, qr_ordering: false, rfid_wallet: false, multi_vendor: false, full_stock_recipes: false, hr_payroll: false, commissions: false, mess_subscription: false },
+    'Canteen Pro': { kds: true, qr_ordering: true, rfid_wallet: true, multi_vendor: false, full_stock_recipes: true, hr_payroll: true, commissions: false, mess_subscription: true },
+    'Food Court': { kds: true, qr_ordering: true, rfid_wallet: true, multi_vendor: true, full_stock_recipes: true, hr_payroll: true, commissions: true, mess_subscription: false },
+    'Enterprise': { kds: true, qr_ordering: true, rfid_wallet: true, multi_vendor: true, full_stock_recipes: true, hr_payroll: true, commissions: true, mess_subscription: true }
+  };
+
+  // Derive the current tenant's plan from the user object (set during login / auth/me)
+  const currentPlan = user?.tenant_plan || user?.entitlements ? (user.tenant_plan || 'Food Court') : 'Food Court';
+  const subscriptionStatus = user?.subscription_status || 'active';
+
+  // Check if a sidebar tab is permitted for the current plan
+  const isTabPermitted = (tabName) => {
+    if (!user) return false;
+    if (user.role === 'Super Admin') return true;
+    const allowed = PLAN_ALLOWED_TABS[currentPlan] || PLAN_ALLOWED_TABS['Food Court'];
+    if (allowed.includes('*')) return true;
+    return allowed.includes(tabName);
+  };
+
+  // Check if a specific feature is permitted
+  const isFeaturePermitted = (featureKey) => {
+    if (!user) return false;
+    if (user.role === 'Super Admin') return true;
+    // Use entitlements from server if available, otherwise fall back to local map
+    if (user.entitlements && user.entitlements[featureKey] !== undefined) {
+      return !!user.entitlements[featureKey];
+    }
+    const features = PLAN_FEATURES[currentPlan] || PLAN_FEATURES['Food Court'];
+    return features[featureKey] !== false;
+  };
+
+  // Enforce default tab based on role AND plan entitlements
   useEffect(() => {
     if (user) {
       if (user.role === 'Cook' && !['kds', 'employee-portal'].includes(activeTab)) {
@@ -2258,9 +2404,12 @@ function App() {
       } else if (user.vendor_id && ['wallet', 'crm', 'vendors'].includes(activeTab)) {
         // Stall managers cannot access central-admin-only modules (wallet, crm, vendors)
         setActiveTab('pos');
+      } else if (!isTabPermitted(activeTab) && user.role !== 'Super Admin') {
+        // If current tab is not in the user's plan, fall back to dashboard
+        setActiveTab('dashboard');
       }
     }
-  }, [user, activeTab]);
+  }, [user, activeTab, currentPlan]);
 
   // Auto-set Cashier / Staff select value if current user is POS staff
   useEffect(() => {
@@ -5896,7 +6045,7 @@ function App() {
         </div>
 
         <nav className="sidebar-menu">
-          {['Owner', 'Manager'].includes(user.role) && (
+          {['Owner', 'Manager'].includes(user.role) && isTabPermitted('dashboard') && (
           <div
             className={`menu-item ${activeTab === 'dashboard' ? 'active' : ''}`}
             onClick={() => setActiveTab('dashboard')}
@@ -5910,7 +6059,8 @@ function App() {
             <span>Dashboard</span>
           </div>
         )}
-          {['Owner', 'Manager', 'Billing Staff'].includes(user.role) && (<div
+          {['Owner', 'Manager', 'Billing Staff'].includes(user.role) && isTabPermitted('pos') && (
+          <div
             className={`menu-item ${activeTab === 'pos' ? 'active' : ''}`}
             onClick={() => setActiveTab('pos')}
           >
@@ -5923,7 +6073,7 @@ function App() {
             <span>Counter POS</span>
           </div>
           )}
-          {['Owner', 'Manager', 'Billing Staff'].includes(user.role) && (
+          {['Owner', 'Manager', 'Billing Staff'].includes(user.role) && isTabPermitted('menu') && (
           <div
             className={`menu-item ${activeTab === 'menu' ? 'active' : ''}`}
             onClick={() => setActiveTab('menu')}
@@ -5934,7 +6084,7 @@ function App() {
             <span>Items (Menu)</span>
           </div>
         )}
-          {['Owner', 'Manager'].includes(user.role) && (
+          {['Owner', 'Manager'].includes(user.role) && isTabPermitted('materials') && (
           <div
             className={`menu-item ${activeTab === 'materials' ? 'active' : ''}`}
             onClick={() => setActiveTab('materials')}
@@ -5947,7 +6097,7 @@ function App() {
             <span>Raw Materials</span>
           </div>
         )}
-          {['Owner', 'Manager'].includes(user.role) && (
+          {['Owner', 'Manager'].includes(user.role) && isTabPermitted('recipes') && (
           <div
             className={`menu-item ${activeTab === 'recipes' ? 'active' : ''}`}
             onClick={() => setActiveTab('recipes')}
@@ -5962,7 +6112,7 @@ function App() {
             <span>Recipes</span>
           </div>
         )}
-          {['Owner', 'Manager'].includes(user.role) && (
+          {['Owner', 'Manager'].includes(user.role) && isTabPermitted('logs') && (
           <div
             className={`menu-item ${activeTab === 'logs' ? 'active' : ''}`}
             onClick={() => setActiveTab('logs')}
@@ -5973,7 +6123,7 @@ function App() {
             <span>Stock Logs</span>
           </div>
         )}
-          {['Owner', 'Manager', 'Cook'].includes(user.role) && (<div
+          {['Owner', 'Manager', 'Cook'].includes(user.role) && isTabPermitted('kds') && (<div
             className={`menu-item ${activeTab === 'kds' ? 'active' : ''}`}
             onClick={() => setActiveTab('kds')}
           >
@@ -5985,7 +6135,7 @@ function App() {
             <span>Kitchen Display</span>
           </div>
           )}
-          {['Owner', 'Manager'].includes(user.role) && !user.vendor_id && (
+          {['Owner', 'Manager'].includes(user.role) && !user.vendor_id && isTabPermitted('qr') && (
           <div
             className={`menu-item ${activeTab === 'qr' ? 'active' : ''}`}
             onClick={() => setActiveTab('qr')}
@@ -5996,7 +6146,7 @@ function App() {
             <span>QR Ordering</span>
           </div>
         )}
-          {['Owner', 'Manager', 'Billing Staff'].includes(user.role) && (
+          {['Owner', 'Manager', 'Billing Staff'].includes(user.role) && isTabPermitted('orders') && (
           <div
             className={`menu-item ${activeTab === 'orders' ? 'active' : ''}`}
             onClick={() => setActiveTab('orders')}
@@ -6009,7 +6159,7 @@ function App() {
             <span>Past Orders</span>
           </div>
         )}
-          {['Billing Staff', 'Cook', 'Helper'].includes(user.role) && (
+          {['Billing Staff', 'Cook', 'Helper'].includes(user.role) && isTabPermitted('employee-portal') && (
           <div
             className={`menu-item ${activeTab === 'employee-portal' ? 'active' : ''}`}
             onClick={() => setActiveTab('employee-portal')}
@@ -6021,7 +6171,7 @@ function App() {
             <span>My Portal</span>
           </div>
         )}
-          {user.vendor_id && ['Manager', 'Owner'].includes(user.role) && (
+          {user.vendor_id && ['Manager', 'Owner'].includes(user.role) && isTabPermitted('stall-insights') && (
             <div
               className={`menu-item ${activeTab === 'stall-insights' ? 'active' : ''}`}
               onClick={() => setActiveTab('stall-insights')}
@@ -6034,7 +6184,7 @@ function App() {
               <span>Stall Insights</span>
             </div>
           )}
-          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && (
+          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && isTabPermitted('vendors') && (
             <div
               className={`menu-item ${activeTab === 'vendors' ? 'active' : ''}`}
               onClick={() => setActiveTab('vendors')}
@@ -6048,7 +6198,7 @@ function App() {
               <span>Multi-Vendor</span>
             </div>
           )}
-          {(['Owner', 'Manager'].includes(user.role)) && (
+          {(['Owner', 'Manager'].includes(user.role)) && isTabPermitted('promotions') && (
             <div
               className={`menu-item ${activeTab === 'promotions' ? 'active' : ''}`}
               onClick={() => setActiveTab('promotions')}
@@ -6059,7 +6209,7 @@ function App() {
               <span>Promotions</span>
             </div>
           )}
-          {(['Owner', 'Manager'].includes(user.role)) && (
+          {(['Owner', 'Manager'].includes(user.role)) && isTabPermitted('hr') && (
             <div
               className={`menu-item ${activeTab === 'hr' ? 'active' : ''}`}
               onClick={() => setActiveTab('hr')}
@@ -6071,7 +6221,7 @@ function App() {
               <span>HR & Payroll</span>
             </div>
           )}
-          {['Owner', 'Manager'].includes(user.role) && (
+          {['Owner', 'Manager'].includes(user.role) && isTabPermitted('reports') && (
             <div
               className={`menu-item ${activeTab === 'reports' ? 'active' : ''}`}
               onClick={() => setActiveTab('reports')}
@@ -6082,7 +6232,7 @@ function App() {
               <span>MIS Reports</span>
             </div>
           )}
-          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && (
+          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && isTabPermitted('crm') && (
             <div
               className={`menu-item ${activeTab === 'crm' ? 'active' : ''}`}
               onClick={() => setActiveTab('crm')}
@@ -6093,7 +6243,7 @@ function App() {
               <span>CRM & Alerts</span>
             </div>
           )}
-          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && (
+          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && isTabPermitted('wallet') && (
             <div
               className={`menu-item ${activeTab === 'wallet' ? 'active' : ''}`}
               onClick={() => setActiveTab('wallet')}
@@ -6115,7 +6265,26 @@ function App() {
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-green)', display: 'inline-block' }}></span>
                 <strong style={{ color: 'var(--text-main)' }}>{user.name}</strong>
               </div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '8px' }}>{user.role}</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{user.role}</span>
+                <span style={{
+                  fontSize: '0.68rem',
+                  fontWeight: '600',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  background: currentPlan === 'Canteen Basic' ? 'rgba(59, 130, 246, 0.2)' :
+                              currentPlan === 'Canteen Pro' ? 'rgba(139, 92, 246, 0.2)' :
+                              currentPlan === 'Enterprise' ? 'rgba(234, 179, 8, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                  color: currentPlan === 'Canteen Basic' ? '#60a5fa' :
+                         currentPlan === 'Canteen Pro' ? '#c084fc' :
+                         currentPlan === 'Enterprise' ? '#fbbf24' : '#34d399',
+                  border: `1px solid ${currentPlan === 'Canteen Basic' ? 'rgba(59, 130, 246, 0.4)' :
+                                       currentPlan === 'Canteen Pro' ? 'rgba(139, 92, 246, 0.4)' :
+                                       currentPlan === 'Enterprise' ? 'rgba(234, 179, 8, 0.4)' : 'rgba(16, 185, 129, 0.4)'}`
+                }}>
+                  {currentPlan}
+                </span>
+              </div>
               <button onClick={handleOpenMyProfile} style={{ width: '100%', padding: '6px 12px', marginBottom: '6px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#60a5fa', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s' }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
                 Edit My Profile
@@ -7905,7 +8074,9 @@ function App() {
                     <div className="payment-method-section" style={{ marginTop: '12px' }}>
                       <label>Select Payment Mode</label>
                       <div className="payment-grid">
-                        {['Cash', 'UPI', 'Card', 'Credit', 'RFID Wallet', 'Split'].map((mode, idx) => (
+                        {['Cash', 'UPI', 'Card', 'Credit', 'RFID Wallet', 'Split']
+                          .filter(mode => mode !== 'RFID Wallet' || isFeaturePermitted('rfid_wallet'))
+                          .map((mode, idx) => (
                           <button
                             key={idx}
                             type="button"
