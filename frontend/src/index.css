@@ -67,8 +67,9 @@ body {
   font-family: var(--font-sans);
   background-color: var(--bg-app);
   color: var(--text-main);
-  overflow: hidden;
-  height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 

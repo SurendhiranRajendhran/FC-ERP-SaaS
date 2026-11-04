@@ -37,10 +37,10 @@ export default function CookieConsent() {
           position: fixed;
           bottom: 24px;
           right: 24px;
-          max-width: 460px;
+          max-width: 480px;
           width: calc(100% - 48px);
           z-index: 9999;
-          animation: fcCookieSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          animation: fcCookieSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
           font-family: 'Outfit', system-ui, -apple-system, sans-serif;
         }
         @keyframes fcCookieSlideUp {
@@ -63,14 +63,15 @@ export default function CookieConsent() {
           }
         }
         .fc-cookie-card {
-          background: rgba(15, 23, 42, 0.94);
+          background: rgba(15, 23, 42, 0.95);
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
           border: 1px solid rgba(255, 255, 255, 0.12);
-          box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(99, 102, 241, 0.2);
+          box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(99, 102, 241, 0.25);
           border-radius: 18px;
           padding: 22px 24px;
           color: #e2e8f0;
+          position: relative;
         }
         .fc-cookie-header {
           display: flex;
@@ -86,6 +87,11 @@ export default function CookieConsent() {
           align-items: center;
           gap: 8px;
         }
+        .fc-cookie-header-right {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
         .fc-cookie-badge {
           background: rgba(99, 102, 241, 0.15);
           color: #818cf8;
@@ -94,6 +100,24 @@ export default function CookieConsent() {
           border-radius: 6px;
           font-weight: 600;
         }
+        .fc-cookie-close-btn {
+          background: transparent;
+          border: none;
+          color: #94a3b8;
+          cursor: pointer;
+          font-size: 1.1rem;
+          line-height: 1;
+          padding: 4px;
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: color 0.2s, background 0.2s;
+        }
+        .fc-cookie-close-btn:hover {
+          color: #f8fafc;
+          background: rgba(255, 255, 255, 0.1);
+        }
         .fc-cookie-text {
           font-size: 0.88rem;
           line-height: 1.55;
@@ -101,7 +125,7 @@ export default function CookieConsent() {
           margin-bottom: 16px;
         }
         .fc-cookie-details {
-          background: rgba(0, 0, 0, 0.25);
+          background: rgba(0, 0, 0, 0.3);
           border-radius: 10px;
           padding: 12px;
           margin-bottom: 16px;
@@ -109,7 +133,7 @@ export default function CookieConsent() {
           display: flex;
           flex-direction: column;
           gap: 8px;
-          border: 1px solid rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.06);
         }
         .fc-cookie-row {
           display: flex;
@@ -126,19 +150,19 @@ export default function CookieConsent() {
         }
         .fc-cookie-actions {
           display: flex;
-          gap: 10px;
+          gap: 8px;
           align-items: center;
           flex-wrap: wrap;
         }
         .fc-cookie-btn-primary {
           flex: 1;
-          min-width: 120px;
+          min-width: 105px;
           background: #4f46e5;
           color: #ffffff;
           border: none;
-          padding: 10px 16px;
-          border-radius: 9px;
-          font-size: 0.88rem;
+          padding: 9px 14px;
+          border-radius: 8px;
+          font-size: 0.86rem;
           font-weight: 600;
           cursor: pointer;
           transition: all 0.2s;
@@ -149,21 +173,39 @@ export default function CookieConsent() {
         }
         .fc-cookie-btn-ghost {
           flex: 1;
-          min-width: 110px;
+          min-width: 105px;
           background: rgba(255, 255, 255, 0.06);
           color: #cbd5e1;
           border: 1px solid rgba(255, 255, 255, 0.1);
-          padding: 10px 14px;
-          border-radius: 9px;
-          font-size: 0.88rem;
+          padding: 9px 14px;
+          border-radius: 8px;
+          font-size: 0.86rem;
           font-weight: 600;
           cursor: pointer;
           transition: all 0.2s;
           font-family: inherit;
         }
         .fc-cookie-btn-ghost:hover {
-          background: rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.12);
           color: #ffffff;
+        }
+        .fc-cookie-btn-dismiss {
+          flex: 0 0 auto;
+          background: transparent;
+          color: #94a3b8;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          padding: 9px 14px;
+          border-radius: 8px;
+          font-size: 0.86rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-family: inherit;
+        }
+        .fc-cookie-btn-dismiss:hover {
+          color: #f8fafc;
+          border-color: rgba(255, 255, 255, 0.2);
+          background: rgba(255, 255, 255, 0.04);
         }
         .fc-cookie-customize {
           background: transparent;
@@ -174,6 +216,7 @@ export default function CookieConsent() {
           text-decoration: underline;
           padding: 4px 6px;
           font-family: inherit;
+          margin-left: auto;
         }
       `}</style>
 
@@ -183,7 +226,18 @@ export default function CookieConsent() {
             <span>🛡️</span>
             <span>Privacy &amp; Data Storage</span>
           </div>
-          <span className="fc-cookie-badge">Security</span>
+          <div className="fc-cookie-header-right">
+            <span className="fc-cookie-badge">Essential Notice</span>
+            <button
+              type="button"
+              className="fc-cookie-close-btn"
+              onClick={() => handleConsent('dismissed')}
+              title="Dismiss"
+              aria-label="Dismiss privacy notice"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         <p className="fc-cookie-text">
@@ -221,6 +275,13 @@ export default function CookieConsent() {
             onClick={() => handleConsent('essential')}
           >
             Essential Only
+          </button>
+          <button
+            type="button"
+            className="fc-cookie-btn-dismiss"
+            onClick={() => handleConsent('dismissed')}
+          >
+            Dismiss
           </button>
           <button
             type="button"

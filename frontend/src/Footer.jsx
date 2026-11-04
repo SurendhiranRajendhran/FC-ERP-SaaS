@@ -195,8 +195,9 @@ export default function Footer() {
           {/* Brand Col */}
           <div className="fc-footer-brand">
             <h3>
-              <span className="fc-footer-brand-badge">❖</span>
-              FC-ERP
+              <img src="/favicon.svg" alt="FC-ERP" style={{ width: '36px', height: '36px', borderRadius: '8px', objectFit: 'contain' }} />
+              <span>FC-ERP</span>
+              <span style={{ fontSize: '0.72rem', background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', border: '1px solid rgba(99, 102, 241, 0.3)', padding: '2px 8px', borderRadius: '12px', fontWeight: 700 }}>v1.1.4</span>
             </h3>
             <p className="fc-footer-desc">
               Next-generation enterprise operating system powering multi-vendor food courts, institutional canteens, and commercial kitchens with unified POS, real-time KDS, automated vendor settlements, and smart RFID dining wallets.

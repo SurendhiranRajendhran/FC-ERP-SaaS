@@ -17,6 +17,13 @@ export default function HomePage() {
     setOpenFaq(openFaq === index ? null : index);
   };
 
+  const scrollTo = (id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
   const handleContactSubmit = (e) => {
     e.preventDefault();
     setContactSubmitted(true);
@@ -25,7 +32,7 @@ export default function HomePage() {
   const faqs = [
     {
       q: 'Can a single central cashier bill items across multiple food court stalls?',
-      a: 'Yes. FC-ERP provides a Consolidated Multi-Stall POS. A cashier selects items from any vendor stall in a single ticket. The system automatically splits the order, routes KOTs to each stall\'s kitchen display screen (KDS), and records commission and vendor settlement ledgers in real-time.'
+      a: 'Yes. FC-ERP provides a Consolidated Multi-Stall POS. A cashier selects items from any vendor stall on a single ticket. The system automatically splits the order, routes KOTs to each stall\'s kitchen display screen (KDS), and records commission and vendor settlement ledgers in real-time.'
     },
     {
       q: 'How does data isolation work for different tenants and vendor stalls?',
@@ -53,13 +60,21 @@ export default function HomePage() {
     <div className="fc-page">
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html { scroll-behavior: smooth; }
+        html, body {
+          overflow-x: hidden;
+          overflow-y: auto !important;
+          height: auto !important;
+          min-height: 100vh;
+          scroll-behavior: smooth;
+          background: #030712;
+        }
         .fc-page {
           background-color: #030712;
           color: #f8fafc;
           font-family: 'Outfit', system-ui, -apple-system, sans-serif;
           min-height: 100vh;
           overflow-x: hidden;
+          overflow-y: visible !important;
         }
 
         /* Typography & Utilities */
@@ -75,56 +90,70 @@ export default function HomePage() {
           -webkit-text-fill-color: transparent;
         }
 
-        /* Hero Section */
+        /* ================= HERO SECTION ================= */
         .fc-hero {
           position: relative;
-          padding: 150px 5% 90px;
+          padding: 130px 5% 70px;
           text-align: center;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          min-height: 85vh;
-          overflow: hidden;
-          background: radial-gradient(circle at 50% 20%, rgba(79, 70, 229, 0.18) 0%, rgba(3, 7, 18, 0.8) 60%, #030712 100%),
-                      url('https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1920&q=80') center/cover no-repeat;
-          background-blend-mode: overlay;
+          background: 
+            radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.22) 0%, rgba(3, 7, 18, 0.8) 60%, #030712 100%),
+            radial-gradient(circle at 10% 30%, rgba(56, 189, 248, 0.08) 0%, transparent 45%),
+            radial-gradient(circle at 90% 30%, rgba(245, 158, 11, 0.08) 0%, transparent 45%);
+          overflow: visible;
         }
         .fc-hero-badge {
           display: inline-flex;
           align-items: center;
-          gap: 8px;
-          padding: 6px 18px;
+          gap: 10px;
+          padding: 6px 16px;
           border-radius: 999px;
           background: rgba(99, 102, 241, 0.12);
           border: 1px solid rgba(99, 102, 241, 0.3);
-          color: #818cf8;
+          color: #cbd5e1;
           font-size: 0.86rem;
           font-weight: 600;
           margin-bottom: 24px;
         }
+        .fc-hero-badge img {
+          width: 20px;
+          height: 20px;
+          border-radius: 5px;
+        }
+        .fc-hero-badge-tag {
+          font-size: 0.7rem;
+          background: rgba(99, 102, 241, 0.25);
+          color: #a5b4fc;
+          padding: 2px 7px;
+          border-radius: 8px;
+          font-weight: 700;
+        }
         .fc-hero h1 {
-          font-size: clamp(2.4rem, 5.5vw, 4.4rem);
-          line-height: 1.12;
+          font-size: clamp(2.3rem, 5.2vw, 4.2rem);
+          line-height: 1.15;
           max-width: 980px;
-          margin-bottom: 24px;
+          margin-bottom: 22px;
+          color: #f8fafc;
         }
         .fc-hero p {
           font-size: clamp(1.05rem, 1.8vw, 1.25rem);
           color: #94a3b8;
           line-height: 1.65;
-          max-width: 760px;
+          max-width: 780px;
           margin: 0 auto 36px;
         }
         .fc-hero-cta {
           display: flex;
-          gap: 16px;
+          gap: 14px;
           justify-content: center;
           flex-wrap: wrap;
-          margin-bottom: 48px;
+          margin-bottom: 36px;
         }
         .fc-btn {
-          padding: 13px 28px;
+          padding: 13px 26px;
           border-radius: 10px;
           font-size: 0.98rem;
           font-weight: 600;
@@ -158,6 +187,18 @@ export default function HomePage() {
           border-color: rgba(255, 255, 255, 0.3);
           transform: translateY(-2px);
         }
+        .fc-btn-ghost-nav {
+          background: transparent;
+          color: #94a3b8;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .fc-btn-ghost-nav:hover {
+          color: #ffffff;
+          background: rgba(255, 255, 255, 0.05);
+          transform: translateY(-2px);
+        }
+
+        /* Hero Trust Chips */
         .fc-hero-chips {
           display: flex;
           gap: 16px;
@@ -165,12 +206,13 @@ export default function HomePage() {
           justify-content: center;
           font-size: 0.85rem;
           color: #cbd5e1;
+          margin-bottom: 50px;
         }
         .fc-hero-chip {
           display: inline-flex;
           align-items: center;
-          gap: 6px;
-          background: rgba(15, 23, 42, 0.8);
+          gap: 8px;
+          background: rgba(15, 23, 42, 0.85);
           border: 1px solid rgba(255, 255, 255, 0.1);
           padding: 6px 14px;
           border-radius: 999px;
@@ -182,12 +224,154 @@ export default function HomePage() {
           border-radius: 50%;
         }
 
-        /* Operating Scale / Stats */
+        /* Live Terminal Preview in Hero */
+        .fc-terminal-preview {
+          width: 100%;
+          max-width: 980px;
+          background: rgba(15, 23, 42, 0.9);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 20px;
+          box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7), 0 0 40px rgba(99, 102, 241, 0.15);
+          overflow: hidden;
+          margin-bottom: 30px;
+          text-align: left;
+        }
+        .fc-term-head {
+          background: rgba(3, 7, 18, 0.8);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          padding: 12px 20px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.82rem;
+        }
+        .fc-term-lights {
+          display: flex;
+          gap: 6px;
+        }
+        .fc-term-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+        }
+        .fc-term-title {
+          color: #cbd5e1;
+          font-weight: 600;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .fc-term-badge {
+          color: #10b981;
+          background: rgba(16, 185, 129, 0.15);
+          padding: 2px 8px;
+          border-radius: 6px;
+          font-weight: 700;
+          font-size: 0.75rem;
+        }
+        .fc-term-body {
+          padding: 24px;
+          display: grid;
+          grid-template-columns: 1.4fr 1fr;
+          gap: 20px;
+        }
+        @media (max-width: 768px) {
+          .fc-term-body {
+            grid-template-columns: 1fr;
+          }
+        }
+        .fc-term-stalls {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .fc-stall-row {
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 10px;
+          padding: 12px 16px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .fc-stall-info strong {
+          color: #f8fafc;
+          font-size: 0.92rem;
+          display: block;
+        }
+        .fc-stall-info span {
+          color: #94a3b8;
+          font-size: 0.82rem;
+        }
+        .fc-stall-status {
+          font-size: 0.75rem;
+          font-weight: 700;
+          padding: 4px 10px;
+          border-radius: 6px;
+        }
+        .fc-status-cooking {
+          background: rgba(245, 158, 11, 0.15);
+          color: #fbbf24;
+          border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+        .fc-status-ready {
+          background: rgba(16, 185, 129, 0.15);
+          color: #34d399;
+          border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        .fc-term-summary {
+          background: rgba(3, 7, 18, 0.6);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 12px;
+          padding: 16px;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+        }
+        .fc-sum-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.85rem;
+          color: #94a3b8;
+          margin-bottom: 8px;
+        }
+        .fc-sum-row strong {
+          color: #f8fafc;
+        }
+
+        /* Scroll Down Bouncing Affordance */
+        .fc-scroll-indicator {
+          background: transparent;
+          border: none;
+          color: #818cf8;
+          font-size: 0.88rem;
+          font-weight: 600;
+          display: inline-flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 6px;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-family: inherit;
+        }
+        .fc-scroll-indicator:hover {
+          color: #ffffff;
+        }
+        .fc-bounce-arrow {
+          font-size: 1.2rem;
+          animation: fcBounce 1.5s infinite;
+        }
+        @keyframes fcBounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(6px); }
+        }
+
+        /* ================= OPERATING SCALE BAR ================= */
         .fc-stats-bar {
           background: rgba(15, 23, 42, 0.6);
           border-top: 1px solid rgba(255, 255, 255, 0.06);
           border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-          padding: 40px 5%;
+          padding: 36px 5%;
         }
         .fc-stats-inner {
           max-width: 1200px;
@@ -219,13 +403,13 @@ export default function HomePage() {
         }
         .fc-stat-label {
           color: #94a3b8;
-          font-size: 0.88rem;
+          font-size: 0.86rem;
           text-transform: uppercase;
           letter-spacing: 0.06em;
           font-weight: 600;
         }
 
-        /* Section Layout */
+        /* ================= SECTIONS ================= */
         .fc-section {
           padding: 100px 5%;
           max-width: 1240px;
@@ -653,15 +837,18 @@ export default function HomePage() {
       {/* Hero Section */}
       <section id="home" className="fc-hero">
         <div className="fc-hero-badge">
-          <span>✨</span>
-          <span>Enterprise Cloud Architecture v2.0</span>
+          <img src="/favicon.svg" alt="FC-ERP" />
+          <span>Multi-Vendor Food Court &amp; Institutional Canteen OS</span>
+          <span className="fc-hero-badge-tag">v1.1.4</span>
         </div>
+
         <h1>
-          The Complete Operating System for <br />
-          <span className="text-gradient">Modern Food Courts &amp; Canteens</span>
+          Smart Food Court &amp; Canteen Operations, <br />
+          <span className="text-gradient">Completely Unified.</span>
         </h1>
+
         <p>
-          Unify counter POS billing, real-time kitchen display routing (KDS), automated vendor revenue splits, and contactless RFID dining cards into a high-availability cloud platform.
+          A high-performance cloud ERP engineered for multi-stall food courts, campus dining halls, and institutional canteens. Accelerate counter checkout, route orders to kitchen screens instantly, and automate vendor payouts in real-time.
         </p>
 
         <div className="fc-hero-cta">
@@ -669,25 +856,132 @@ export default function HomePage() {
             <span>Register Your Food Court</span>
             <span>→</span>
           </a>
-          <a href="#features" className="fc-btn fc-btn-outline">
-            <span>Explore Core Capabilities</span>
+          <button
+            type="button"
+            className="fc-btn fc-btn-outline"
+            onClick={() => scrollTo('overview')}
+          >
+            <span>Explore Platform</span>
+          </button>
+          <a href="/signin" className="fc-btn fc-btn-ghost-nav">
+            <span>Sign In to Terminal</span>
           </a>
         </div>
 
         <div className="fc-hero-chips">
           <div className="fc-hero-chip">
             <span className="fc-chip-dot"></span>
-            <span>&lt; 200ms Instant API Latency</span>
+            <span>⚡ 1.2s Counter Ticket Speed</span>
           </div>
           <div className="fc-hero-chip">
             <span className="fc-chip-dot"></span>
-            <span>Zero-Disruption Tenant Isolation</span>
+            <span>🛡️ Multi-Vendor Revenue Isolation</span>
           </div>
           <div className="fc-hero-chip">
             <span className="fc-chip-dot"></span>
-            <span>100% Automated Settlements</span>
+            <span>📶 100% Offline-Ready POS Billing</span>
+          </div>
+          <div className="fc-hero-chip">
+            <span className="fc-chip-dot"></span>
+            <span>📱 Android &amp; iOS PWA Compatible</span>
           </div>
         </div>
+
+        {/* Live Food Court Terminal Mockup */}
+        <div className="fc-terminal-preview">
+          <div className="fc-term-head">
+            <div className="fc-term-lights">
+              <span className="fc-term-dot" style={{ background: '#ef4444' }}></span>
+              <span className="fc-term-dot" style={{ background: '#f59e0b' }}></span>
+              <span className="fc-term-dot" style={{ background: '#10b981' }}></span>
+            </div>
+            <div className="fc-term-title">
+              <span>● Terminal Station #01 (Campus Central Food Plaza)</span>
+              <span className="fc-term-badge">4 Active Kitchens Synchronized</span>
+            </div>
+            <div style={{ color: '#64748b' }}>Live Mode · 12:45 PM Peak</div>
+          </div>
+
+          <div className="fc-term-body">
+            {/* Left: Split Order KDS Routing */}
+            <div>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', marginBottom: '10px' }}>
+                Split KOT Order Routing #1048 (Table 14 / Token #48)
+              </div>
+              <div className="fc-term-stalls">
+                <div className="fc-stall-row">
+                  <div className="fc-stall-info">
+                    <strong>Stall A: South Kitchen</strong>
+                    <span>2× Ghee Podi Idli, 1× Filter Coffee</span>
+                  </div>
+                  <span className="fc-stall-status fc-status-ready">KDS: Ready</span>
+                </div>
+                <div className="fc-stall-row">
+                  <div className="fc-stall-info">
+                    <strong>Stall B: Fresh Juice &amp; Shakes</strong>
+                    <span>1× Tender Coconut Shake (Cold)</span>
+                  </div>
+                  <span className="fc-stall-status fc-status-cooking">KDS: Prep (2m)</span>
+                </div>
+                <div className="fc-stall-row">
+                  <div className="fc-stall-info">
+                    <strong>Stall C: Tandoori &amp; Grills</strong>
+                    <span>1× Paneer Tikka Wrap</span>
+                  </div>
+                  <span className="fc-stall-status fc-status-cooking">KDS: Oven (4m)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Cashier Receipt & Auto Settlement */}
+            <div className="fc-term-summary">
+              <div>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#10b981', textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Unified Settlement Summary
+                </div>
+                <div className="fc-sum-row">
+                  <span>Gross Invoice Total</span>
+                  <strong>₹340.00</strong>
+                </div>
+                <div className="fc-sum-row">
+                  <span>Payment Tender</span>
+                  <span style={{ color: '#60a5fa' }}>RFID Dining Card (Tap)</span>
+                </div>
+                <div className="fc-sum-row">
+                  <span>Platform Commission (15%)</span>
+                  <span>₹51.00</span>
+                </div>
+                <div className="fc-sum-row" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '6px' }}>
+                  <span>Direct Vendor Payout</span>
+                  <strong style={{ color: '#10b981' }}>₹289.00</strong>
+                </div>
+              </div>
+              <div style={{
+                background: 'rgba(99, 102, 241, 0.1)',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                fontSize: '0.76rem',
+                color: '#a5b4fc',
+                textAlign: 'center',
+                marginTop: '12px'
+              }}>
+                ✓ Auto-Reconciliation Logged · WhatsApp Receipt Sent
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Scroll Indicator */}
+        <button
+          type="button"
+          className="fc-scroll-indicator"
+          onClick={() => scrollTo('overview')}
+          aria-label="Scroll down to explore"
+        >
+          <span>Scroll to explore architecture</span>
+          <span className="fc-bounce-arrow">↓</span>
+        </button>
       </section>
 
       {/* Stats Bar */}

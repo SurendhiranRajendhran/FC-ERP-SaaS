@@ -70,17 +70,12 @@ export default function Navbar() {
           gap: 10px;
           letter-spacing: -0.02em;
         }
-        .fc-nav-logo-icon {
-          color: #ffffff;
-          background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
-          width: 34px;
-          height: 34px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+        .fc-nav-logo-img {
+          width: 36px;
+          height: 36px;
           border-radius: 9px;
-          font-size: 1.15rem;
-          box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+          box-shadow: 0 4px 14px rgba(245, 158, 11, 0.25);
+          object-fit: contain;
         }
         .fc-nav-badge {
           font-size: 0.68rem;
@@ -247,9 +242,9 @@ export default function Navbar() {
 
       <nav className="fc-nav">
         <a href="/" className="fc-nav-logo">
-          <span className="fc-nav-logo-icon">❖</span>
+          <img src="/favicon.svg" alt="FC-ERP" className="fc-nav-logo-img" />
           <span>FC-ERP</span>
-          <span className="fc-nav-badge">v2.0</span>
+          <span className="fc-nav-badge">v1.1.4</span>
         </a>
 
         {/* Desktop Links */}
