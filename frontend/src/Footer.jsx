@@ -228,7 +228,7 @@ export default function Footer() {
               <li><a href="/signup?plan=Canteen+Basic">Canteen Basic (₹12K/yr)</a></li>
               <li><a href="/signup?plan=Canteen+Pro">Canteen Pro (₹20K/yr)</a></li>
               <li><a href="/signup?plan=Food+Court">Food Court Suite (₹40K/yr)</a></li>
-              <li><a href="/signup?plan=Enterprise">Enterprise Fleet (Custom)</a></li>
+              <li><a href="/signup?plan=Enterprise">Enterprise Suite (Custom)</a></li>
               <li><button onClick={() => scrollTo('pricing')}>Compare Entitlements</button></li>
             </ul>
           </div>

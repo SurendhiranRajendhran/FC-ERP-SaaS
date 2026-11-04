@@ -6,9 +6,9 @@ const TYPING_PHRASES = [
   'Completely Unified.',
   'Zero Queue Delays.',
   'Automated Settlements.',
-  'Real-Time KDS Routing.',
+  'Live Kitchen Displays.',
   'Instant RFID Dining.',
-  'Touchless QR Ordering.'
+  'Smart Menu Control.'
 ];
 
 export default function HomePage() {
@@ -22,7 +22,7 @@ export default function HomePage() {
     message: ''
   });
 
-  // Dynamic typing header effect
+  // Dynamic typing header effect (no wrapping)
   const [typedText, setTypedText] = useState('');
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -131,10 +131,14 @@ export default function HomePage() {
           -webkit-text-fill-color: transparent;
         }
 
-        /* Dynamic Typing Cursor */
+        /* Dynamic Typing Line & Cursor (Strict single line, no wrapping) */
+        .fc-typing-line {
+          display: inline-block;
+          white-space: nowrap !important;
+        }
         .fc-typing-text {
           display: inline-block;
-          min-height: 1.2em;
+          white-space: nowrap !important;
         }
         .fc-cursor {
           display: inline-block;
@@ -142,6 +146,7 @@ export default function HomePage() {
           font-weight: 300;
           animation: fcCursorBlink 0.9s infinite;
           margin-left: 2px;
+          vertical-align: baseline;
         }
         @keyframes fcCursorBlink {
           0%, 100% { opacity: 1; }
@@ -153,7 +158,7 @@ export default function HomePage() {
           position: relative;
           padding: 130px 5% 70px;
           background: 
-            radial-gradient(circle at 40% 10%, rgba(99, 102, 241, 0.18) 0%, rgba(3, 7, 18, 0.85) 60%, #030712 100%),
+            radial-gradient(circle at 35% 10%, rgba(99, 102, 241, 0.18) 0%, rgba(3, 7, 18, 0.85) 60%, #030712 100%),
             radial-gradient(circle at 85% 30%, rgba(56, 189, 248, 0.08) 0%, transparent 45%);
           overflow: visible;
         }
@@ -209,8 +214,8 @@ export default function HomePage() {
           font-weight: 700;
         }
         .fc-hero h1 {
-          font-size: clamp(2.3rem, 4.5vw, 3.8rem);
-          line-height: 1.15;
+          font-size: clamp(2.1rem, 4vw, 3.5rem);
+          line-height: 1.22;
           margin-bottom: 20px;
           color: #f8fafc;
         }
@@ -278,7 +283,7 @@ export default function HomePage() {
           transform: translateY(-2px);
         }
 
-        /* Hero Trust Chips */
+        /* Hero Trust Chips (Only Speed and Isolation as requested) */
         .fc-hero-chips {
           display: flex;
           gap: 12px;
@@ -307,122 +312,39 @@ export default function HomePage() {
           border-radius: 50%;
         }
 
-        /* Hero Right Visual Column with Image & Floating Live Terminal */
+        /* Hero Right Visual: Clean, Elegant Showcase Image Card without Overlapping Labels */
         .fc-hero-visual {
-          position: relative;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-        }
-        .fc-hero-img-card {
           width: 100%;
-          border-radius: 20px;
+        }
+        .fc-hero-img-showcase {
+          width: 100%;
+          border-radius: 24px;
           overflow: hidden;
-          position: relative;
           border: 1px solid rgba(255, 255, 255, 0.12);
-          box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
+          box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 35px rgba(99, 102, 241, 0.15);
+          position: relative;
+          transition: transform 0.3s ease, border-color 0.3s ease;
         }
-        .fc-hero-img-card img {
+        .fc-hero-img-showcase:hover {
+          transform: translateY(-4px);
+          border-color: rgba(99, 102, 241, 0.35);
+        }
+        .fc-hero-img-showcase img {
           width: 100%;
-          height: 280px;
+          height: 440px;
           object-fit: cover;
           display: block;
-          filter: brightness(0.85) contrast(1.05);
+          filter: contrast(1.05) brightness(0.92);
         }
-        .fc-hero-img-card::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(180deg, rgba(3, 7, 18, 0.2) 0%, rgba(3, 7, 18, 0.85) 100%);
+        @media (max-width: 980px) {
+          .fc-hero-img-showcase img {
+            height: 320px;
+          }
         }
-        .fc-hero-img-badge {
-          position: absolute;
-          top: 14px;
-          left: 14px;
-          z-index: 2;
-          background: rgba(15, 23, 42, 0.85);
-          backdrop-filter: blur(10px);
-          border: 1px solid rgba(255, 255, 255, 0.15);
-          padding: 6px 12px;
-          border-radius: 8px;
-          font-size: 0.8rem;
-          color: #f8fafc;
-          font-weight: 600;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        /* Floating Terminal Card over/under Hero Image */
-        .fc-hero-term-floating {
-          width: 95%;
-          margin-top: -60px;
-          z-index: 3;
-          background: rgba(15, 23, 42, 0.94);
-          backdrop-filter: blur(25px);
-          -webkit-backdrop-filter: blur(25px);
-          border: 1px solid rgba(255, 255, 255, 0.15);
-          border-radius: 16px;
-          box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.8), 0 0 30px rgba(99, 102, 241, 0.2);
-          padding: 18px 20px;
-          text-align: left;
-        }
-        .fc-float-term-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 12px;
-          font-size: 0.8rem;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-          padding-bottom: 8px;
-        }
-        .fc-float-stalls {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          margin-bottom: 12px;
-        }
-        .fc-float-stall-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          border-radius: 8px;
-          padding: 8px 12px;
-          font-size: 0.82rem;
-        }
-        .fc-float-stall-name {
-          color: #f8fafc;
-          font-weight: 600;
-        }
-        .fc-float-stall-item {
-          color: #94a3b8;
-          font-size: 0.76rem;
-        }
-        .fc-float-status-pill {
-          font-size: 0.72rem;
-          font-weight: 700;
-          padding: 2px 8px;
-          border-radius: 6px;
-        }
-        .fc-status-cooking {
-          background: rgba(245, 158, 11, 0.15);
-          color: #fbbf24;
-          border: 1px solid rgba(245, 158, 11, 0.3);
-        }
-        .fc-status-ready {
-          background: rgba(16, 185, 129, 0.15);
-          color: #34d399;
-          border: 1px solid rgba(16, 185, 129, 0.3);
-        }
-        .fc-float-bottom {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-size: 0.82rem;
-          padding-top: 8px;
-          border-top: 1px dashed rgba(255, 255, 255, 0.1);
+        @media (max-width: 560px) {
+          .fc-hero-img-showcase img {
+            height: 240px;
+          }
         }
 
         /* Scroll Down Bouncing Affordance */
@@ -709,7 +631,7 @@ export default function HomePage() {
           border: 1px solid rgba(255, 255, 255, 0.08);
         }
 
-        /* Pricing Section */
+        /* ================= PRICING SECTION ================= */
         .fc-pricing-grid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
@@ -824,6 +746,131 @@ export default function HomePage() {
           display: block;
           transition: all 0.2s;
           font-family: inherit;
+        }
+
+        /* ================= PLAN ENTITLEMENTS MATRIX ================= */
+        .fc-matrix-container {
+          margin-top: 70px;
+          background: rgba(15, 23, 42, 0.65);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 20px;
+          padding: 36px 30px;
+          box-shadow: 0 20px 45px rgba(0, 0, 0, 0.4);
+        }
+        @media (max-width: 768px) {
+          .fc-matrix-container {
+            padding: 24px 16px;
+          }
+        }
+        .fc-matrix-header {
+          text-align: center;
+          margin-bottom: 28px;
+        }
+        .fc-matrix-header h3 {
+          font-size: 1.6rem;
+          color: #f8fafc;
+          margin-bottom: 8px;
+        }
+        .fc-matrix-header p {
+          color: #94a3b8;
+          font-size: 0.95rem;
+        }
+        .fc-matrix-scroll {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+        .fc-matrix-table {
+          width: 100%;
+          border-collapse: collapse;
+          min-width: 820px;
+          font-size: 0.88rem;
+        }
+        .fc-matrix-table th {
+          padding: 16px 12px;
+          text-align: center;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          font-weight: 700;
+          vertical-align: bottom;
+        }
+        .fc-matrix-table th:first-child {
+          text-align: left;
+        }
+        .fc-th-plan {
+          font-size: 1.05rem;
+          font-weight: 800;
+          color: #f8fafc;
+          margin-bottom: 4px;
+        }
+        .fc-th-price {
+          font-size: 0.82rem;
+          color: #94a3b8;
+          font-weight: 500;
+        }
+        .fc-th-badge {
+          display: inline-block;
+          font-size: 0.65rem;
+          font-weight: 800;
+          background: #6366f1;
+          color: #fff;
+          padding: 2px 8px;
+          border-radius: 12px;
+          margin-bottom: 4px;
+          letter-spacing: 0.5px;
+        }
+        .fc-matrix-cat-row td {
+          padding: 14px 12px 8px;
+          font-weight: 800;
+          font-size: 0.82rem;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: #818cf8;
+          background: rgba(255, 255, 255, 0.02);
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .fc-matrix-table td {
+          padding: 12px;
+          text-align: center;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+          color: #cbd5e1;
+        }
+        .fc-matrix-table td:first-child {
+          text-align: left;
+          color: #e2e8f0;
+          font-weight: 500;
+        }
+        .fc-matrix-highlight {
+          background: rgba(99, 102, 241, 0.05);
+        }
+        .fc-matrix-yes {
+          color: #10b981;
+          font-weight: 800;
+          font-size: 1.1rem;
+        }
+        .fc-matrix-no {
+          color: #475569;
+          font-size: 1.1rem;
+        }
+        .fc-matrix-action-btn {
+          display: inline-block;
+          padding: 8px 16px;
+          border-radius: 8px;
+          font-size: 0.82rem;
+          font-weight: 700;
+          text-decoration: none;
+          background: rgba(255, 255, 255, 0.06);
+          color: #f8fafc;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          transition: all 0.2s;
+        }
+        .fc-matrix-action-btn:hover {
+          background: rgba(255, 255, 255, 0.12);
+        }
+        .fc-matrix-btn-primary {
+          background: linear-gradient(135deg, #4f46e5 0%, #2563eb 100%);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .fc-matrix-btn-primary:hover {
+          background: linear-gradient(135deg, #4338ca 0%, #1d4ed8 100%);
         }
 
         /* PWA Showcase with Image */
@@ -1022,8 +1069,10 @@ export default function HomePage() {
 
             <h1>
               Smart Food Court &amp; Canteen Operations, <br />
-              <span className="text-gradient fc-typing-text">{typedText}</span>
-              <span className="fc-cursor">|</span>
+              <span className="fc-typing-line">
+                <span className="text-gradient fc-typing-text">{typedText}</span>
+                <span className="fc-cursor">|</span>
+              </span>
             </h1>
 
             <p>
@@ -1047,6 +1096,7 @@ export default function HomePage() {
               </a>
             </div>
 
+            {/* Chips: Speed and Revenue Isolation only */}
             <div className="fc-hero-chips">
               <div className="fc-hero-chip">
                 <span className="fc-chip-dot"></span>
@@ -1054,82 +1104,19 @@ export default function HomePage() {
               </div>
               <div className="fc-hero-chip">
                 <span className="fc-chip-dot"></span>
-                <span>🛡️ Revenue Isolation</span>
-              </div>
-              <div className="fc-hero-chip">
-                <span className="fc-chip-dot"></span>
-                <span>📶 Offline-Ready POS</span>
-              </div>
-              <div className="fc-hero-chip">
-                <span className="fc-chip-dot"></span>
-                <span>📱 PWA Ready</span>
+                <span>🛡️ Multi-Vendor Revenue Isolation</span>
               </div>
             </div>
           </div>
 
-          {/* Right Column: Hero Visual with Real Cafeteria Image & Floating Live Terminal */}
+          {/* Right Column: Clean, High-Resolution Showcase Image without Overlapping Labels */}
           <div className="fc-hero-visual">
-            <div className="fc-hero-img-card">
-              <div className="fc-hero-img-badge">
-                <span style={{ color: '#10b981' }}>●</span>
-                <span>Live Food Court Station</span>
-              </div>
+            <div className="fc-hero-img-showcase">
               <img
                 src="https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1200&q=80"
-                alt="Modern Food Court Counter"
+                alt="Modern Food Court &amp; Canteen Operations"
                 loading="eager"
               />
-            </div>
-
-            {/* Floating Live Terminal Preview */}
-            <div className="fc-hero-term-floating">
-              <div className="fc-float-term-head">
-                <div style={{ color: '#cbd5e1', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span>🖥️ Station #01 (Campus Dining)</span>
-                </div>
-                <div style={{ color: '#10b981', fontWeight: 600 }}>
-                  ● 4 Kitchens Active
-                </div>
-              </div>
-
-              <div className="fc-float-stalls">
-                <div className="fc-float-stall-row">
-                  <div>
-                    <div className="fc-float-stall-name">Stall A: South Kitchen</div>
-                    <div className="fc-float-stall-item">2× Ghee Podi Idli, 1× Filter Coffee</div>
-                  </div>
-                  <span className="fc-float-status-pill fc-status-ready">KDS: Ready</span>
-                </div>
-
-                <div className="fc-float-stall-row">
-                  <div>
-                    <div className="fc-float-stall-name">Stall B: Fresh Juices</div>
-                    <div className="fc-float-stall-item">1× Tender Coconut Shake</div>
-                  </div>
-                  <span className="fc-float-status-pill fc-status-cooking">KDS: Prep (2m)</span>
-                </div>
-
-                <div className="fc-float-stall-row">
-                  <div>
-                    <div className="fc-float-stall-name">Stall C: Tandoori &amp; Grills</div>
-                    <div className="fc-float-stall-item">1× Paneer Tikka Wrap</div>
-                  </div>
-                  <span className="fc-float-status-pill fc-status-cooking">KDS: Oven (4m)</span>
-                </div>
-              </div>
-
-              <div className="fc-float-bottom">
-                <div>
-                  <span style={{ color: '#94a3b8' }}>Total: </span>
-                  <strong style={{ color: '#f8fafc', fontSize: '0.92rem' }}>₹340.00</strong>
-                </div>
-                <div style={{ color: '#60a5fa', fontSize: '0.78rem' }}>
-                  💳 Paid via RFID Dining Card
-                </div>
-                <div style={{ color: '#10b981', fontWeight: 700, fontSize: '0.78rem' }}>
-                  ✓ Auto-Settled
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -1189,7 +1176,7 @@ export default function HomePage() {
           />
           <div className="fc-overview-banner-overlay">
             <h3>Engineered for Multi-Stall High-Throughput Operations</h3>
-            <p>From single institutional canteens to 30-stall commercial food parks, FC-ERP adapts to your exact dining layout.</p>
+            <p>From single institutional canteens to multi-vendor commercial dining parks, FC-ERP adapts to your exact layout.</p>
           </div>
         </div>
 
@@ -1473,15 +1460,15 @@ export default function HomePage() {
           {/* Tier 4: Enterprise */}
           <div className="fc-pricing-card">
             <div className="fc-pricing-tier-name">Enterprise</div>
-            <div className="fc-pricing-tier-badge" style={{ color: '#fbbf24' }}>Chains &amp; Multi-Branch Fleets</div>
+            <div className="fc-pricing-tier-badge" style={{ color: '#fbbf24' }}>Large Food Parks &amp; Chains</div>
             <div className="fc-pricing-amount text-gold">₹75,000+</div>
             <div className="fc-pricing-period">custom annual agreement</div>
             <div className="fc-pricing-desc">
-              Centralized multi-branch fleet control, priority WhatsApp gateways, and dedicated SLAs.
+              Dedicated cloud infrastructure, priority WhatsApp gateways, and dedicated enterprise SLAs.
             </div>
             <ul className="fc-pricing-list">
               <li><span className="fc-check-icon">✓</span> <strong>All Food Court &amp; Pro Features</strong></li>
-              <li><span className="fc-check-icon">✓</span> Multi-Branch Corporate Hierarchy</li>
+              <li><span className="fc-check-icon">✓</span> Dedicated Enterprise Cloud Partition</li>
               <li><span className="fc-check-icon">✓</span> High-Throughput WhatsApp Gateway</li>
               <li><span className="fc-check-icon">✓</span> Dedicated Technical Account Manager</li>
               <li><span className="fc-check-icon">✓</span> Custom ERP &amp; Biometric Integrations</li>
@@ -1494,6 +1481,270 @@ export default function HomePage() {
             >
               Inquire Enterprise
             </a>
+          </div>
+        </div>
+
+        {/* ================= COMPREHENSIVE PLAN ENTITLEMENTS MATRIX ================= */}
+        <div className="fc-matrix-container">
+          <div className="fc-matrix-header">
+            <h3>Detailed Feature &amp; Entitlement Matrix</h3>
+            <p>Comprehensive side-by-side comparison of modules and operational limits across all four tiers.</p>
+          </div>
+
+          <div className="fc-matrix-scroll">
+            <table className="fc-matrix-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '36%' }}>Modules &amp; Capabilities</th>
+                  <th style={{ width: '16%' }}>
+                    <div className="fc-th-plan">Canteen Basic</div>
+                    <div className="fc-th-price">₹12,000/yr</div>
+                  </th>
+                  <th style={{ width: '16%', background: 'rgba(99, 102, 241, 0.12)' }}>
+                    <div className="fc-th-badge">POPULAR</div>
+                    <div className="fc-th-plan" style={{ color: '#a5b4fc' }}>Canteen Pro</div>
+                    <div className="fc-th-price">₹20,000/yr</div>
+                  </th>
+                  <th style={{ width: '16%' }}>
+                    <div className="fc-th-plan" style={{ color: '#34d399' }}>Food Court</div>
+                    <div className="fc-th-price">₹40,000/yr</div>
+                  </th>
+                  <th style={{ width: '16%' }}>
+                    <div className="fc-th-plan" style={{ color: '#fbbf24' }}>Enterprise</div>
+                    <div className="fc-th-price">Custom Agreement</div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* 1. Counter POS & Billing */}
+                <tr className="fc-matrix-cat-row">
+                  <td colSpan={5}>1. Counter POS &amp; Billing</td>
+                </tr>
+                <tr>
+                  <td>Daily Menu Toggle &amp; Item Pricing Control</td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Counter Cash &amp; Dynamic UPI QR Billing</td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Consolidated Multi-Stall POS (Split Invoice)</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-no">—</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Split KOT &amp; Thermal Receipt Printing</td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+
+                {/* 2. Kitchen Display System (KDS) */}
+                <tr className="fc-matrix-cat-row">
+                  <td colSpan={5}>2. Kitchen Display System (KDS)</td>
+                </tr>
+                <tr>
+                  <td>Real-Time Kitchen Display Screens</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Color-Coded Preparation Stage Timers</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Central Expediter (Expo) Display View</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+
+                {/* 3. Inventory & Raw Material Management */}
+                <tr className="fc-matrix-cat-row">
+                  <td colSpan={5}>3. Inventory &amp; Raw Material Management</td>
+                </tr>
+                <tr>
+                  <td>Basic Stock Ledger (Manual Counts)</td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Recipe Formulation (Bill of Materials)</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Automatic Ingredient Consumption on Order</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Low-Stock Threshold &amp; Wastage Logs</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+
+                {/* 4. Customer Ordering & Meal Wallets */}
+                <tr className="fc-matrix-cat-row">
+                  <td colSpan={5}>4. Customer Ordering &amp; Meal Wallets</td>
+                </tr>
+                <tr>
+                  <td>Daily WhatsApp Closing Summaries</td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Customer QR Code Mobile Self-Ordering</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Contactless RFID Meal Cards &amp; Wallets</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Mess Monthly Subscription Meal Plans</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+
+                {/* 5. Multi-Vendor & Revenue Settlements */}
+                <tr className="fc-matrix-cat-row">
+                  <td colSpan={5}>5. Multi-Vendor &amp; Revenue Settlements</td>
+                </tr>
+                <tr>
+                  <td>Isolated Multi-Vendor / Stall Partitioning</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-no">—</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Individual Stall Manager Login &amp; Sales</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-no">—</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Platform Commission Splits &amp; Payout Ledgers</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-no">—</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+
+                {/* 6. Workforce, Shifts & Payroll */}
+                <tr className="fc-matrix-cat-row">
+                  <td colSpan={5}>6. Workforce, Shifts &amp; Payroll</td>
+                </tr>
+                <tr>
+                  <td>Staff Shifts, Attendance &amp; Check-ins</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Wage Calculation &amp; Advance Salary Ledgers</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+
+                {/* 7. Cloud Hosting & Technical SLAs */}
+                <tr className="fc-matrix-cat-row">
+                  <td colSpan={5}>7. Cloud Hosting &amp; Technical SLAs</td>
+                </tr>
+                <tr>
+                  <td>Cloud Hosting &amp; Automatic Backups</td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Standard Email &amp; WhatsApp Support</td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Dedicated Technical Account Manager</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-no">—</span></td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Custom ERP &amp; Biometric Integrations</td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td className="fc-matrix-highlight"><span className="fc-matrix-no">—</span></td>
+                  <td><span className="fc-matrix-no">—</span></td>
+                  <td><span className="fc-matrix-yes">✓</span></td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td style={{ fontWeight: 700 }}>Select Plan</td>
+                  <td>
+                    <a href="/signup?plan=Canteen+Basic" className="fc-matrix-action-btn">
+                      Select Basic
+                    </a>
+                  </td>
+                  <td className="fc-matrix-highlight">
+                    <a href="/signup?plan=Canteen+Pro" className="fc-matrix-action-btn fc-matrix-btn-primary">
+                      Select Pro
+                    </a>
+                  </td>
+                  <td>
+                    <a href="/signup?plan=Food+Court" className="fc-matrix-action-btn">
+                      Select Food Court
+                    </a>
+                  </td>
+                  <td>
+                    <a href="/signup?plan=Enterprise" className="fc-matrix-action-btn">
+                      Inquire
+                    </a>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         </div>
       </section>

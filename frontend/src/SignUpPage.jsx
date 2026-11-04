@@ -62,13 +62,13 @@ const PLANS = [
   {
     id: 'Enterprise',
     name: 'Enterprise',
-    badge: 'Canteen Chains & Fleet Parks',
+    badge: 'Large Food Parks & Chains',
     price: '₹75,000+',
     period: '/ year',
-    description: 'Centralized corporate governance, multi-branch fleet networking, custom ERP APIs, and priority SLAs.',
+    description: 'Dedicated cloud infrastructure, custom ERP APIs, dedicated technical account manager, and priority SLAs.',
     features: [
       'Everything in Food Court & Pro Suites',
-      'Multi-Branch Enterprise Fleet Hierarchy',
+      'Dedicated Enterprise Cloud Partition',
       'High-Throughput Dedicated WhatsApp Gateway',
       'Dedicated Technical Account Manager & 24/7 SLA',
       'Custom ERP, SAP & Biometric API Integrations',
@@ -819,7 +819,7 @@ export default function SignUpPage() {
                     lineHeight: '1.5',
                     marginBottom: '24px'
                   }}>
-                    🏢 <strong>Enterprise Fleet Protocol:</strong> Enterprise deployments include multi-branch fleet coordination, dedicated account managers, and custom SLA agreements. Submit your details below to schedule an onboarding consultation.
+                    🏢 <strong>Enterprise Deployment:</strong> Enterprise deployments include dedicated cloud infrastructure, dedicated account managers, and custom SLA agreements. Submit your details below to schedule an onboarding consultation.
                   </div>
                 ) : (
                   <div className="fc-mode-selector">
