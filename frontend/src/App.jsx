@@ -9005,7 +9005,7 @@ function App() {
                         className={`kds-rush-toggle ${kdsRushMode ? 'active' : ''}`}
                         onClick={() => setKdsRushMode(!kdsRushMode)}
                       >
-                        🔥 {kdsRushMode ? 'Rush ON' : 'Rush Hour'}
+                        ⚡ {kdsRushMode ? 'Rush ON' : 'Rush Hour'}
                       </button>
                     </>
                   ) : (
@@ -9024,7 +9024,7 @@ function App() {
                   {/* Rush Hour Banner */}
                   {kdsRushMode && (
                     <div className="kds-rush-banner">
-                      🔥 RUSH HOUR MODE — Compact view enabled for maximum visibility
+                      ⚡ RUSH HOUR MODE — Compact view enabled for maximum visibility
                     </div>
                   )}
 

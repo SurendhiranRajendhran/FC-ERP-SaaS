@@ -867,15 +867,15 @@ export default function SignUpPage() {
                     <div className="fc-bank-grid">
                       <div>
                         <div style={{ color: '#64748b', fontSize: '0.72rem' }}>Beneficiary Name</div>
-                        <strong>RAD Group of Company Private Limited</strong>
+                        <strong>RAD Infotech</strong>
                       </div>
                       <div>
                         <div style={{ color: '#64748b', fontSize: '0.72rem' }}>Corporate UPI ID</div>
-                        <strong>radgroup@icici</strong>
+                        <strong>radinfotech@icici</strong>
                       </div>
                       <div>
                         <div style={{ color: '#64748b', fontSize: '0.72rem' }}>Bank / Branch</div>
-                        <strong>ICICI Bank, Chennai Main</strong>
+                        <strong>ICICI Bank, Coimbatore Main</strong>
                       </div>
                       <div>
                         <div style={{ color: '#64748b', fontSize: '0.72rem' }}>Account &amp; IFSC</div>
@@ -972,7 +972,7 @@ export default function SignUpPage() {
                       required
                       name="city"
                       className="fc-text-input"
-                      placeholder="e.g. Chennai, Tamil Nadu"
+                      placeholder="e.g. Coimbatore, Tamil Nadu"
                       value={formData.city}
                       onChange={handleChange}
                     />

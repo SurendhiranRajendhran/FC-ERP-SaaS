@@ -203,8 +203,8 @@ export default function Footer() {
               Next-generation enterprise operating system powering multi-vendor food courts, institutional canteens, and commercial kitchens with unified POS, real-time KDS, automated vendor settlements, and smart RFID dining wallets.
             </p>
             <div className="fc-footer-corporate">
-              <span className="fc-footer-corp-title">RAD Group of Company Private Limited</span>
-              <span className="fc-footer-corp-sub">Technology Division · RAD Infotech</span>
+              <span className="fc-footer-corp-title">RAD Infotech</span>
+              <span className="fc-footer-corp-sub">Enterprise Cloud &amp; Automation Division</span>
             </div>
           </div>
 
@@ -252,21 +252,21 @@ export default function Footer() {
             <div className="fc-footer-contact-item">
               <span>📍</span>
               <div>
-                <strong>RAD Group Headquarters</strong>
-                <div>Chennai, Tamil Nadu, India</div>
+                <strong>RAD Infotech</strong>
+                <div>Coimbatore, Tamil Nadu, India</div>
               </div>
             </div>
             <div className="fc-footer-contact-item">
               <span>✉️</span>
               <div>
-                <div>sales@fcerp.com</div>
-                <div>support@fcerp.com</div>
+                <div>info@radinfotec.com</div>
+                <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Technical &amp; Sales Desk</div>
               </div>
             </div>
             <div className="fc-footer-contact-item">
               <span>📞</span>
               <div>
-                <div>+91 98765 43210</div>
+                <div>+91 9894779442</div>
                 <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Mon-Sat 9AM-7PM IST</div>
               </div>
             </div>
@@ -276,7 +276,7 @@ export default function Footer() {
         {/* Bottom Bar */}
         <div className="fc-footer-bottom">
           <div>
-            &copy; 2026 <strong>RAD Group of Company Private Limited</strong>. All rights reserved.
+            &copy; 2026 <strong>RAD Infotech</strong>. All rights reserved.
           </div>
           <div className="fc-footer-status">
             <span className="fc-footer-status-dot"></span>

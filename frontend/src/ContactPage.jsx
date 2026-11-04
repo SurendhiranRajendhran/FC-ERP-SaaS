@@ -78,8 +78,8 @@ export default function ContactPage() {
             <div className="info-icon">💬</div>
             <div>
               <h3>Enterprise Sales</h3>
-              <p>sales@fcerp.com</p>
-              <p>+91 98765 43210</p>
+              <p>info@radinfotec.com</p>
+              <p>+91 9894779442</p>
             </div>
           </div>
           
@@ -87,7 +87,7 @@ export default function ContactPage() {
             <div className="info-icon">🛠️</div>
             <div>
               <h3>Technical Support</h3>
-              <p>support@fcerp.com</p>
+              <p>info@radinfotec.com</p>
               <p>24/7 dedicated line for customers.</p>
             </div>
           </div>
@@ -96,7 +96,7 @@ export default function ContactPage() {
             <div className="info-icon">📍</div>
             <div>
               <h3>Headquarters</h3>
-              <p>Cyber City, Phase 2<br/>Chennai, India 600001</p>
+              <p>RAD Infotech<br/>Coimbatore, Tamil Nadu, India</p>
             </div>
           </div>
         </div>
