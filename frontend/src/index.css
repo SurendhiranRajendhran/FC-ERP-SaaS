@@ -5197,3 +5197,156 @@ input:checked + .slider:before {
 .kds-vendor-group .kds-item-block:last-child {
   border-bottom: none;
 }
+
+
+/* ==========================================================================
+   MOBILE & TABLET RESPONSIVENESS ENHANCEMENTS
+   Ensures seamless touch, navigation, POS, tables, and modal experiences
+   across smartphones, iPads, Android tablets, and compact screens.
+   ========================================================================== */
+
+@media (max-width: 900px) {
+  /* Layout: Convert desktop split to responsive vertical flow */
+  .app-container {
+    flex-direction: column !important;
+    height: 100vh !important;
+    width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Compact touch-scrollable sidebar navigation */
+  .sidebar {
+    width: 100% !important;
+    height: auto !important;
+    flex-shrink: 0 !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border-light) !important;
+    background: var(--bg-sidebar) !important;
+  }
+
+  .sidebar-logo {
+    padding: 12px 18px !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+  }
+
+  .sidebar-menu {
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 6px 12px 10px !important;
+    gap: 8px !important;
+    scrollbar-width: none !important;
+  }
+  .sidebar-menu::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .menu-item {
+    white-space: nowrap !important;
+    padding: 8px 14px !important;
+    font-size: 0.86rem !important;
+    flex-shrink: 0 !important;
+    border-radius: 8px !important;
+  }
+
+  .sidebar-footer {
+    display: none !important;
+  }
+
+  /* Main viewport touch scrolling */
+  .main-content {
+    flex: 1 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    height: auto !important;
+  }
+
+  /* Top bar responsive wrap */
+  .top-bar {
+    padding: 14px 18px !important;
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+  }
+  .top-bar-left h2 {
+    font-size: 1.25rem !important;
+  }
+
+  /* Counter POS: Stack catalog and cart vertically on mobile/tablet */
+  .pos-layout {
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: calc(100vh - 140px) !important;
+    gap: 16px !important;
+    padding: 0 12px 24px !important;
+  }
+
+  .pos-catalog {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .pos-grid {
+    grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)) !important;
+    max-height: none !important;
+    overflow: visible !important;
+    gap: 12px !important;
+  }
+
+  .pos-item-card {
+    padding: 12px !important;
+  }
+
+  .cart-panel, .pos-cart-panel {
+    width: 100% !important;
+    max-height: 480px !important;
+    border-radius: var(--radius-lg) !important;
+  }
+
+  /* Responsive tables & horizontal overflow */
+  .table-responsive, .table-container, .table-wrapper {
+    width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  table {
+    min-width: 580px !important;
+  }
+
+  /* Modals: fit screen with margins */
+  .modal-card, .modal-card-large {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    max-height: 88vh !important;
+    margin: 12px auto !important;
+  }
+
+  /* Form touch target optimizations */
+  input, select, textarea, button {
+    font-size: 16px !important; /* Prevents auto-zoom in iOS Safari */
+  }
+
+  button {
+    min-height: 42px !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .pos-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .top-bar-right {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: space-between !important;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+}

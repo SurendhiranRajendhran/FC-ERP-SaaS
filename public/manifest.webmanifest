@@ -1,0 +1,17 @@
+{
+  "name": "FC-ERP Management Platform",
+  "short_name": "FC-ERP",
+  "description": "Multi-Vendor Food Court & Canteen ERP and POS System",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030712",
+  "theme_color": "#030712",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

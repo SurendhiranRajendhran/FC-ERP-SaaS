@@ -1,5 +1,6 @@
 // Clean SignUpPage component with Plan Entitlements & Pricing Selection
 import React, { useState } from 'react';
+import Footer from './Footer.jsx';
 
 const PLANS = [
   {
@@ -86,7 +87,21 @@ export default function SignUpPage() {
     city: '',
     message: ''
   });
-  const [selectedPlan, setSelectedPlan] = useState('Canteen Pro');
+  const [selectedPlan, setSelectedPlan] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const requestedPlan = params.get('plan');
+      if (requestedPlan) {
+        const match = PLANS.find(
+          p => p.id.toLowerCase() === requestedPlan.toLowerCase() || p.name.toLowerCase() === requestedPlan.toLowerCase()
+        );
+        if (match) return match.id;
+      }
+    } catch {
+      // fallback
+    }
+    return 'Canteen Pro';
+  });
   const [subscriptionType, setSubscriptionType] = useState('trial'); // 'trial' or 'annual'
   const [paymentReference, setPaymentReference] = useState('');
   const [loading, setLoading] = useState(false);
@@ -114,13 +129,13 @@ export default function SignUpPage() {
     container: {
       backgroundColor: theme.bg,
       color: theme.textPrimary,
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      minHeight: '100vh',
+      fontFamily: "'Outfit', system-ui, -apple-system, sans-serif",
+      flex: 1,
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
       paddingTop: '60px',
-      paddingBottom: '60px',
+      paddingBottom: '80px',
       paddingLeft: '16px',
       paddingRight: '16px',
       boxSizing: 'border-box'
@@ -402,7 +417,8 @@ export default function SignUpPage() {
   };
 
   return (
-    <div style={styles.container}>
+    <div style={{ backgroundColor: theme.bg, minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <div style={styles.container}>
       <div style={styles.header}>
         <span style={styles.backLink} onClick={() => window.location.href = '/'}>
           ← Back to Home
@@ -691,6 +707,8 @@ export default function SignUpPage() {
           </div>
         )}
       </div>
+      </div>
+      <Footer />
     </div>
   );
 }
