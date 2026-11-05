@@ -2243,40 +2243,42 @@ function SuperAdminDashboard({ user, onLogout }) {
                     <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Phone Number</div>
                     <div style={{ fontSize: '0.86rem', color: '#cbd5e1' }}>{viewingRegDetails.phone || '—'}</div>
                   </div>
-                  {viewingRegDetails.phone_duplicate_notice && (
-                    <div style={{
-                      marginTop: '12px',
-                      background: 'rgba(56, 189, 248, 0.08)',
-                      border: '1px solid rgba(56, 189, 248, 0.3)',
-                      borderRadius: '8px',
-                      padding: '10px 12px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.76rem', fontWeight: 700, color: '#38bdf8', marginBottom: '4px' }}>
-                        <span>ℹ️</span> Existing Contact Awareness
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: '#e0f2fe', lineHeight: '1.4' }}>
-                        {viewingRegDetails.phone_duplicate_notice.full_message}
-                      </div>
-                      {viewingRegDetails.phone_duplicate_notice.matches && viewingRegDetails.phone_duplicate_notice.matches.length > 0 && (
-                        <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid rgba(56,189,248,0.2)', fontSize: '0.75rem', color: '#94a3b8' }}>
-                          <div style={{ fontWeight: 600, color: '#cbd5e1', marginBottom: '4px' }}>Associated Facilities / Applications:</div>
-                          {viewingRegDetails.phone_duplicate_notice.matches.map((m, idx) => (
-                            <div key={idx} style={{ marginTop: '3px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                              <span style={{ color: '#38bdf8' }}>•</span>
-                              <span style={{ color: '#f1f5f9', fontWeight: 600 }}>
-                                {m.tenant_id ? `Food Court #${m.tenant_id} (${m.facility_name})` : `Registration #${m.registration_id} (${m.facility_name})`}
-                              </span>
-                              <span style={{ color: '#94a3b8' }}>— {m.owner_name} ({m.status})</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
 
-              {/* Section 2: Subscription & Billing */}
+              {/* ── Existing Contact Awareness Section (standalone) ── */}
+              {viewingRegDetails.phone_duplicate_notice && (
+                <div style={{
+                  background: 'rgba(56, 189, 248, 0.06)',
+                  border: '1px solid rgba(56, 189, 248, 0.25)',
+                  borderRadius: '10px',
+                  padding: '16px',
+                  marginBottom: '16px'
+                }}>
+                  <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>ℹ️</span> Existing Contact Awareness
+                  </div>
+                  <div style={{ fontSize: '0.84rem', color: '#e0f2fe', lineHeight: '1.5' }}>
+                    {viewingRegDetails.phone_duplicate_notice.full_message}
+                  </div>
+                  {viewingRegDetails.phone_duplicate_notice.matches && viewingRegDetails.phone_duplicate_notice.matches.length > 0 && (
+                    <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(56,189,248,0.15)', fontSize: '0.78rem', color: '#94a3b8' }}>
+                      <div style={{ fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>Associated Facilities / Applications:</div>
+                      {viewingRegDetails.phone_duplicate_notice.matches.map((m, idx) => (
+                        <div key={idx} style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ color: '#38bdf8' }}>•</span>
+                          <span style={{ color: '#f1f5f9', fontWeight: 600 }}>
+                            {m.tenant_id ? `Food Court #${m.tenant_id} (${m.facility_name})` : `Registration #${m.registration_id} (${m.facility_name})`}
+                          </span>
+                          <span style={{ color: '#94a3b8' }}>— {m.owner_name} ({m.status})</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Section 3: Subscription & Billing */}
               <div style={{ background: '#0e0e14', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
                 <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>
                   💳 Subscription & Billing
