@@ -9497,18 +9497,126 @@ app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), as
 
 app.delete('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
   const { id } = req.params;
+  const tenantId = parseInt(id, 10);
+  if (!tenantId || isNaN(tenantId)) {
+    return res.status(400).json({ error: 'Invalid tenant ID' });
+  }
+
+  // Prevent deleting the primary Default Food Court (Tenant 1)
+  if (tenantId === 1) {
+    return res.status(400).json({ error: 'Cannot remove the primary Default Food Court (ID #1).' });
+  }
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    // Delete all staff belonging to this tenant first
-    await conn.query('DELETE FROM staff WHERE tenant_id = ?', [id]);
-    await conn.query('DELETE FROM notification_settings WHERE tenant_id = ?', [id]);
-    // Then delete the tenant
-    await conn.query('DELETE FROM tenants WHERE id = ?', [id]);
+
+    // Disable foreign key checks for this connection during comprehensive cascade cleanup
+    await conn.query('SET FOREIGN_KEY_CHECKS = 0');
+
+    // 1. Unlink any registrations attached to this tenant
+    await conn.query('UPDATE registrations SET tenant_id = NULL WHERE tenant_id = ?', [tenantId]);
+
+    // 2. Delete child transactional records that reference orders, items, or customers
+    await conn.query(
+      `DELETE oi FROM order_items oi
+       WHERE oi.order_id IN (SELECT o.id FROM orders o WHERE o.tenant_id = ?)
+          OR oi.item_id IN (SELECT i.id FROM items i WHERE i.tenant_id = ?)`,
+      [tenantId, tenantId]
+    );
+
+    await conn.query(
+      `DELETE cl FROM credit_ledger cl
+       WHERE cl.order_id IN (SELECT o.id FROM orders o WHERE o.tenant_id = ?)
+          OR cl.customer_id IN (SELECT c.id FROM customers c WHERE c.tenant_id = ?)`,
+      [tenantId, tenantId]
+    );
+
+    await conn.query(
+      `DELETE wt FROM wallet_transactions wt
+       WHERE wt.customer_id IN (SELECT c.id FROM customers c WHERE c.tenant_id = ?)`,
+      [tenantId]
+    );
+
+    await conn.query(
+      `DELETE ci FROM combo_items ci
+       WHERE ci.combo_id IN (SELECT i.id FROM items i WHERE i.tenant_id = ?)
+          OR ci.child_item_id IN (SELECT i.id FROM items i WHERE i.tenant_id = ?)`,
+      [tenantId, tenantId]
+    );
+
+    await conn.query(
+      `DELETE c FROM coupons c
+       WHERE c.vendor_id IN (SELECT v.id FROM vendors v WHERE v.tenant_id = ?)`,
+      [tenantId]
+    );
+
+    await conn.query(
+      `DELETE sm FROM staff_meals sm
+       WHERE sm.staff_id IN (SELECT s.id FROM staff s WHERE s.tenant_id = ?)
+          OR sm.item_id IN (SELECT i.id FROM items i WHERE i.tenant_id = ?)`,
+      [tenantId, tenantId]
+    );
+
+    await conn.query(
+      `DELETE sma FROM staff_meal_adjustments sma
+       WHERE sma.staff_id IN (SELECT s.id FROM staff s WHERE s.tenant_id = ?)`,
+      [tenantId]
+    );
+
+    // 3. Delete from all operational tables containing tenant_id
+    const tenantTables = [
+      'orders',
+      'customer_feedback',
+      'wallet_settlements',
+      'central_settlements',
+      'vendor_settlements',
+      'vendor_common_expenses',
+      'items',
+      'overheads',
+      'stock_logs',
+      'stock_transfers',
+      'raw_materials',
+      'suppliers',
+      'shift_swap_requests',
+      'shift_roster',
+      'attendance',
+      'leaves',
+      'leave_balances',
+      'shifts',
+      'holidays',
+      'payroll',
+      'daily_reconciliation',
+      'cash_drawer',
+      'broadcast_campaigns',
+      'notification_logs',
+      'notification_settings',
+      'staff',
+      'customers',
+      'vendors'
+    ];
+
+    for (const tbl of tenantTables) {
+      await conn.query(`DELETE FROM \`${tbl}\` WHERE tenant_id = ?`, [tenantId]);
+    }
+
+    // 4. Finally delete the tenant record
+    await conn.query('DELETE FROM tenants WHERE id = ?', [tenantId]);
+
+    // Re-enable foreign key checks
+    await conn.query('SET FOREIGN_KEY_CHECKS = 1');
+
     await conn.commit();
-    res.json({ success: true, message: 'Food court removed successfully' });
+
+    // Invalidate cached plan
+    tenantPlanCache.delete(tenantId);
+
+    res.json({ success: true, message: 'Food court and all associated data permanently removed successfully' });
   } catch (error) {
-    await conn.rollback();
+    try {
+      await conn.query('SET FOREIGN_KEY_CHECKS = 1');
+      await conn.rollback();
+    } catch (_) {}
     console.error('Error deleting tenant:', error);
     res.status(500).json({ error: error.message || 'Failed to remove food court' });
   } finally {

@@ -568,6 +568,78 @@ function SuperAdminDashboard({ user, onLogout }) {
   const [showPendingAlert, setShowPendingAlert] = useState(false);
   const [customPassword, setCustomPassword] = useState('');
   const [customEmail, setCustomEmail] = useState('');
+  const [regFilterStatus, setRegFilterStatus] = useState('all'); // 'all', 'pending', 'approved', 'rejected'
+  const [regSearchQuery, setRegSearchQuery] = useState('');
+  const [viewingRegDetails, setViewingRegDetails] = useState(null);
+
+  const formatRegDate = (dateStr) => {
+    if (!dateStr) return '—';
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  const getPlanBadgeStyle = (planName) => {
+    const p = (planName || '').toLowerCase();
+    if (p.includes('basic')) {
+      return { bg: 'rgba(59, 130, 246, 0.12)', border: 'rgba(59, 130, 246, 0.3)', color: '#60a5fa' };
+    } else if (p.includes('pro')) {
+      return { bg: 'rgba(139, 92, 246, 0.12)', border: 'rgba(139, 92, 246, 0.3)', color: '#c084fc' };
+    } else if (p.includes('enterprise')) {
+      return { bg: 'rgba(234, 179, 8, 0.12)', border: 'rgba(234, 179, 8, 0.3)', color: '#fbbf24' };
+    }
+    return { bg: 'rgba(16, 185, 129, 0.12)', border: 'rgba(16, 185, 129, 0.3)', color: '#34d399' };
+  };
+
+  const getStatusBadgeStyle = (status) => {
+    if (status === 'pending') {
+      return {
+        bg: 'rgba(234, 179, 8, 0.12)',
+        border: 'rgba(234, 179, 8, 0.35)',
+        color: '#facc15',
+        dot: '#eab308',
+        label: 'Pending'
+      };
+    } else if (status === 'approved') {
+      return {
+        bg: 'rgba(16, 185, 129, 0.12)',
+        border: 'rgba(16, 185, 129, 0.35)',
+        color: '#34d399',
+        dot: '#10b981',
+        label: 'Approved'
+      };
+    } else {
+      return {
+        bg: 'rgba(239, 68, 68, 0.12)',
+        border: 'rgba(239, 68, 68, 0.35)',
+        color: '#f87171',
+        dot: '#ef4444',
+        label: 'Rejected'
+      };
+    }
+  };
+
+  const filteredRegistrations = registrations.filter(r => {
+    if (regFilterStatus !== 'all' && r.status !== regFilterStatus) return false;
+    if (regSearchQuery.trim()) {
+      const q = regSearchQuery.toLowerCase();
+      const matchesName = (r.food_court_name || '').toLowerCase().includes(q);
+      const matchesOwner = (r.owner_name || '').toLowerCase().includes(q);
+      const matchesEmail = (r.email || '').toLowerCase().includes(q);
+      const matchesPhone = (r.phone || '').toLowerCase().includes(q);
+      const matchesCity = (r.city || '').toLowerCase().includes(q);
+      const matchesPlan = (r.plan_name || '').toLowerCase().includes(q);
+      const matchesRef = (r.payment_reference || '').toLowerCase().includes(q);
+      const matchesId = String(r.id).includes(q);
+      if (!matchesName && !matchesOwner && !matchesEmail && !matchesPhone && !matchesCity && !matchesPlan && !matchesRef && !matchesId) {
+        return false;
+      }
+    }
+    return true;
+  });
 
   useEffect(() => {
     fetchRegistrations();
@@ -1102,9 +1174,15 @@ function SuperAdminDashboard({ user, onLogout }) {
                             <button onClick={() => openEditModal(t)} style={{background: 'rgba(139,92,246,0.1)', color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600}}>
                               Edit
                             </button>
-                            <button onClick={() => setConfirmDelete(t)} style={{background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600}}>
-                              Remove
-                            </button>
+                            {t.id === 1 ? (
+                              <span style={{ fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic', padding: '6px 8px' }} title="Primary default food court cannot be deleted">
+                                Primary
+                              </span>
+                            ) : (
+                              <button onClick={() => setConfirmDelete(t)} style={{background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600}}>
+                                Remove
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1119,143 +1197,529 @@ function SuperAdminDashboard({ user, onLogout }) {
           {/* ── REGISTRATIONS TAB ── */}
           {activeTab === 'registrations' && (
           <div>
-            {/* Stats Row */}
+            {/* Stats Row with Clickable Filter Badges */}
             <div style={saStyles.statsRow}>
-              <div style={saStyles.statCard('#eab308')}>
-                <span style={saStyles.statLabel}>Pending</span>
-                <span style={saStyles.statValue}>{registrations.filter(r => r.status === 'pending').length}</span>
+              <div
+                onClick={() => setRegFilterStatus('all')}
+                style={{
+                  ...saStyles.statCard(regFilterStatus === 'all' ? '#8b5cf6' : 'rgba(255,255,255,0.1)'),
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  background: regFilterStatus === 'all' ? '#171722' : '#111118',
+                  boxShadow: regFilterStatus === 'all' ? '0 0 15px rgba(139,92,246,0.15)' : 'none'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={saStyles.statLabel}>All Applications</span>
+                  <span style={{ fontSize: '1.1rem' }}>📑</span>
+                </div>
+                <span style={saStyles.statValue}>{registrations.length}</span>
               </div>
-              <div style={saStyles.statCard('#10b981')}>
-                <span style={saStyles.statLabel}>Approved</span>
-                <span style={saStyles.statValue}>{registrations.filter(r => r.status === 'approved').length}</span>
+
+              <div
+                onClick={() => setRegFilterStatus('pending')}
+                style={{
+                  ...saStyles.statCard('#eab308'),
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  background: regFilterStatus === 'pending' ? '#1c1912' : '#111118',
+                  boxShadow: regFilterStatus === 'pending' ? '0 0 15px rgba(234,179,8,0.18)' : 'none'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ ...saStyles.statLabel, color: '#facc15' }}>Pending Review</span>
+                  <span style={{ fontSize: '1.1rem' }}>⏳</span>
+                </div>
+                <span style={{ ...saStyles.statValue, color: '#facc15' }}>
+                  {registrations.filter(r => r.status === 'pending').length}
+                </span>
               </div>
-              <div style={saStyles.statCard('#ef4444')}>
-                <span style={saStyles.statLabel}>Rejected</span>
-                <span style={saStyles.statValue}>{registrations.filter(r => r.status === 'rejected').length}</span>
+
+              <div
+                onClick={() => setRegFilterStatus('approved')}
+                style={{
+                  ...saStyles.statCard('#10b981'),
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  background: regFilterStatus === 'approved' ? '#0f1d18' : '#111118',
+                  boxShadow: regFilterStatus === 'approved' ? '0 0 15px rgba(16,185,129,0.18)' : 'none'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ ...saStyles.statLabel, color: '#34d399' }}>Approved</span>
+                  <span style={{ fontSize: '1.1rem' }}>✓</span>
+                </div>
+                <span style={{ ...saStyles.statValue, color: '#34d399' }}>
+                  {registrations.filter(r => r.status === 'approved').length}
+                </span>
+              </div>
+
+              <div
+                onClick={() => setRegFilterStatus('rejected')}
+                style={{
+                  ...saStyles.statCard('#ef4444'),
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  background: regFilterStatus === 'rejected' ? '#1e1114' : '#111118',
+                  boxShadow: regFilterStatus === 'rejected' ? '0 0 15px rgba(239,68,68,0.18)' : 'none'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ ...saStyles.statLabel, color: '#f87171' }}>Rejected</span>
+                  <span style={{ fontSize: '1.1rem' }}>✕</span>
+                </div>
+                <span style={{ ...saStyles.statValue, color: '#f87171' }}>
+                  {registrations.filter(r => r.status === 'rejected').length}
+                </span>
               </div>
             </div>
 
             <div style={saStyles.tableCard}>
-              <div style={saStyles.tableHeader}>
-                <h3 style={saStyles.tableTitle}>Registration Requests</h3>
-                <button style={{...saStyles.addBtn, background: 'linear-gradient(135deg, #eab308, #ca8a04)', boxShadow: '0 4px 15px rgba(234,179,8,0.3)'}} onClick={fetchRegistrations}>
-                  ↻ Refresh
-                </button>
+              {/* Header and Controls */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                  <div>
+                    <h3 style={{ ...saStyles.tableTitle, fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>Registration Requests</span>
+                      <span style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        color: '#a78bfa',
+                        background: 'rgba(139,92,246,0.15)',
+                        padding: '2px 8px',
+                        borderRadius: '12px'
+                      }}>
+                        {filteredRegistrations.length} {filteredRegistrations.length === 1 ? 'record' : 'records'}
+                      </span>
+                    </h3>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: '#64748b' }}>
+                      Review, verify, and approve incoming food court and canteen onboarding requests.
+                    </p>
+                  </div>
+                  <button
+                    style={{
+                      ...saStyles.addBtn,
+                      background: 'linear-gradient(135deg, #eab308, #ca8a04)',
+                      boxShadow: '0 4px 15px rgba(234,179,8,0.25)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                    onClick={fetchRegistrations}
+                  >
+                    <span>↻</span> Refresh Requests
+                  </button>
+                </div>
+
+                {/* Filter and Search Bar */}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '14px',
+                  flexWrap: 'wrap',
+                  padding: '12px 16px',
+                  background: 'rgba(255,255,255,0.02)',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255,255,255,0.05)'
+                }}>
+                  {/* Status Pills */}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      { id: 'all', label: 'All Requests', count: registrations.length },
+                      { id: 'pending', label: 'Pending', count: registrations.filter(r => r.status === 'pending').length },
+                      { id: 'approved', label: 'Approved', count: registrations.filter(r => r.status === 'approved').length },
+                      { id: 'rejected', label: 'Rejected', count: registrations.filter(r => r.status === 'rejected').length }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setRegFilterStatus(tab.id)}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '8px',
+                          border: regFilterStatus === tab.id ? '1px solid #8b5cf6' : '1px solid rgba(255,255,255,0.08)',
+                          background: regFilterStatus === tab.id ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.03)',
+                          color: regFilterStatus === tab.id ? '#f1f5f9' : '#94a3b8',
+                          fontSize: '0.82rem',
+                          fontWeight: regFilterStatus === tab.id ? 700 : 500,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s'
+                        }}
+                      >
+                        {tab.label}
+                        <span style={{
+                          background: regFilterStatus === tab.id ? '#8b5cf6' : 'rgba(255,255,255,0.1)',
+                          color: regFilterStatus === tab.id ? '#fff' : '#cbd5e1',
+                          padding: '1px 6px',
+                          borderRadius: '10px',
+                          fontSize: '0.72rem',
+                          fontWeight: 700
+                        }}>
+                          {tab.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Search Input */}
+                  <div style={{ position: 'relative', minWidth: '260px', flex: '1 1 260px', maxWidth: '420px' }}>
+                    <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b', fontSize: '0.85rem' }}>
+                      🔍
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Search requests by name, city, email, plan..."
+                      value={regSearchQuery}
+                      onChange={e => setRegSearchQuery(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 32px 8px 36px',
+                        background: '#0a0a0f',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '8px',
+                        color: '#f1f5f9',
+                        fontSize: '0.84rem',
+                        outline: 'none',
+                        boxSizing: 'border-box'
+                      }}
+                      onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                      onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                    />
+                    {regSearchQuery && (
+                      <button
+                        onClick={() => setRegSearchQuery('')}
+                        style={{
+                          position: 'absolute',
+                          right: '10px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#94a3b8',
+                          cursor: 'pointer',
+                          padding: 0,
+                          fontSize: '0.9rem'
+                        }}
+                        title="Clear search"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {loadingRegs ? (
-                <div style={{textAlign: 'center', padding: '48px', color: '#64748b'}}>
-                  <div style={{marginBottom: '12px', fontSize: '1.5rem'}}>⏳</div>
-                  Loading registrations...
+                <div style={{ textAlign: 'center', padding: '56px 20px', color: '#64748b' }}>
+                  <div style={{ marginBottom: '12px', fontSize: '1.8rem' }}>⏳</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#94a3b8' }}>Loading registration requests...</div>
                 </div>
-              ) : registrations.length === 0 ? (
-                <div style={{textAlign: 'center', padding: '48px', color: '#64748b'}}>
-                  <div style={{marginBottom: '12px', fontSize: '2rem'}}>📋</div>
-                  <p style={{margin: 0, fontSize: '0.95rem'}}>No registration requests yet.</p>
+              ) : filteredRegistrations.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '56px 20px', color: '#64748b', background: 'rgba(255,255,255,0.01)', borderRadius: '12px' }}>
+                  <div style={{ marginBottom: '12px', fontSize: '2.4rem' }}>📋</div>
+                  <p style={{ margin: '0 0 6px 0', fontSize: '1rem', fontWeight: 600, color: '#cbd5e1' }}>
+                    {regSearchQuery ? 'No matching registrations found' : regFilterStatus === 'all' ? 'No registration requests yet' : `No ${regFilterStatus} registrations`}
+                  </p>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
+                    {regSearchQuery ? 'Try clearing your search query or switching filters.' : 'When food courts submit applications, they will appear here.'}
+                  </p>
+                  {regSearchQuery && (
+                    <button
+                      onClick={() => setRegSearchQuery('')}
+                      style={{
+                        marginTop: '14px',
+                        padding: '6px 16px',
+                        background: 'rgba(139,92,246,0.15)',
+                        border: '1px solid rgba(139,92,246,0.3)',
+                        borderRadius: '6px',
+                        color: '#c084fc',
+                        cursor: 'pointer',
+                        fontSize: '0.82rem'
+                      }}
+                    >
+                      Clear Search
+                    </button>
+                  )}
                 </div>
               ) : (
-                <div style={{overflowX: 'auto'}}>
-                  <table style={{width: '100%', borderCollapse: 'collapse'}}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                     <thead>
                       <tr>
-                        <th style={saStyles.th}>ID</th>
-                        <th style={saStyles.th}>Food Court</th>
-                        <th style={saStyles.th}>Owner</th>
-                        <th style={saStyles.th}>Email</th>
-                        <th style={saStyles.th}>Phone</th>
-                        <th style={saStyles.th}>City</th>
-                        <th style={saStyles.th}>Selected Plan</th>
-                        <th style={saStyles.th}>Billing Mode</th>
-                        <th style={{...saStyles.th, textAlign: 'center'}}>Status</th>
-                        <th style={{...saStyles.th, textAlign: 'right'}}>Submitted</th>
-                        <th style={{...saStyles.th, textAlign: 'center'}}>Actions</th>
+                        <th style={{ ...saStyles.th, width: '28%' }}>Food Court / Facility</th>
+                        <th style={{ ...saStyles.th, width: '24%' }}>Applicant & Contact</th>
+                        <th style={{ ...saStyles.th, width: '18%' }}>Plan & Subscription</th>
+                        <th style={{ ...saStyles.th, width: '15%' }}>Status & Date</th>
+                        <th style={{ ...saStyles.th, width: '15%', textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {registrations.map(r => (
-                        <tr key={r.id} style={{transition: 'background 0.15s'}}
-                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
-                          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
-                          <td style={saStyles.td}><span style={{color: '#64748b'}}>#{r.id}</span></td>
-                          <td style={{...saStyles.td, fontWeight: 700, color: '#8b5cf6'}}>{r.food_court_name}</td>
-                          <td style={{...saStyles.td, color: '#f1f5f9'}}>{r.owner_name}</td>
-                          <td style={{...saStyles.td, color: '#94a3b8'}}>{r.email}</td>
-                          <td style={{...saStyles.td, color: '#94a3b8'}}>{r.phone || '—'}</td>
-                          <td style={{...saStyles.td, color: '#94a3b8'}}>{r.city || '—'}</td>
-                          <td style={saStyles.td}>
-                            <span style={{
-                              fontSize: '0.76rem',
-                              fontWeight: '700',
-                              padding: '2px 8px',
-                              borderRadius: '10px',
-                              background: (r.plan_name === 'Canteen Basic') ? 'rgba(59, 130, 246, 0.15)' :
-                                          (r.plan_name === 'Canteen Pro') ? 'rgba(139, 92, 246, 0.15)' :
-                                          (r.plan_name === 'Enterprise') ? 'rgba(234, 179, 8, 0.15)' :
-                                          'rgba(16, 185, 129, 0.15)',
-                              color: (r.plan_name === 'Canteen Basic') ? '#60a5fa' :
-                                     (r.plan_name === 'Canteen Pro') ? '#c084fc' :
-                                     (r.plan_name === 'Enterprise') ? '#fbbf24' :
-                                     '#34d399',
-                              border: `1px solid ${(r.plan_name === 'Canteen Basic') ? 'rgba(59, 130, 246, 0.3)' :
-                                                   (r.plan_name === 'Canteen Pro') ? 'rgba(139, 92, 246, 0.3)' :
-                                                   (r.plan_name === 'Enterprise') ? 'rgba(234, 179, 8, 0.3)' :
-                                                   'rgba(16, 185, 129, 0.3)'}`
-                            }}>
-                              {r.plan_name || 'Canteen Pro'}
-                            </span>
-                          </td>
-                          <td style={{...saStyles.td, fontSize: '0.82rem'}}>
-                            {r.subscription_type === 'trial' ? (
-                              <span style={{ color: '#38bdf8', fontWeight: 600 }}>7-Day Trial</span>
-                            ) : (
-                              <div>
-                                <span style={{ color: '#4ade80', fontWeight: 600 }}>Paid Annual</span>
-                                {r.payment_reference && (
-                                  <div style={{ color: '#94a3b8', fontSize: '0.72rem', marginTop: '2px' }} title={r.payment_reference}>
-                                    Ref: {r.payment_reference.length > 12 ? r.payment_reference.slice(0, 12) + '...' : r.payment_reference}
+                      {filteredRegistrations.map(r => {
+                        const planStyle = getPlanBadgeStyle(r.plan_name);
+                        const statusBadge = getStatusBadgeStyle(r.status);
+                        return (
+                          <tr
+                            key={r.id}
+                            style={{ transition: 'background 0.15s' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.025)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            {/* Column 1: Food Court / Facility */}
+                            <td style={saStyles.td}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{
+                                  width: '38px',
+                                  height: '38px',
+                                  borderRadius: '10px',
+                                  background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(99,102,241,0.1))',
+                                  border: '1px solid rgba(139,92,246,0.3)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '1rem',
+                                  fontWeight: 700,
+                                  color: '#c4b5fd',
+                                  flexShrink: 0
+                                }}>
+                                  🏢
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight: 700, color: '#f8fafc', fontSize: '0.92rem' }}>
+                                    {r.food_court_name}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px', fontSize: '0.78rem', color: '#94a3b8' }}>
+                                    <span style={{
+                                      background: 'rgba(255,255,255,0.06)',
+                                      padding: '1px 6px',
+                                      borderRadius: '4px',
+                                      color: '#cbd5e1',
+                                      fontWeight: 600,
+                                      fontFamily: 'monospace'
+                                    }}>
+                                      #{r.id}
+                                    </span>
+                                    {r.city && (
+                                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                        📍 {r.city}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Column 2: Applicant & Contact */}
+                            <td style={saStyles.td}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <div style={{ fontWeight: 600, color: '#f1f5f9', fontSize: '0.88rem' }}>
+                                  👤 {r.owner_name}
+                                </div>
+                                <div style={{ fontSize: '0.78rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  ✉️ <span style={{ color: '#cbd5e1' }}>{r.email}</span>
+                                </div>
+                                {r.phone && (
+                                  <div style={{ fontSize: '0.76rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    📞 <span>{r.phone}</span>
                                   </div>
                                 )}
                               </div>
-                            )}
-                          </td>
-                          <td style={{...saStyles.td, textAlign: 'center'}}>
-                            {r.status === 'pending' ? (
-                              <span style={{display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#eab308', background: 'rgba(234,179,8,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600}}>
-                                <span style={{width: '6px', height: '6px', borderRadius: '50%', background: '#eab308'}}></span> Pending
-                              </span>
-                            ) : r.status === 'approved' ? (
-                              <span style={{display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600}}>
-                                <span style={{width: '6px', height: '6px', borderRadius: '50%', background: '#10b981'}}></span> Approved
-                              </span>
-                            ) : (
-                              <span style={{display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600}}>
-                                <span style={{width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444'}}></span> Rejected
-                              </span>
-                            )}
-                          </td>
-                          <td style={{...saStyles.td, textAlign: 'right', color: '#64748b'}}>
-                            {new Date(r.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-                          </td>
-                          <td style={{...saStyles.td, textAlign: 'center'}}>
-                            {r.status === 'pending' ? (
-                              <div style={{display: 'flex', gap: '6px', justifyContent: 'center'}}>
-                                <button onClick={() => { setReviewingRegId(r.id); setReviewAction('approve'); setAssignedPlan(r.plan_name || 'Canteen Pro'); setAdminNotes(''); setShowReviewModal(true); }}
-                                  style={{background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600}}>
-                                  ✓ Approve
-                                </button>
-                                <button onClick={() => { setReviewingRegId(r.id); setReviewAction('reject'); setAdminNotes(''); setShowReviewModal(true); }}
-                                  style={{background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600}}>
-                                  ✕ Reject
-                                </button>
+                            </td>
+
+                            {/* Column 3: Plan & Subscription */}
+                            <td style={saStyles.td}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'flex-start' }}>
+                                <span style={{
+                                  fontSize: '0.76rem',
+                                  fontWeight: '700',
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  background: planStyle.bg,
+                                  color: planStyle.color,
+                                  border: `1px solid ${planStyle.border}`
+                                }}>
+                                  {r.plan_name || 'Canteen Pro'}
+                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                  {r.subscription_type === 'trial' ? (
+                                    <span style={{
+                                      fontSize: '0.72rem',
+                                      fontWeight: 600,
+                                      color: '#38bdf8',
+                                      background: 'rgba(56,189,248,0.1)',
+                                      padding: '2px 7px',
+                                      borderRadius: '4px',
+                                      border: '1px solid rgba(56,189,248,0.25)'
+                                    }}>
+                                      ⚡ 7-Day Trial
+                                    </span>
+                                  ) : (
+                                    <span style={{
+                                      fontSize: '0.72rem',
+                                      fontWeight: 600,
+                                      color: '#4ade80',
+                                      background: 'rgba(74,222,128,0.1)',
+                                      padding: '2px 7px',
+                                      borderRadius: '4px',
+                                      border: '1px solid rgba(74,222,128,0.25)'
+                                    }}>
+                                      💳 Paid Annual
+                                    </span>
+                                  )}
+                                  {r.payment_reference && (
+                                    <span title={`Payment UTR: ${r.payment_reference}`} style={{
+                                      fontSize: '0.7rem',
+                                      color: '#94a3b8',
+                                      background: 'rgba(255,255,255,0.04)',
+                                      padding: '1px 5px',
+                                      borderRadius: '4px',
+                                      fontFamily: 'monospace'
+                                    }}>
+                                      Ref: {r.payment_reference.length > 10 ? r.payment_reference.slice(0, 10) + '…' : r.payment_reference}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                            ) : (
-                              <span style={{color: '#64748b', fontSize: '0.82rem'}}>
-                                {r.reviewed_at ? new Date(r.reviewed_at).toLocaleDateString() : '—'}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+
+                            {/* Column 4: Status & Date */}
+                            <td style={saStyles.td}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div>
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                    color: statusBadge.color,
+                                    background: statusBadge.bg,
+                                    border: `1px solid ${statusBadge.border}`,
+                                    padding: '3px 9px',
+                                    borderRadius: '12px',
+                                    fontSize: '0.76rem',
+                                    fontWeight: 600
+                                  }}>
+                                    <span style={{
+                                      width: '6px',
+                                      height: '6px',
+                                      borderRadius: '50%',
+                                      background: statusBadge.dot,
+                                      boxShadow: r.status === 'pending' ? '0 0 6px #eab308' : 'none'
+                                    }} />
+                                    {statusBadge.label}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
+                                  {formatRegDate(r.created_at)}
+                                </div>
+                                {r.reviewed_at && (
+                                  <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                                    Reviewed: {formatRegDate(r.reviewed_at)}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Column 5: Actions */}
+                            <td style={{ ...saStyles.td, textAlign: 'right' }}>
+                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                {r.status === 'pending' ? (
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                        setReviewingRegId(r.id);
+                                        setReviewAction('approve');
+                                        setAssignedPlan(r.plan_name || 'Canteen Pro');
+                                        setCustomEmail(r.email || '');
+                                        setAdminNotes('');
+                                        setShowReviewModal(true);
+                                      }}
+                                      title="Approve registration"
+                                      style={{
+                                        background: 'rgba(16,185,129,0.12)',
+                                        color: '#10b981',
+                                        border: '1px solid rgba(16,185,129,0.3)',
+                                        padding: '5px 10px',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 600,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px'
+                                      }}
+                                    >
+                                      ✓ Approve
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setReviewingRegId(r.id);
+                                        setReviewAction('reject');
+                                        setAdminNotes('');
+                                        setShowReviewModal(true);
+                                      }}
+                                      title="Reject registration"
+                                      style={{
+                                        background: 'rgba(239,68,68,0.1)',
+                                        color: '#ef4444',
+                                        border: '1px solid rgba(239,68,68,0.3)',
+                                        padding: '5px 10px',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 600,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px'
+                                      }}
+                                    >
+                                      ✕ Reject
+                                    </button>
+                                    <button
+                                      onClick={() => setViewingRegDetails(r)}
+                                      title="View application details"
+                                      style={{
+                                        background: 'rgba(139,92,246,0.1)',
+                                        color: '#c084fc',
+                                        border: '1px solid rgba(139,92,246,0.3)',
+                                        padding: '5px 8px',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 600
+                                      }}
+                                    >
+                                      👁️
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => setViewingRegDetails(r)}
+                                    title="View application details"
+                                    style={{
+                                      background: 'rgba(255,255,255,0.05)',
+                                      color: '#cbd5e1',
+                                      border: '1px solid rgba(255,255,255,0.12)',
+                                      padding: '5px 12px',
+                                      borderRadius: '6px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.78rem',
+                                      fontWeight: 500,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
+                                  >
+                                    👁️ Details
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1516,26 +1980,38 @@ function SuperAdminDashboard({ user, onLogout }) {
 
       {confirmDelete && (
         <div style={saStyles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setConfirmDelete(null); }}>
-          <div style={{...saStyles.modal, maxWidth: '400px'}}>
+          <div style={{...saStyles.modal, maxWidth: '440px'}}>
             <div style={saStyles.modalHeader}>
-              <h2 style={{...saStyles.modalTitle, color: '#ef4444'}}>⚠️ Remove Food Court</h2>
+              <h2 style={{...saStyles.modalTitle, color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                <span>⚠️</span> Permanently Remove Food Court
+              </h2>
               <button style={saStyles.closeBtn} onClick={() => setConfirmDelete(null)}>&times;</button>
             </div>
             <div style={saStyles.modalBody}>
-              <p style={{color: '#cbd5e1', marginBottom: '8px'}}>
+              <p style={{color: '#cbd5e1', marginBottom: '10px', fontSize: '0.9rem'}}>
                 You are about to <strong style={{color: '#ef4444'}}>permanently delete</strong>:
               </p>
-              <div style={{background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', padding: '14px 18px', marginBottom: '18px'}}>
-                <p style={{color: '#f1f5f9', fontWeight: 700, margin: '0 0 4px 0', fontSize: '1rem'}}>{confirmDelete.name}</p>
-                <p style={{color: '#94a3b8', margin: 0, fontSize: '0.85rem'}}>{confirmDelete.owner_email}</p>
+              <div style={{background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px'}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px'}}>
+                  <p style={{color: '#f1f5f9', fontWeight: 700, margin: 0, fontSize: '1rem'}}>{confirmDelete.name}</p>
+                  <span style={{fontSize: '0.75rem', background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: '4px', color: '#cbd5e1', fontFamily: 'monospace'}}>
+                    ID #{confirmDelete.id}
+                  </span>
+                </div>
+                <p style={{color: '#94a3b8', margin: 0, fontSize: '0.84rem'}}>Owner: {confirmDelete.owner_email}</p>
               </div>
-              <p style={{color: '#94a3b8', fontSize: '0.85rem', margin: '0 0 20px 0'}}>
-                This will also remove all staff accounts linked to this food court. This action <strong>cannot be undone</strong>.
-              </p>
+              <div style={{background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '12px 14px', marginBottom: '20px'}}>
+                <p style={{color: '#f87171', fontSize: '0.82rem', fontWeight: 600, margin: '0 0 4px 0'}}>
+                  Critical Warning:
+                </p>
+                <p style={{color: '#94a3b8', fontSize: '0.8rem', lineHeight: '1.4', margin: 0}}>
+                  This action will permanently delete all menus, stalls, active & past orders, transactions, staff accounts, and operational records tied to this food court. This action <strong>cannot be undone</strong>.
+                </p>
+              </div>
               <div style={saStyles.modalActions}>
                 <button type="button" style={saStyles.cancelBtn} onClick={() => setConfirmDelete(null)}>Cancel</button>
                 <button type="button" disabled={deleting} onClick={handleDeleteTenant}
-                  style={{padding: '10px 24px', background: deleting ? '#7f1d1d' : 'linear-gradient(135deg, #ef4444, #dc2626)', color: '#fff', border: 'none', borderRadius: '8px', cursor: deleting ? 'not-allowed' : 'pointer', fontSize: '0.88rem', fontWeight: 600, opacity: deleting ? 0.7 : 1}}>
+                  style={{padding: '10px 22px', background: deleting ? '#7f1d1d' : 'linear-gradient(135deg, #ef4444, #dc2626)', color: '#fff', border: 'none', borderRadius: '8px', cursor: deleting ? 'not-allowed' : 'pointer', fontSize: '0.88rem', fontWeight: 600, opacity: deleting ? 0.7 : 1}}>
                   {deleting ? 'Removing...' : 'Yes, Remove It'}
                 </button>
               </div>
@@ -1613,7 +2089,246 @@ function SuperAdminDashboard({ user, onLogout }) {
         </div>
       )}
 
-    </div>
+    
+      {/* ── VIEW REGISTRATION DETAILS MODAL ── */}
+      {viewingRegDetails && (
+        <div style={saStyles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setViewingRegDetails(null); }}>
+          <div style={{ ...saStyles.modal, maxWidth: '620px', width: '92%' }}>
+            <div style={saStyles.modalHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '1.4rem' }}>📋</span>
+                <div>
+                  <h2 style={{ ...saStyles.modalTitle, margin: 0, fontSize: '1.15rem' }}>
+                    Application Details
+                  </h2>
+                  <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '2px' }}>
+                    Registration Request #{viewingRegDetails.id}
+                  </div>
+                </div>
+              </div>
+              <button style={saStyles.closeBtn} onClick={() => setViewingRegDetails(null)}>&times;</button>
+            </div>
+            
+            <div style={{ ...saStyles.modalBody, maxHeight: '72vh', overflowY: 'auto' }}>
+              {/* Header Status Banner */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '12px 16px',
+                background: viewingRegDetails.status === 'pending' ? 'rgba(234,179,8,0.08)' :
+                            viewingRegDetails.status === 'approved' ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)',
+                border: `1px solid ${viewingRegDetails.status === 'pending' ? 'rgba(234,179,8,0.25)' :
+                                      viewingRegDetails.status === 'approved' ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                borderRadius: '10px',
+                marginBottom: '20px'
+              }}>
+                <div>
+                  <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.8px', color: '#94a3b8', fontWeight: 700 }}>
+                    Current Status
+                  </span>
+                  <div style={{
+                    fontSize: '0.92rem',
+                    fontWeight: 700,
+                    color: viewingRegDetails.status === 'pending' ? '#facc15' :
+                           viewingRegDetails.status === 'approved' ? '#34d399' : '#f87171',
+                    marginTop: '2px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    <span>{viewingRegDetails.status === 'pending' ? '⏳ Pending Admin Approval' :
+                           viewingRegDetails.status === 'approved' ? '✓ Application Approved & Activated' : '✕ Application Rejected'}</span>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', fontSize: '0.76rem', color: '#94a3b8' }}>
+                  <div>Submitted: {formatRegDate(viewingRegDetails.created_at)}</div>
+                  {viewingRegDetails.reviewed_at && (
+                    <div style={{ marginTop: '2px', color: '#cbd5e1' }}>
+                      Reviewed: {formatRegDate(viewingRegDetails.reviewed_at)}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Grid Section 1: Food Court & Applicant */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginBottom: '16px' }}>
+                {/* Facility Card */}
+                <div style={{ background: '#0e0e14', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '16px' }}>
+                  <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>
+                    🏢 Food Court / Facility
+                  </div>
+                  <div style={{ marginBottom: '10px' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Food Court Name</div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#f1f5f9' }}>{viewingRegDetails.food_court_name}</div>
+                  </div>
+                  <div style={{ marginBottom: '10px' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b' }}>City / Location</div>
+                    <div style={{ fontSize: '0.86rem', color: '#cbd5e1' }}>{viewingRegDetails.city || '—'}</div>
+                  </div>
+                  {viewingRegDetails.tenant_id && (
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Provisioned Tenant ID</div>
+                      <div style={{ fontSize: '0.86rem', color: '#a78bfa', fontWeight: 600 }}>Food Court #{viewingRegDetails.tenant_id}</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Applicant Contact Card */}
+                <div style={{ background: '#0e0e14', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '16px' }}>
+                  <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>
+                    👤 Applicant Contact
+                  </div>
+                  <div style={{ marginBottom: '10px' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Contact Person / Owner</div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#f1f5f9' }}>{viewingRegDetails.owner_name}</div>
+                  </div>
+                  <div style={{ marginBottom: '10px' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Email Address</div>
+                    <div style={{ fontSize: '0.86rem', color: '#cbd5e1', wordBreak: 'break-all' }}>{viewingRegDetails.email}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Phone Number</div>
+                    <div style={{ fontSize: '0.86rem', color: '#cbd5e1' }}>{viewingRegDetails.phone || '—'}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Subscription & Billing */}
+              <div style={{ background: '#0e0e14', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
+                <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>
+                  💳 Subscription & Billing
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Selected Plan</div>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#f1f5f9', marginTop: '2px' }}>
+                      {viewingRegDetails.plan_name || 'Canteen Pro'}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Billing Mode</div>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 600, color: viewingRegDetails.subscription_type === 'trial' ? '#38bdf8' : '#4ade80', marginTop: '2px' }}>
+                      {viewingRegDetails.subscription_type === 'trial' ? '7-Day Free Trial' : 'Paid Annual'}
+                    </div>
+                  </div>
+                  {viewingRegDetails.payment_reference && (
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Payment UTR / Ref</div>
+                      <div style={{ fontSize: '0.84rem', color: '#cbd5e1', fontFamily: 'monospace', marginTop: '2px' }}>
+                        {viewingRegDetails.payment_reference}
+                      </div>
+                    </div>
+                  )}
+                  {viewingRegDetails.payment_amount && (
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Amount Paid</div>
+                      <div style={{ fontSize: '0.88rem', color: '#4ade80', fontWeight: 700, marginTop: '2px' }}>
+                        ₹{viewingRegDetails.payment_amount}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Section 3: Applicant Message / Notes */}
+              {viewingRegDetails.message && (
+                <div style={{ background: '#0e0e14', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+                    💬 Client Message / Special Requests
+                  </div>
+                  <div style={{ fontSize: '0.86rem', color: '#cbd5e1', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                    {viewingRegDetails.message}
+                  </div>
+                </div>
+              )}
+
+              {/* Section 4: Admin Review Notes */}
+              {viewingRegDetails.admin_notes && (
+                <div style={{ background: '#0e0e14', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '16px' }}>
+                  <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+                    📝 Admin Review Notes
+                  </div>
+                  <div style={{ fontSize: '0.86rem', color: '#cbd5e1', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                    {viewingRegDetails.admin_notes}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={saStyles.modalActions}>
+              {viewingRegDetails.status === 'pending' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const reg = viewingRegDetails;
+                      setViewingRegDetails(null);
+                      setReviewingRegId(reg.id);
+                      setReviewAction('approve');
+                      setAssignedPlan(reg.plan_name || 'Canteen Pro');
+                      setCustomEmail(reg.email || '');
+                      setAdminNotes('');
+                      setShowReviewModal(true);
+                    }}
+                    style={{
+                      padding: '10px 18px',
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '0.86rem',
+                      fontWeight: 600,
+                      marginRight: 'auto',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    ✓ Approve Application
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const reg = viewingRegDetails;
+                      setViewingRegDetails(null);
+                      setReviewingRegId(reg.id);
+                      setReviewAction('reject');
+                      setAdminNotes('');
+                      setShowReviewModal(true);
+                    }}
+                    style={{
+                      padding: '10px 16px',
+                      background: 'rgba(239,68,68,0.12)',
+                      color: '#ef4444',
+                      border: '1px solid rgba(239,68,68,0.35)',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '0.86rem',
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    ✕ Reject
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                style={saStyles.cancelBtn}
+                onClick={() => setViewingRegDetails(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+</div>
   );
 }
 
