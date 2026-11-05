@@ -9121,7 +9121,7 @@ app.post('/api/register', async (req, res) => {
 
 
 
-// Super Admin: Get all registrations
+// Super Admin: Get all registrations (with Existing Contact awareness)
 app.get('/api/superadmin/registrations', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
   const { status } = req.query;
   try {
@@ -9132,7 +9132,98 @@ app.get('/api/superadmin/registrations', authenticateToken, authorizeRoles('Supe
       params = [status];
     }
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+
+    // Fetch all registrations and staff with contact info for awareness matching
+    const [allRegs] = await pool.query('SELECT id, food_court_name, owner_name, email, phone, status, tenant_id FROM registrations');
+    const [staff] = await pool.query(
+      'SELECT s.id, s.name, s.phone, s.email, s.role, s.tenant_id, t.name as tenant_name FROM staff s JOIN tenants t ON s.tenant_id = t.id WHERE s.phone IS NOT NULL AND LENGTH(s.phone) > 0'
+    );
+
+    const cleanPhone = (p) => {
+      if (!p) return '';
+      const digits = String(p).replace(/\D/g, '');
+      return digits.length >= 10 ? digits.slice(-10) : digits;
+    };
+
+    const enrichedRows = rows.map(r => {
+      const rPhone = cleanPhone(r.phone);
+      if (!rPhone || rPhone.length < 5) {
+        return { ...r, phone_duplicate_notice: null };
+      }
+
+      const matches = [];
+      const seenTenants = new Set();
+      if (r.tenant_id) seenTenants.add(r.tenant_id);
+
+      // 1. Check against other registrations
+      for (const other of allRegs) {
+        if (other.id === r.id) continue;
+        if (cleanPhone(other.phone) === rPhone) {
+          if (other.tenant_id) seenTenants.add(other.tenant_id);
+          matches.push({
+            type: other.tenant_id ? 'approved_tenant' : other.status === 'pending' ? 'pending_reg' : 'rejected_reg',
+            tenant_id: other.tenant_id || null,
+            facility_name: other.food_court_name,
+            owner_name: other.owner_name,
+            email: other.email,
+            status: other.status,
+            registration_id: other.id
+          });
+        }
+      }
+
+      // 2. Check against existing staff across active food courts
+      for (const s of staff) {
+        if (cleanPhone(s.phone) === rPhone) {
+          if (!seenTenants.has(s.tenant_id)) {
+            seenTenants.add(s.tenant_id);
+            matches.push({
+              type: 'staff_contact',
+              tenant_id: s.tenant_id,
+              facility_name: s.tenant_name,
+              owner_name: s.name,
+              email: s.email,
+              role: s.role,
+              status: 'active'
+            });
+          }
+        }
+      }
+
+      if (matches.length === 0) {
+        return { ...r, phone_duplicate_notice: null };
+      }
+
+      // Prioritize matches: approved food court first, then pending, then others
+      const primary = matches.find(m => m.tenant_id) || matches[0];
+      let badgeText = '';
+      let fullMessage = '';
+
+      if (primary.tenant_id) {
+        badgeText = `Existing Contact: Linked to Food Court #${primary.tenant_id} ('${primary.facility_name}')`;
+        fullMessage = `This phone number is already linked to Food Court #${primary.tenant_id} ('${primary.facility_name}').`;
+      } else if (primary.status === 'pending') {
+        badgeText = `Existing Contact: Also in Pending Reg #${primary.registration_id} ('${primary.facility_name}')`;
+        fullMessage = `This phone number was also submitted in pending Registration #${primary.registration_id} ('${primary.facility_name}').`;
+      } else {
+        badgeText = `Existing Contact: Previously in Reg #${primary.registration_id} ('${primary.facility_name}')`;
+        fullMessage = `This phone number was previously submitted in Registration #${primary.registration_id} ('${primary.facility_name}' - ${primary.status}).`;
+      }
+
+      return {
+        ...r,
+        phone_duplicate_notice: {
+          is_duplicate: true,
+          count: matches.length,
+          badge_text: badgeText,
+          full_message: fullMessage,
+          primary_match: primary,
+          matches
+        }
+      };
+    });
+
+    res.json(enrichedRows);
   } catch (error) {
     console.error('Fetch registrations error:', error);
     res.status(500).json({ error: 'Failed to fetch registrations' });

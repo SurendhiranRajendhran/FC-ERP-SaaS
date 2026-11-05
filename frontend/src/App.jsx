@@ -1526,6 +1526,32 @@ function SuperAdminDashboard({ user, onLogout }) {
                                     📞 <span>{r.phone}</span>
                                   </div>
                                 )}
+                                {r.phone_duplicate_notice && (
+                                  <div
+                                    title={r.phone_duplicate_notice.full_message}
+                                    style={{
+                                      marginTop: '4px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      background: 'rgba(56, 189, 248, 0.12)',
+                                      border: '1px solid rgba(56, 189, 248, 0.35)',
+                                      borderRadius: '6px',
+                                      padding: '2px 8px',
+                                      fontSize: '0.72rem',
+                                      color: '#38bdf8',
+                                      fontWeight: 600,
+                                      cursor: 'help',
+                                      maxWidth: '260px',
+                                      lineHeight: '1.3'
+                                    }}
+                                  >
+                                    <span style={{ fontSize: '0.78rem' }}>ℹ️</span>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {r.phone_duplicate_notice.badge_text}
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                             </td>
 
@@ -2031,6 +2057,32 @@ function SuperAdminDashboard({ user, onLogout }) {
               <button style={saStyles.closeBtn} onClick={() => setShowReviewModal(false)}>&times;</button>
             </div>
             <div style={saStyles.modalBody}>
+              {(() => {
+                const curReg = registrations.find(r => r.id === reviewingRegId);
+                if (curReg && curReg.phone_duplicate_notice) {
+                  return (
+                    <div style={{
+                      background: 'rgba(56, 189, 248, 0.08)',
+                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                      borderRadius: '8px',
+                      padding: '10px 14px',
+                      marginBottom: '16px',
+                      display: 'flex',
+                      gap: '8px',
+                      alignItems: 'flex-start'
+                    }}>
+                      <span style={{ fontSize: '1.1rem', marginTop: '1px' }}>ℹ️</span>
+                      <div>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#38bdf8' }}>Existing Contact Notice</div>
+                        <div style={{ fontSize: '0.8rem', color: '#e0f2fe', marginTop: '2px', lineHeight: '1.4' }}>
+                          {curReg.phone_duplicate_notice.full_message}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
               {reviewAction === 'approve' && (
                 <>
                 <div style={saStyles.formGroup}>
@@ -2191,6 +2243,36 @@ function SuperAdminDashboard({ user, onLogout }) {
                     <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Phone Number</div>
                     <div style={{ fontSize: '0.86rem', color: '#cbd5e1' }}>{viewingRegDetails.phone || '—'}</div>
                   </div>
+                  {viewingRegDetails.phone_duplicate_notice && (
+                    <div style={{
+                      marginTop: '12px',
+                      background: 'rgba(56, 189, 248, 0.08)',
+                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                      borderRadius: '8px',
+                      padding: '10px 12px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.76rem', fontWeight: 700, color: '#38bdf8', marginBottom: '4px' }}>
+                        <span>ℹ️</span> Existing Contact Awareness
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#e0f2fe', lineHeight: '1.4' }}>
+                        {viewingRegDetails.phone_duplicate_notice.full_message}
+                      </div>
+                      {viewingRegDetails.phone_duplicate_notice.matches && viewingRegDetails.phone_duplicate_notice.matches.length > 0 && (
+                        <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid rgba(56,189,248,0.2)', fontSize: '0.75rem', color: '#94a3b8' }}>
+                          <div style={{ fontWeight: 600, color: '#cbd5e1', marginBottom: '4px' }}>Associated Facilities / Applications:</div>
+                          {viewingRegDetails.phone_duplicate_notice.matches.map((m, idx) => (
+                            <div key={idx} style={{ marginTop: '3px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <span style={{ color: '#38bdf8' }}>•</span>
+                              <span style={{ color: '#f1f5f9', fontWeight: 600 }}>
+                                {m.tenant_id ? `Food Court #${m.tenant_id} (${m.facility_name})` : `Registration #${m.registration_id} (${m.facility_name})`}
+                              </span>
+                              <span style={{ color: '#94a3b8' }}>— {m.owner_name} ({m.status})</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
