@@ -4758,8 +4758,16 @@ app.post('/api/staff', async (req, res) => {
   }
 
   let assigned_vendor_id = req.user.vendor_id ? req.user.vendor_id : null;
+  const cleanStaffEmail = email && email.trim() ? email.trim().toLowerCase() : null;
 
   try {
+    if (cleanStaffEmail) {
+      const [existingStaff] = await pool.query('SELECT id FROM staff WHERE LOWER(TRIM(email)) = ?', [cleanStaffEmail]);
+      if (existingStaff.length > 0) {
+        return res.status(400).json({ error: `The email "${cleanStaffEmail}" is already registered to another staff/user account.` });
+      }
+    }
+
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
     const [result] = await pool.query(
       `INSERT INTO staff (
@@ -4769,7 +4777,7 @@ app.post('/api/staff', async (req, res) => {
         staff_meal_limit, staff_meal_auto_reset, tenant_id
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        name, phone, email, passwordHash, role, pay_type, daily_rate || 0, monthly_salary || 0,
+        name, phone, cleanStaffEmail, passwordHash, role, pay_type, daily_rate || 0, monthly_salary || 0,
         pf_enabled || 0, esi_enabled || 0, tds_percentage || 0.00, bank_account, joined_at,
         0, 0, 0, 0,
         assigned_vendor_id, staff_meal_limit || 0, staff_meal_auto_reset === false ? 0 : 1, req.user.tenant_id
@@ -4825,7 +4833,18 @@ app.put('/api/staff/:id', async (req, res) => {
 
     const updateName = name !== undefined ? name : s.name;
     const updatePhone = phone !== undefined ? phone : s.phone;
-    const updateEmail = email !== undefined ? email : s.email;
+    const updateEmail = email !== undefined ? (email && email.trim() ? email.trim().toLowerCase() : null) : s.email;
+
+    if (updateEmail && updateEmail.trim()) {
+      const cleanUpdateEmail = updateEmail.trim().toLowerCase();
+      const [dupStaff] = await pool.query(
+        'SELECT id FROM staff WHERE LOWER(TRIM(email)) = ? AND id != ?',
+        [cleanUpdateEmail, id]
+      );
+      if (dupStaff.length > 0) {
+        return res.status(400).json({ error: `The email "${cleanUpdateEmail}" is already in use by another user account.` });
+      }
+    }
     const updateRole = role !== undefined ? role : s.role;
     const updatePayType = pay_type !== undefined ? pay_type : s.pay_type;
     const updateDailyRate = daily_rate !== undefined ? daily_rate : s.daily_rate;
@@ -9007,7 +9026,7 @@ app.post('/api/register', async (req, res) => {
   const {
     food_court_name = payload.foodCourtName,
     owner_name = payload.ownerName,
-    email,
+    email: rawEmail = payload.email,
     phone = payload.phone || payload.phoneNumber,
     city = payload.city,
     message = payload.message,
@@ -9016,6 +9035,9 @@ app.post('/api/register', async (req, res) => {
     payment_reference = payload.paymentReference,
     payment_amount = payload.paymentAmount
   } = payload;
+
+  const email = (rawEmail || '').trim().toLowerCase();
+
   if (!food_court_name || !owner_name || !email) {
     return res.status(400).json({ error: 'Food Court / Canteen Name, Owner Name, and Email are required.' });
   }
@@ -9027,14 +9049,39 @@ app.post('/api/register', async (req, res) => {
 
   const conn = await pool.getConnection();
   try {
-    const [existingStaff] = await conn.query('SELECT id FROM staff WHERE email = ?', [email]);
+    // 1. Check if email is already an active tenant owner
+    const [existingTenant] = await conn.query(
+      'SELECT id, name FROM tenants WHERE LOWER(TRIM(owner_email)) = ?',
+      [email]
+    );
+    if (existingTenant.length > 0) {
+      return res.status(400).json({
+        error: `The email "${email}" is already associated with an existing food court (${existingTenant[0].name}). Each facility requires a unique owner email. Please sign in or use another email.`
+      });
+    }
+
+    // 2. Check if email is already registered as an active staff user
+    const [existingStaff] = await conn.query(
+      'SELECT id FROM staff WHERE LOWER(TRIM(email)) = ?',
+      [email]
+    );
     if (existingStaff.length > 0) {
-      return res.status(400).json({ error: 'Email is already registered as an active user.' });
+      return res.status(400).json({
+        error: `The email "${email}" is already registered as an active user account. Please sign in or use a different email.`
+      });
     }
-    const [existingReg] = await conn.query('SELECT id FROM registrations WHERE email = ? AND status = "pending"', [email]);
+
+    // 3. Check if there is already a pending registration for this email
+    const [existingReg] = await conn.query(
+      'SELECT id, food_court_name FROM registrations WHERE LOWER(TRIM(email)) = ? AND status = "pending"',
+      [email]
+    );
     if (existingReg.length > 0) {
-      return res.status(400).json({ error: 'A registration request for this email is already pending review.' });
+      return res.status(400).json({
+        error: `A registration request for "${email}" is already pending review for "${existingReg[0].food_court_name}". Please wait for verification or contact support.`
+      });
     }
+
     await conn.query(
       `INSERT INTO registrations 
        (food_court_name, owner_name, email, phone, city, message, plan_name, subscription_type, payment_reference, payment_amount) 
@@ -9134,11 +9181,36 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
       const subStatus = isTrial ? 'trial' : 'active';
       const durationDays = isTrial ? 7 : 365;
 
-      // 1. Create tenant with plan entitlements
+      const effectiveOwnerEmail = (reg.email || '').trim().toLowerCase();
+      const loginEmail = (custom_email || reg.email).trim().toLowerCase();
+
+      // 1. Guard against duplicate owner_email in tenants (Pattern 1: 1 Email = 1 Facility)
+      const [existingTenant] = await conn.query(
+        'SELECT id, name FROM tenants WHERE LOWER(TRIM(owner_email)) = ?',
+        [effectiveOwnerEmail]
+      );
+      if (existingTenant.length > 0) {
+        throw new Error(
+          `Cannot approve registration: The email "${effectiveOwnerEmail}" is already the registered owner of food court "${existingTenant[0].name}" (Tenant ID #${existingTenant[0].id}). Each facility requires a unique owner email.`
+        );
+      }
+
+      // 2. Guard against duplicate login email in staff
+      const [existingStaff] = await conn.query(
+        'SELECT id, name, tenant_id FROM staff WHERE LOWER(TRIM(email)) = ?',
+        [loginEmail]
+      );
+      if (existingStaff.length > 0) {
+        throw new Error(
+          `Cannot approve registration: The login email "${loginEmail}" is already registered to user "${existingStaff[0].name}" (Tenant ID #${existingStaff[0].tenant_id}). Please specify a different custom email or reject this registration.`
+        );
+      }
+
+      // 3. Create tenant with plan entitlements
       const [tenantResult] = await conn.query(
         `INSERT INTO tenants (name, owner_email, plan_name, subscription_status, subscription_expires_at) 
          VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? DAY))`,
-        [reg.food_court_name, reg.email, finalPlan, subStatus, durationDays]
+        [reg.food_court_name, effectiveOwnerEmail, finalPlan, subStatus, durationDays]
       );
       const tenantId = tenantResult.insertId;
 
@@ -9151,23 +9223,22 @@ app.put('/api/superadmin/registrations/:id/review', authenticateToken, authorize
         _cachedAt: Date.now()
       });
 
-      // 2. Create owner user with custom or random password
+      // 4. Create owner user with custom or random password
       const bcrypt = require('bcryptjs');
       const crypto = require('crypto');
       const plainPassword = custom_password || crypto.randomBytes(4).toString('hex');
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(plainPassword, salt);
 
-      const loginEmail = custom_email || reg.email;
       await conn.query(
         'INSERT INTO staff (name, email, password_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?)',
         [reg.owner_name, loginEmail, hashedPassword, 'Owner', tenantId]
       );
 
-      // 3. Initialize notification settings
+      // 5. Initialize notification settings
       await conn.query('INSERT INTO notification_settings (tenant_id) VALUES (?)', [tenantId]);
 
-      // 4. Update registration status
+      // 6. Update registration status
       await conn.query(
         'UPDATE registrations SET status = "approved", admin_notes = ?, reviewed_at = CURRENT_TIMESTAMP, tenant_id = ? WHERE id = ?',
         [admin_notes || null, tenantId, id]
@@ -9275,6 +9346,7 @@ app.post('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async
     return res.status(400).json({ error: 'All fields are required' });
   }
 
+  const cleanEmail = email.trim().toLowerCase();
   const selectedPlan = plan_name || 'Food Court';
   const subStatus = subscription_status || 'active';
   const days = parseInt(duration_days, 10) || (subStatus === 'trial' ? 7 : 365);
@@ -9283,17 +9355,23 @@ app.post('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async
   try {
     await conn.beginTransaction();
 
-    // 1. Check if email already exists
-    const [existing] = await conn.query('SELECT id FROM staff WHERE email = ?', [email]);
+    // 1. Check if email already exists in staff
+    const [existing] = await conn.query('SELECT id, name, tenant_id FROM staff WHERE LOWER(TRIM(email)) = ?', [cleanEmail]);
     if (existing.length > 0) {
-      throw new Error('Email is already registered');
+      throw new Error(`Email "${cleanEmail}" is already registered to user "${existing[0].name}" (Tenant ID #${existing[0].tenant_id})`);
+    }
+
+    // 1b. Check if email already exists in tenants (Pattern 1: 1 Email = 1 Facility)
+    const [existingTenant] = await conn.query('SELECT id, name FROM tenants WHERE LOWER(TRIM(owner_email)) = ?', [cleanEmail]);
+    if (existingTenant.length > 0) {
+      throw new Error(`Email "${cleanEmail}" is already the registered owner of food court "${existingTenant[0].name}" (Tenant ID #${existingTenant[0].id})`);
     }
 
     // 2. Create the tenant
     const [tenantResult] = await conn.query(
       `INSERT INTO tenants (name, owner_email, plan_name, subscription_status, subscription_expires_at) 
        VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? DAY))`,
-      [name, email, selectedPlan, subStatus, days]
+      [name, cleanEmail, selectedPlan, subStatus, days]
     );
     const tenantId = tenantResult.insertId;
 
@@ -9312,7 +9390,7 @@ app.post('/api/tenants', authenticateToken, authorizeRoles('Super Admin'), async
 
     await conn.query(
       'INSERT INTO staff (name, email, password_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?)',
-      [owner_name, email, hashedPassword, 'Owner', tenantId]
+      [owner_name, cleanEmail, hashedPassword, 'Owner', tenantId]
     );
 
     // 4. Initialize notification settings for the new tenant
@@ -9339,14 +9417,33 @@ app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), as
     return res.status(400).json({ error: 'Name and Login ID are required' });
   }
 
+  const cleanEmail = email.trim().toLowerCase();
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
+    // Guard: Check if email is already taken by another tenant
+    const [dupTenant] = await conn.query(
+      'SELECT id, name FROM tenants WHERE LOWER(TRIM(owner_email)) = ? AND id != ?',
+      [cleanEmail, id]
+    );
+    if (dupTenant.length > 0) {
+      throw new Error(`Email "${cleanEmail}" is already assigned to tenant "${dupTenant[0].name}" (ID #${dupTenant[0].id})`);
+    }
+
+    // Guard: Check if email is taken by a staff user in another tenant
+    const [dupStaff] = await conn.query(
+      'SELECT id FROM staff WHERE LOWER(TRIM(email)) = ? AND tenant_id != ?',
+      [cleanEmail, id]
+    );
+    if (dupStaff.length > 0) {
+      throw new Error(`Email "${cleanEmail}" is already assigned to a user in another organization`);
+    }
+
     // Update tenant record
     const updateTenantActive = is_active !== undefined ? (is_active ? 1 : 0) : 1;
     let tenantUpdateSql = 'UPDATE tenants SET name = ?, owner_email = ?, is_active = ?';
-    const tenantParams = [name, email, updateTenantActive];
+    const tenantParams = [name, cleanEmail, updateTenantActive];
 
     if (plan_name) {
       tenantUpdateSql += ', plan_name = ?';
@@ -9370,7 +9467,7 @@ app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), as
 
     // Update owner user record
     let passwordQuerySegment = '';
-    const queryParams = [email];
+    const queryParams = [cleanEmail];
 
     if (password) {
       const bcrypt = require('bcryptjs');
