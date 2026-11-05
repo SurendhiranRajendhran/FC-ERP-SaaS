@@ -1923,7 +1923,8 @@ export default function HomePage() {
                   <input
                     type="tel"
                     required
-                    pattern="^\\+?\\d{10,15}$"
+                    pattern="[+]?[0-9 -]{10,20}"
+                    title="Please enter a valid 10-digit mobile number (e.g. 9894779442 or +91 9894779442)"
                     className="fc-form-input"
                     placeholder="e.g. 9894779442"
                     value={contactForm.phone}

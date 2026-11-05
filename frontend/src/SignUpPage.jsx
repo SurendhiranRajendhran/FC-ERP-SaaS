@@ -137,6 +137,13 @@ export default function SignUpPage() {
       return;
     }
 
+    const cleanPhone = (formData.phone || '').replace(/[\s-]/g, '');
+    if (!/^\+?[0-9]{10,15}$/.test(cleanPhone)) {
+      setError('Please enter a valid 10 to 15-digit contact phone number (e.g. 9876543210).');
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await fetch('/api/register', {
         method: 'POST',
@@ -145,7 +152,7 @@ export default function SignUpPage() {
           foodCourtName: formData.foodCourtName,
           ownerName: formData.ownerName,
           email: formData.email,
-          phone: formData.phone,
+          phone: cleanPhone,
           city: formData.city,
           message: [
             formData.countersCount ? `Counters/Stalls: ${formData.countersCount}` : '',
@@ -951,7 +958,8 @@ export default function SignUpPage() {
                     <input
                       type="tel"
                       required
-                      pattern="^\\+?\\d{10,15}$"
+                      pattern="[+]?[0-9 -]{10,20}"
+                      title="Please enter a valid 10-digit mobile number (e.g. 9876543210 or +91 9876543210)"
                       name="phone"
                       className="fc-text-input"
                       placeholder="e.g. 9876543210"
