@@ -2203,8 +2203,8 @@ function SuperAdminDashboard({ user, onLogout }) {
                 </div>
               </div>
 
-              {/* Grid Section 1: Food Court & Applicant */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginBottom: '16px' }}>
+              {/* Grid Section 1: Food Court & Applicant (Side by Side) */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginBottom: '14px' }}>
                 {/* Facility Card */}
                 <div style={{ background: '#0e0e14', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '16px' }}>
                   <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>
@@ -2212,16 +2212,16 @@ function SuperAdminDashboard({ user, onLogout }) {
                   </div>
                   <div style={{ marginBottom: '10px' }}>
                     <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Food Court Name</div>
-                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#f1f5f9' }}>{viewingRegDetails.food_court_name}</div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#f1f5f9', marginTop: '2px' }}>{viewingRegDetails.food_court_name}</div>
                   </div>
                   <div style={{ marginBottom: '10px' }}>
                     <div style={{ fontSize: '0.72rem', color: '#64748b' }}>City / Location</div>
-                    <div style={{ fontSize: '0.86rem', color: '#cbd5e1' }}>{viewingRegDetails.city || '—'}</div>
+                    <div style={{ fontSize: '0.86rem', color: '#cbd5e1', marginTop: '2px' }}>{viewingRegDetails.city || '—'}</div>
                   </div>
                   {viewingRegDetails.tenant_id && (
                     <div>
                       <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Provisioned Tenant ID</div>
-                      <div style={{ fontSize: '0.86rem', color: '#a78bfa', fontWeight: 600 }}>Food Court #{viewingRegDetails.tenant_id}</div>
+                      <div style={{ fontSize: '0.86rem', color: '#a78bfa', fontWeight: 600, marginTop: '2px' }}>Food Court #{viewingRegDetails.tenant_id}</div>
                     </div>
                   )}
                 </div>
@@ -2233,27 +2233,27 @@ function SuperAdminDashboard({ user, onLogout }) {
                   </div>
                   <div style={{ marginBottom: '10px' }}>
                     <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Contact Person / Owner</div>
-                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#f1f5f9' }}>{viewingRegDetails.owner_name}</div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#f1f5f9', marginTop: '2px' }}>{viewingRegDetails.owner_name}</div>
                   </div>
                   <div style={{ marginBottom: '10px' }}>
                     <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Email Address</div>
-                    <div style={{ fontSize: '0.86rem', color: '#cbd5e1', wordBreak: 'break-all' }}>{viewingRegDetails.email}</div>
+                    <div style={{ fontSize: '0.86rem', color: '#cbd5e1', wordBreak: 'break-all', marginTop: '2px' }}>{viewingRegDetails.email}</div>
                   </div>
                   <div>
                     <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Phone Number</div>
-                    <div style={{ fontSize: '0.86rem', color: '#cbd5e1' }}>{viewingRegDetails.phone || '—'}</div>
+                    <div style={{ fontSize: '0.86rem', color: '#cbd5e1', marginTop: '2px' }}>{viewingRegDetails.phone || '—'}</div>
                   </div>
                 </div>
               </div>
 
-              {/* ── Existing Contact Awareness Section (standalone) ── */}
+              {/* ── Standalone Section: Existing Contact Awareness ── */}
               {viewingRegDetails.phone_duplicate_notice && (
                 <div style={{
                   background: 'rgba(56, 189, 248, 0.06)',
                   border: '1px solid rgba(56, 189, 248, 0.25)',
                   borderRadius: '10px',
                   padding: '16px',
-                  marginBottom: '16px'
+                  marginBottom: '14px'
                 }}>
                   <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span>ℹ️</span> Existing Contact Awareness
