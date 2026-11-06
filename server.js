@@ -690,7 +690,7 @@ function rewriteQuery(sql, params, tenantId) {
       }
       
       const tableAlias = getTableIdentifier(sql, targetTable);
-      const countBeforeInsert = (sql.slice(0, insertIdx).match(/\\?/g) || []).length;
+      const countBeforeInsert = (sql.slice(0, insertIdx).match(/\?/g) || []).length;
       
       rewrittenSql = sql.slice(0, insertIdx) + ` WHERE ${tableAlias}.tenant_id = ? ` + sql.slice(insertIdx);
       rewrittenParams.splice(countBeforeInsert, 0, tenantId);

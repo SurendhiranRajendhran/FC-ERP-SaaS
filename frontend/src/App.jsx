@@ -3522,6 +3522,14 @@ function App() {
     }
   }, [token, selectedVendorId]);
 
+  // Auto-refresh past orders when navigating to the Past Orders tab or switching stall filter
+  useEffect(() => {
+    if (!token) return;
+    if (activeTab === 'orders') {
+      fetchOrders();
+    }
+  }, [token, activeTab, selectedVendorId]);
+
   // Auto-calculate common cost in Vendor split settlements based on selected date range by summing actual overheads
   // Adding commonExpensesList to dependencies ensures this re-runs when a new expense is logged
   useEffect(() => {
@@ -3790,7 +3798,10 @@ function App() {
       }
       
       const q = vid ? `?vendor_id=${vid}` : '';
-      const res = await fetch(`${API_BASE}/orders${q}`);
+      const sep = q ? '&' : '?';
+      const res = await fetch(`${API_BASE}/orders${q}${sep}_t=${Date.now()}`, {
+        cache: 'no-store'
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Fetch failed');
       setPastOrders(data);
@@ -6948,7 +6959,10 @@ function App() {
           {['Owner', 'Manager', 'Billing Staff'].includes(user.role) && isTabPermitted('orders') && (
           <div
             className={`menu-item ${activeTab === 'orders' ? 'active' : ''}`}
-            onClick={() => setActiveTab('orders')}
+            onClick={() => {
+              setActiveTab('orders');
+              fetchOrders();
+            }}
           >
             <svg className="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="9" cy="21" r="1"></circle>
@@ -9631,8 +9645,20 @@ function App() {
 
           {activeTab === 'orders' && (
             <div className="view-panel active">
-              <div className="view-header-bar">
-                <h3>Historical Sales Orders</h3>
+              <div className="view-header-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <h3>Historical Sales Orders</h3>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    ({pastOrders.length} {pastOrders.length === 1 ? 'order' : 'orders'} recorded)
+                  </span>
+                </div>
+                <button
+                  className="btn btn-secondary"
+                  onClick={fetchOrders}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 14px', cursor: 'pointer' }}
+                >
+                  🔄 Refresh Orders
+                </button>
               </div>
               <div className="table-container">
                 <table className="data-table">
@@ -9642,7 +9668,7 @@ function App() {
                       <th>Date</th>
                       <th>Order Items</th>
                       <th>Net Total</th>
-                      <th>Payment Mode</th>
+                      <th>Payment & Status</th>
                       <th>Action</th>
                     </tr>
                   </thead>
@@ -9697,31 +9723,48 @@ function App() {
                             <div style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>GST: ₹{parseFloat(order.gst_amount).toFixed(2)}</div>
                           </td>
                           <td>
-                            <span
-                              className="badge badge-category"
-                              style={
-                                order.payment_mode === 'RFID Wallet' ? { background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', borderColor: 'rgba(59, 130, 246, 0.35)' } :
-                                order.payment_mode === 'Credit' ? { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.35)' } :
-                                order.payment_mode === 'UPI' ? { background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa', borderColor: 'rgba(139, 92, 246, 0.35)' } :
-                                order.payment_mode === 'Card' ? { background: 'rgba(6, 182, 212, 0.15)', color: '#22d3ee', borderColor: 'rgba(6, 182, 212, 0.35)' } :
-                                order.payment_mode === 'Cash' ? { background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', borderColor: 'rgba(34, 197, 94, 0.35)' } :
-                                undefined
-                              }
-                            >
-                              {order.payment_mode || 'Cash'}
-                            </span>
-                            {order.status === 'Cancelled' && (
-                              <div style={{ marginTop: '4px', display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
-                                <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>
-                                  Cancelled
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <span
+                                className="badge badge-category"
+                                style={
+                                  order.payment_mode === 'RFID Wallet' ? { background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', borderColor: 'rgba(59, 130, 246, 0.35)' } :
+                                  order.payment_mode === 'Credit' ? { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.35)' } :
+                                  order.payment_mode === 'UPI' ? { background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa', borderColor: 'rgba(139, 92, 246, 0.35)' } :
+                                  order.payment_mode === 'Card' ? { background: 'rgba(6, 182, 212, 0.15)', color: '#22d3ee', borderColor: 'rgba(6, 182, 212, 0.35)' } :
+                                  order.payment_mode === 'Cash' ? { background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', borderColor: 'rgba(34, 197, 94, 0.35)' } :
+                                  undefined
+                                }
+                              >
+                                {order.payment_mode || 'Cash'}
+                              </span>
+                              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <span
+                                  className="badge"
+                                  style={{
+                                    fontSize: '0.7rem',
+                                    padding: '2px 8px',
+                                    borderRadius: '4px',
+                                    fontWeight: 'bold',
+                                    ...(order.status === 'Completed' ? { background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)' } :
+                                       order.status === 'Ready' ? { background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' } :
+                                       order.status === 'Preparing' ? { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' } :
+                                       order.status === 'Cancelled' ? { background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)' } :
+                                       { background: 'rgba(148, 163, 184, 0.15)', color: '#cbd5e1', border: '1px solid rgba(148, 163, 184, 0.3)' })
+                                  }}
+                                >
+                                  {order.status === 'Completed' ? '✓ Completed' :
+                                   order.status === 'Ready' ? '🔔 Ready' :
+                                   order.status === 'Preparing' ? '🍳 Preparing' :
+                                   order.status === 'Cancelled' ? '✕ Cancelled' :
+                                   '⏳ Pending'}
                                 </span>
-                                {order.refund_status === 'Refunded' && (
+                                {order.status === 'Cancelled' && order.refund_status === 'Refunded' && (
                                   <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', borderRadius: '4px', border: '1px solid rgba(34, 197, 94, 0.3)', fontWeight: 'bold' }}>
                                     ↩ Refunded
                                   </span>
                                 )}
                               </div>
-                            )}
+                            </div>
                           </td>
                           <td>
                             {order.status !== 'Cancelled' ? (
@@ -9740,7 +9783,7 @@ function App() {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan="5" className="empty-state">No orders have been recorded yet.</td>
+                        <td colSpan="6" className="empty-state">No orders have been recorded yet.</td>
                       </tr>
                     )}
                   </tbody>
