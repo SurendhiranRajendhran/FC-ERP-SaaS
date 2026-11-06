@@ -9668,7 +9668,7 @@ function App() {
                       <th>Date</th>
                       <th>Order Items</th>
                       <th>Net Total</th>
-                      <th>Payment & Status</th>
+                      <th>Payment Type</th>
                       <th>Action</th>
                     </tr>
                   </thead>
@@ -9723,48 +9723,19 @@ function App() {
                             <div style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>GST: ₹{parseFloat(order.gst_amount).toFixed(2)}</div>
                           </td>
                           <td>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              <span
-                                className="badge badge-category"
-                                style={
-                                  order.payment_mode === 'RFID Wallet' ? { background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', borderColor: 'rgba(59, 130, 246, 0.35)' } :
-                                  order.payment_mode === 'Credit' ? { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.35)' } :
-                                  order.payment_mode === 'UPI' ? { background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa', borderColor: 'rgba(139, 92, 246, 0.35)' } :
-                                  order.payment_mode === 'Card' ? { background: 'rgba(6, 182, 212, 0.15)', color: '#22d3ee', borderColor: 'rgba(6, 182, 212, 0.35)' } :
-                                  order.payment_mode === 'Cash' ? { background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', borderColor: 'rgba(34, 197, 94, 0.35)' } :
-                                  undefined
-                                }
-                              >
-                                {order.payment_mode || 'Cash'}
-                              </span>
-                              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
-                                <span
-                                  className="badge"
-                                  style={{
-                                    fontSize: '0.7rem',
-                                    padding: '2px 8px',
-                                    borderRadius: '4px',
-                                    fontWeight: 'bold',
-                                    ...(order.status === 'Completed' ? { background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)' } :
-                                       order.status === 'Ready' ? { background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' } :
-                                       order.status === 'Preparing' ? { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' } :
-                                       order.status === 'Cancelled' ? { background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)' } :
-                                       { background: 'rgba(148, 163, 184, 0.15)', color: '#cbd5e1', border: '1px solid rgba(148, 163, 184, 0.3)' })
-                                  }}
-                                >
-                                  {order.status === 'Completed' ? '✓ Completed' :
-                                   order.status === 'Ready' ? '🔔 Ready' :
-                                   order.status === 'Preparing' ? '🍳 Preparing' :
-                                   order.status === 'Cancelled' ? '✕ Cancelled' :
-                                   '⏳ Pending'}
-                                </span>
-                                {order.status === 'Cancelled' && order.refund_status === 'Refunded' && (
-                                  <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', borderRadius: '4px', border: '1px solid rgba(34, 197, 94, 0.3)', fontWeight: 'bold' }}>
-                                    ↩ Refunded
-                                  </span>
-                                )}
-                              </div>
-                            </div>
+                            <span
+                              className="badge badge-category"
+                              style={
+                                order.payment_mode === 'RFID Wallet' ? { background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', borderColor: 'rgba(59, 130, 246, 0.35)' } :
+                                order.payment_mode === 'Credit' ? { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.35)' } :
+                                order.payment_mode === 'UPI' ? { background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa', borderColor: 'rgba(139, 92, 246, 0.35)' } :
+                                order.payment_mode === 'Card' ? { background: 'rgba(6, 182, 212, 0.15)', color: '#22d3ee', borderColor: 'rgba(6, 182, 212, 0.35)' } :
+                                order.payment_mode === 'Cash' ? { background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', borderColor: 'rgba(34, 197, 94, 0.35)' } :
+                                undefined
+                              }
+                            >
+                              {order.payment_mode || 'Cash'}
+                            </span>
                           </td>
                           <td>
                             {order.status !== 'Cancelled' ? (
