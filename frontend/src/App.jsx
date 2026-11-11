@@ -6801,7 +6801,9 @@ function App() {
 
     const matchSearch = item.name.toLowerCase().includes(menuSearch.toLowerCase()) || 
                         (item.description && item.description.toLowerCase().includes(menuSearch.toLowerCase()));
-    const matchCategory = menuCategoryFilter === 'All' || item.category === menuCategoryFilter;
+    const matchCategory = menuCategoryFilter === 'All' || 
+                          item.category === menuCategoryFilter || 
+                          (menuCategoryFilter === 'Specials' && Boolean(item.is_special));
 
     return matchSearch && matchCategory;
   });
@@ -9058,9 +9060,27 @@ function App() {
                               </div>
                             )}
                           </td>
-                          <td><strong>{item.name}</strong></td>
+                          <td>
+                            <strong>{item.name}</strong>
+                            {Boolean(item.is_special) && (
+                              <span style={{ marginLeft: '6px', fontSize: '0.7rem', padding: '2px 6px', background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.35)', borderRadius: '4px', fontWeight: 'bold', display: 'inline-block' }}>
+                                ⭐ Special
+                              </span>
+                            )}
+                          </td>
                           <td><span className="badge badge-category">{item.category}</span></td>
-                          <td><strong className="text-success">₹{parseFloat(item.price).toFixed(2)}</strong></td>
+                          <td>
+                            {Boolean(item.is_special) && item.special_price ? (
+                              <div>
+                                <strong className="text-success" style={{ color: '#facc15' }}>₹{parseFloat(item.special_price).toFixed(2)}</strong>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textDecoration: 'line-through', marginLeft: '6px' }}>
+                                  ₹{parseFloat(item.price).toFixed(2)}
+                                </span>
+                              </div>
+                            ) : (
+                              <strong className="text-success">₹{parseFloat(item.price).toFixed(2)}</strong>
+                            )}
+                          </td>
                           <td>{parseFloat(item.gst_rate).toFixed(1)}%</td>
                           <td style={{maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
                             {item.description || <span className="text-muted">No description</span>}
