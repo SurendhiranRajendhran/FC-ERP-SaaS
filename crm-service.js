@@ -1,3 +1,6 @@
+// Enforce Indian Standard Time (IST) globally
+process.env.TZ = 'Asia/Kolkata';
+
 // crm-service.js  --  CRM & Notifications Engine
 // Provider-agnostic: works in simulated mode without API keys.
 // Plug in Gupshup/MSG91/SMTP keys in notification_settings to enable live sending.
@@ -189,7 +192,7 @@ async function triggerLowStockAlert(material) {
 // ─── DAILY SUMMARY ───────────────────────────────────────────────────────────
 async function sendDailySummary() {
   try {
-    const today = new Date().toLocaleDateString('en-CA');
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 
     // Consolidated Food Court Sales for today
     const [salesRows] = await pool.query(

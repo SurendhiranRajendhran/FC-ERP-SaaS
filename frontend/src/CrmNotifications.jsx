@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { formatISTDateTime, formatISTDate, formatISTTime } from './dateUtils';
 
 // ─── Utility: API call ───────────────────────────────────────────────────────
 const api = async (url, opts = {}) => {
@@ -118,7 +119,7 @@ function OverviewTab() {
           <tbody>
             {(data?.recent_logs || []).map(l => (
               <tr key={l.id} style={{ borderBottom: '1px solid #374151' }}>
-                <td style={{ padding: '8px 10px', color: '#9ca3af' }}>{new Date(l.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td>
+                <td style={{ padding: '8px 10px', color: '#9ca3af' }}>{formatISTTime(l.created_at)}</td>
                 <td style={{ padding: '8px 10px', color: '#d1d5db' }}>{l.type.replace(/_/g,' ')}</td>
                 <td style={{ padding: '8px 10px' }}><Badge v={l.channel} /></td>
                 <td style={{ padding: '8px 10px', color: '#9ca3af' }}>{l.recipient_name || l.recipient || '—'}</td>
@@ -220,7 +221,7 @@ function LoyaltyTab() {
                   <span style={{ background: '#f59e0b22', color: '#f59e0b', padding: '3px 10px', borderRadius: 12, fontWeight: 700 }}>⭐ {c.loyalty_points || 0}</span>
                 </td>
                 <td style={{ padding: '12px 16px', color: '#10b981' }}>₹{fmt(c.total_spent)}</td>
-                <td style={{ padding: '12px 16px', color: '#9ca3af' }}>{c.last_visit ? new Date(c.last_visit).toLocaleDateString('en-IN') : '-'}</td>
+                <td style={{ padding: '12px 16px', color: '#9ca3af' }}>{c.last_visit ? formatISTDate(c.last_visit) : '-'}</td>
                 <td style={{ padding: '12px 16px' }}>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button onClick={() => openEdit(c)} style={{ padding: '4px 10px', background: '#f59e0b22', color: '#f59e0b', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>Edit</button>
@@ -299,7 +300,7 @@ function LoyaltyTab() {
               <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #374151', fontSize: 13 }}>
                 <div>
                   <div style={{ color: '#f9fafb', fontWeight: 600 }}>{t.note}</div>
-                  <div style={{ color: '#6b7280', fontSize: 11 }}>{new Date(t.created_at).toLocaleString('en-IN')}</div>
+                  <div style={{ color: '#6b7280', fontSize: 11 }}>{formatISTDateTime(t.created_at)}</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontWeight: 800, color: t.type === 'earn' ? '#10b981' : '#ef4444' }}>
@@ -437,11 +438,11 @@ function BroadcastsTab() {
               <tr key={c.id} style={{ borderBottom: '1px solid #374151' }}>
                 <td style={{ padding: '12px 16px' }}>
                   <div style={{ color: '#f9fafb', fontWeight: 600 }}>{c.name}</div>
-                  <div style={{ color: '#6b7280', fontSize: 11, marginTop: 2 }}>{new Date(c.created_at).toLocaleDateString('en-IN')}</div>
+                  <div style={{ color: '#6b7280', fontSize: 11, marginTop: 2 }}>{formatISTDate(c.created_at)}</div>
                 </td>
                 <td style={{ padding: '12px 16px', color: '#9ca3af' }}>{c.channel}</td>
                 <td style={{ padding: '12px 16px', color: '#9ca3af' }}>{c.target_segment}</td>
-                <td style={{ padding: '12px 16px', color: '#9ca3af', fontSize: 12 }}>{c.scheduled_at ? new Date(c.scheduled_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
+                <td style={{ padding: '12px 16px', color: '#9ca3af', fontSize: 12 }}>{c.scheduled_at ? formatISTDateTime(c.scheduled_at, { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
                 <td style={{ padding: '12px 16px' }}><Badge v={c.status} /></td>
                 <td style={{ padding: '12px 16px', color: '#d1d5db' }}>{c.total_recipients}</td>
                 <td style={{ padding: '12px 16px', color: '#10b981' }}>{c.total_sent}</td>
@@ -477,7 +478,7 @@ function BroadcastsTab() {
                   <td style={{ padding: '8px 12px', color: '#f9fafb' }}>{r.customer_name}</td>
                   <td style={{ padding: '8px 12px', color: '#9ca3af' }}>{r.phone}</td>
                   <td style={{ padding: '8px 12px' }}><Badge v={r.status} /></td>
-                  <td style={{ padding: '8px 12px', color: '#9ca3af' }}>{r.sent_at ? new Date(r.sent_at).toLocaleString('en-IN') : '—'}</td>
+                  <td style={{ padding: '8px 12px', color: '#9ca3af' }}>{r.sent_at ? formatISTDateTime(r.sent_at) : '—'}</td>
                 </tr>)}
               </tbody>
             </table>
@@ -551,7 +552,7 @@ function FeedbackTab() {
               {loading ? <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: '#6b7280' }}>Loading...</td></tr>
                 : feedback.map(f => (
                 <tr key={f.id} style={{ borderBottom: '1px solid #374151', background: f.rating <= 2 ? '#ef444408' : 'transparent' }}>
-                  <td style={{ padding: '10px 12px', color: '#9ca3af', whiteSpace: 'nowrap' }}>{new Date(f.created_at).toLocaleDateString('en-IN')}</td>
+                  <td style={{ padding: '10px 12px', color: '#9ca3af', whiteSpace: 'nowrap' }}>{formatISTDate(f.created_at)}</td>
                   <td style={{ padding: '10px 12px', color: '#f9fafb' }}>{f.customer_name || '—'}</td>
                   <td style={{ padding: '10px 12px', color: '#6b7280' }}>#{f.order_id || '—'}</td>
                   <td style={{ padding: '10px 12px' }}><span style={{ fontWeight: 800, color: ratingColor(f.rating) }}>{'★'.repeat(f.rating)}{'☆'.repeat(5-f.rating)}</span></td>
@@ -623,7 +624,7 @@ function LogsTab() {
             {loading ? <tr><td colSpan={6} style={{ padding: 30, textAlign: 'center', color: '#6b7280' }}>Loading...</td></tr>
               : logs.map(l => (
               <tr key={l.id} style={{ borderBottom: '1px solid #374151' }}>
-                <td style={{ padding: '10px 14px', color: '#9ca3af', whiteSpace: 'nowrap' }}>{new Date(l.created_at).toLocaleString('en-IN')}</td>
+                <td style={{ padding: '10px 14px', color: '#9ca3af', whiteSpace: 'nowrap' }}>{formatISTDateTime(l.created_at)}</td>
                 <td style={{ padding: '10px 14px', color: '#d1d5db' }}>{l.type.replace(/_/g, ' ')}</td>
                 <td style={{ padding: '10px 14px' }}><Badge v={l.channel} /></td>
                 <td style={{ padding: '10px 14px', color: '#9ca3af' }}>{l.recipient_name || l.recipient || '—'}</td>

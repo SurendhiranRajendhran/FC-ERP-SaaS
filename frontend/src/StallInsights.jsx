@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { formatISTDateTime, formatISTDate } from './dateUtils';
 
 const API_BASE = '/api';
 
@@ -291,7 +292,7 @@ function StallInsights({ user }) {
                       onMouseOver={e => e.currentTarget.style.background = 'rgba(139,92,246,0.05)'}
                       onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                     <td style={tableCellStyle}>#{o.token_number || o.order_id}</td>
-                    <td style={{...tableCellStyle, fontSize: '0.85rem'}}>{o.order_date ? new Date(o.order_date).toLocaleString() : '-'}</td>
+                    <td style={{...tableCellStyle, fontSize: '0.85rem'}}>{o.order_date ? formatISTDateTime(o.order_date) : '-'}</td>
                     <td style={tableCellStyle}>
                       <span style={{
                         background: o.order_source === 'QR' ? 'rgba(6,182,212,0.15)' : 'rgba(139,92,246,0.15)',
@@ -448,7 +449,7 @@ function StallInsights({ user }) {
                       onMouseOver={e => e.currentTarget.style.background = 'rgba(139,92,246,0.05)'}
                       onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                     <td style={tableCellStyle}>#{o.token_number || o.order_id}</td>
-                    <td style={{...tableCellStyle, fontSize: '0.85rem'}}>{o.order_date ? new Date(o.order_date).toLocaleString() : '-'}</td>
+                    <td style={{...tableCellStyle, fontSize: '0.85rem'}}>{o.order_date ? formatISTDateTime(o.order_date) : '-'}</td>
                     <td style={tableCellStyle}>
                       <span style={{
                         background: o.order_source === 'QR' ? 'rgba(6,182,212,0.15)' : 'rgba(139,92,246,0.15)',
@@ -570,7 +571,7 @@ function StallInsights({ user }) {
                 <tr key={ex.id} style={{ transition: 'background 0.2s' }}
                     onMouseOver={e => e.currentTarget.style.background = 'rgba(139,92,246,0.05)'}
                     onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                  <td style={tableCellStyle}>{new Date(ex.expense_date).toLocaleDateString()}</td>
+                  <td style={tableCellStyle}>{formatISTDate(ex.expense_date)}</td>
                   <td style={tableCellStyle}>
                     <span style={{ background: 'rgba(139,92,246,0.1)', color: '#a78bfa', padding: '2px 8px', borderRadius: '4px', fontSize: '0.85rem' }}>
                       {ex.category}
@@ -622,10 +623,10 @@ function StallInsights({ user }) {
                           onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                         <td style={tableCellStyle}>
                           <div style={{ fontWeight: 500 }}>
-                            {new Date(d.start_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            {formatISTDate(d.start_date, { day: '2-digit', month: 'short', year: 'numeric' })}
                           </div>
                           <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                            → {new Date(d.end_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            → {formatISTDate(d.end_date, { day: '2-digit', month: 'short', year: 'numeric' })}
                           </div>
                         </td>
                         <td style={{...tableCellStyle, color: '#fca5a5'}}>
@@ -652,7 +653,7 @@ function StallInsights({ user }) {
                           </span>
                           {!isPending && d.settled_at && (
                             <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '3px' }}>
-                              Paid on {new Date(d.settled_at).toLocaleDateString('en-IN')}
+                              Paid on {formatISTDate(d.settled_at)}
                             </div>
                           )}
                         </td>

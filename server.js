@@ -1,5 +1,5 @@
-// Ensure application timezone defaults to Asia/Kolkata (IST) in both local and production environments
-process.env.TZ = process.env.TZ || 'Asia/Kolkata';
+// Force Indian Standard Time (IST) globally for all Node.js operations across local & production environments
+process.env.TZ = 'Asia/Kolkata';
 
 const { AsyncLocalStorage } = require('async_hooks');
 const express = require('express');
@@ -253,6 +253,7 @@ const pool = mysql.createPool({
   connectTimeout: 10000,   // 10s max wait when establishing a new DB connection
   enableKeepAlive: true,   // Keep idle connections alive to avoid reconnect overhead
   keepAliveInitialDelay: 30000, // Ping idle connections every 30s
+  timezone: '+05:30', // Enforce Indian Standard Time (+05:30) in mysql2
 });
 
 crm.setPool(pool);
@@ -270,11 +271,18 @@ const reportPool = mysql.createPool({
   connectTimeout: 15000,
   enableKeepAlive: true,
   keepAliveInitialDelay: 30000,
+  timezone: '+05:30', // Enforce Indian Standard Time (+05:30) in mysql2
+});
+
+// Configure connection timezone to Indian Standard Time (IST) on every acquired connection
+pool.on('connection', (connection) => {
+  connection.query("SET time_zone = '+05:30'", () => {});
 });
 
 // Configure reportPool connections with READ UNCOMMITTED isolation to guarantee zero row/table lock contention with cashier POS transactions
 reportPool.on('connection', (connection) => {
   connection.query('SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED', () => {});
+  connection.query("SET time_zone = '+05:30'", () => {});
 });
 
 // ==========================================
@@ -283,6 +291,12 @@ reportPool.on('connection', (connection) => {
 async function runStartupMigrations() {
   try {
     const conn = await pool.getConnection();
+    try {
+      await conn.query("SET GLOBAL time_zone = '+05:30'");
+    } catch (_) {}
+    try {
+      await conn.query("SET time_zone = '+05:30'");
+    } catch (_) {}
     
     // 1. Fix missing columns in registrations table
     const [tables] = await conn.query("SHOW TABLES LIKE 'registrations'");
@@ -1274,16 +1288,31 @@ app.get('/api/auth/me', async (req, res) => {
   });
 });
 
-// Helper to format date in local YYYY-MM-DD HH:mm:ss format
-function formatLocalTimestamp(date) {
-  const pad = (num) => String(num).padStart(2, '0');
-  const yyyy = date.getFullYear();
-  const mm = pad(date.getMonth() + 1);
-  const dd = pad(date.getDate());
-  const hh = pad(date.getHours());
-  const min = pad(date.getMinutes());
-  const ss = pad(date.getSeconds());
-  return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+// Helper to format date in local Indian Standard Time (IST) YYYY-MM-DD HH:mm:ss format
+function formatLocalTimestamp(date = new Date()) {
+  const d = (date instanceof Date) ? date : new Date(date);
+  if (isNaN(d.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(d);
+  const p = {};
+  for (const part of parts) {
+    p[part.type] = part.value;
+  }
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+}
+
+function getISTDateStr(date = new Date()) {
+  const d = (date instanceof Date) ? date : new Date(date);
+  if (isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 }
 
 // ==========================================
@@ -2285,9 +2314,16 @@ app.post('/api/purchase-entry', async (req, res) => {
 
 function getLocalMonthStart() {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}-01 00:00:00`;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit'
+  }).formatToParts(now);
+  const p = {};
+  for (const part of parts) {
+    p[part.type] = part.value;
+  }
+  return `${p.year}-${p.month}-01 00:00:00`;
 }
 
 async function calculateStaffMealUsage(db, staffId) {

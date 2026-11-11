@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { getISTTodayString } from './dateUtils';
 
 /* ─── API base: uses same origin so LAN IP works on mobile ─── */
 const QR_API_BASE = window.location.origin;
@@ -187,7 +188,7 @@ export default function QRMenu() {
           customer_phone: feedbackPhone || customerPhone || null,
           rating: feedbackRating,
           comments: feedbackComment,
-          feedback_date: new Date().toLocaleDateString('en-CA')
+          feedback_date: getISTTodayString()
         })
       });
       setShowFeedback(false);

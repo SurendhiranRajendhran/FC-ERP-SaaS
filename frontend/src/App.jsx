@@ -4,6 +4,7 @@ import CrmNotifications from './CrmNotifications';
 import WalletManagement from './WalletManagement';
 import StallInsights from './StallInsights';
 import Promotions from './Promotions';
+import { formatISTDateTime, formatISTDate, formatISTTime, getISTTodayString } from './dateUtils';
 
 const API_BASE = '/api';
 
@@ -97,7 +98,7 @@ function StaffMealLedgerModal({ staffId, staffName, token, onClose }) {
                 <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Used This Period</div>
                   <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f59e0b', marginTop: '2px' }}>₹{summary.used.toFixed(2)}</div>
-                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>Since {summary.period_start ? new Date(summary.period_start).toLocaleDateString() : 'N/A'}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>Since {summary.period_start ? formatISTDate(summary.period_start) : 'N/A'}</div>
                 </div>
 
                 <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
@@ -144,7 +145,7 @@ function StaffMealLedgerModal({ staffId, staffName, token, onClose }) {
                   </button>
                 </div>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  Period Start: <strong>{summary.period_start ? new Date(summary.period_start).toLocaleDateString() : 'N/A'}</strong>
+                  Period Start: <strong>{summary.period_start ? formatISTDate(summary.period_start) : 'N/A'}</strong>
                 </span>
               </div>
 
@@ -172,7 +173,7 @@ function StaffMealLedgerModal({ staffId, staffName, token, onClose }) {
                       filteredTimeline.map((item) => (
                         <tr key={item.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
                           <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
-                            {new Date(item.timestamp).toLocaleString()}
+                            {formatISTDateTime(item.timestamp)}
                           </td>
                           <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
                             <span style={{
@@ -575,8 +576,7 @@ function SuperAdminDashboard({ user, onLogout }) {
   const formatRegDate = (dateStr) => {
     if (!dateStr) return '—';
     try {
-      const d = new Date(dateStr);
-      return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      return formatISTDate(dateStr, { year: 'numeric', month: 'short', day: 'numeric' });
     } catch (e) {
       return dateStr;
     }
@@ -1164,7 +1164,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                           )}
                         </td>
                         <td style={{...saStyles.td, textAlign: 'right', color: '#64748b'}}>
-                          {new Date(t.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                          {formatISTDate(t.created_at, { year: 'numeric', month: 'short', day: 'numeric' })}
                         </td>
                         <td style={{...saStyles.td, textAlign: 'center'}}>
                           <div style={{display: 'flex', gap: '6px', justifyContent: 'center'}}>
@@ -2773,7 +2773,7 @@ function QRManagementPanel({ user }) {
                   <td>{o.customer_name || '—'}</td>
                   <td>{o.customer_phone || '—'}</td>
                   <td>{o.pickup_slot ? <strong>{o.pickup_slot}</strong> : <span style={{ color: 'var(--text-muted)' }}>⚡ Immediate</span>}</td>
-                  <td>{new Date(o.order_date).toLocaleString()}</td>
+                  <td>{formatISTDateTime(o.order_date)}</td>
                   <td>₹{parseFloat(o.total_amount).toFixed(2)}</td>
                   <td><span className={`status-badge ${(o.status || '').toLowerCase()}`}>{o.status}</span></td>
                   <td>
@@ -2914,7 +2914,7 @@ function App() {
   const [showVendorForm, setShowVendorForm] = useState(false);
   const [perfMetric, setPerfMetric] = useState('revenue');
   const [commonExpensesList, setCommonExpensesList] = useState([]);
-  const [commonExpenseForm, setCommonExpenseForm] = useState({ category: 'Electricity', description: '', amount: '', expense_date: new Date().toLocaleDateString('en-CA') });
+  const [commonExpenseForm, setCommonExpenseForm] = useState({ category: 'Electricity', description: '', amount: '', expense_date: getISTTodayString() });
 
   // Central Order Settlements States (Task 5)
   const [centralPending, setCentralPending] = useState([]);
@@ -3043,7 +3043,7 @@ function App() {
       });
       if (res.ok) {
         showToast('Common expense logged successfully!', 'success');
-        setCommonExpenseForm({ category: 'Electricity', description: '', amount: '', expense_date: new Date().toLocaleDateString('en-CA') });
+        setCommonExpenseForm({ category: 'Electricity', description: '', amount: '', expense_date: getISTTodayString() });
         fetchCommonExpenses();
       } else {
         showToast('Failed to log expense', 'error');
@@ -3106,7 +3106,7 @@ function App() {
   const [reportsData, setReportsData] = useState({ sales: null, stock: null, vendors: null, peakHours: null, monthlyPl: null, customerAnalytics: null, gst: null });
   const [reportDateRange, setReportDateRange] = useState({ startDate: '', endDate: '' });
   const [reconData, setReconData] = useState(null);
-  const [reconDate, setReconDate] = useState(() => new Date().toLocaleDateString('en-CA'));
+  const [reconDate, setReconDate] = useState(() => getISTTodayString());
   const [creditCustomers, setCreditCustomers] = useState([]);
   const [creditLedger, setCreditLedger] = useState([]);
   const [selectedCreditCustomer, setSelectedCreditCustomer] = useState(null);
@@ -3126,7 +3126,7 @@ function App() {
   
   // Overheads & Customers Modal States
   const [showOverheadModal, setShowOverheadModal] = useState(false);
-  const [overheadForm, setOverheadForm] = useState({ category: 'Rent', description: '', amount: '', expense_date: new Date().toLocaleDateString('en-CA') });
+  const [overheadForm, setOverheadForm] = useState({ category: 'Rent', description: '', amount: '', expense_date: getISTTodayString() });
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '' });
 
@@ -3331,7 +3331,7 @@ function App() {
       if (res.ok) {
         showToast('Overhead expense logged successfully!', 'success');
         setShowOverheadModal(false);
-        setOverheadForm({ category: 'Rent', description: '', amount: '', expense_date: new Date().toLocaleDateString('en-CA') });
+        setOverheadForm({ category: 'Rent', description: '', amount: '', expense_date: getISTTodayString() });
         if (reportsSubTab === 'monthly-pl') fetchReportData('monthly-pl');
       } else {
         showToast(data.error || 'Failed to save expense', 'error');
@@ -3362,8 +3362,8 @@ function App() {
     const diff = d.getDate() - day + (day === 0 ? -6 : 1);
     return new Date(d.setDate(diff)).toISOString().split('T')[0];
   });
-  const [selectedAttendanceDate, setSelectedAttendanceDate] = useState(() => new Date().toLocaleDateString('en-CA'));
-  const [selectedMealsDate, setSelectedMealsDate] = useState(() => new Date().toLocaleDateString('en-CA'));
+  const [selectedAttendanceDate, setSelectedAttendanceDate] = useState(() => getISTTodayString());
+  const [selectedMealsDate, setSelectedMealsDate] = useState(() => getISTTodayString());
   const [payrollMonth, setPayrollMonth] = useState(() => new Date().getMonth() + 1);
   const [payrollYear, setPayrollYear] = useState(() => new Date().getFullYear());
   const [payrollWorkingDays, setPayrollWorkingDays] = useState('30');
@@ -3416,7 +3416,7 @@ function App() {
   const [formLeave, setFormLeave] = useState({ staff_id: '', leave_type: 'Casual', start_date: '', end_date: '', reason: '' });
   const [leaveBalance, setLeaveBalance] = useState(null);
   const [showMealForm, setShowMealForm] = useState(false);
-  const [formMeal, setFormMeal] = useState({ staff_id: '', item_id: '', quantity: '1', price: '50', meal_date: new Date().toLocaleDateString('en-CA') });
+  const [formMeal, setFormMeal] = useState({ staff_id: '', item_id: '', quantity: '1', price: '50', meal_date: getISTTodayString() });
   const [cancelModal, setCancelModal] = useState({ show: false, orderId: null, tokenNumber: null, pin: '', reason: '', step: 1 });
   const [cancelModalVerifying, setCancelModalVerifying] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
@@ -4111,7 +4111,7 @@ function App() {
 
   // Helper to dynamically calculate working schedule / active shift status for a staff member
   const getStaffWorkingSchedule = (targetDateStr) => {
-    const dateStr = targetDateStr || new Date().toLocaleDateString('en-CA');
+    const dateStr = targetDateStr || getISTTodayString();
     const rosterEntry = roster.find(r => r.staff_id === user?.id && String(r.roster_date || '').split('T')[0] === dateStr);
     const myWeeklyShifts = roster.filter(r => r.staff_id === user?.id && r.status !== 'Off');
 
@@ -5831,6 +5831,7 @@ function App() {
     const monthName = new Date(y, m - 1).toLocaleString('en-US', { month: 'long' });
     const payslipRef = `PS-${y}${String(m).padStart(2, '0')}-${String(p.staff_id).padStart(4, '0')}`;
     const generatedOn = new Date().toLocaleDateString('en-IN', {
+      timeZone: 'Asia/Kolkata',
       day: '2-digit',
       month: 'short',
       year: 'numeric'
@@ -7498,7 +7499,7 @@ function App() {
                         })()}
 
                         {/* 2. My Check-in Desk Section */}
-                        {selectedAttendanceDate === new Date().toLocaleDateString('en-CA') ? (
+                        {selectedAttendanceDate === getISTTodayString() ? (
                           <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                             <h4 style={{ margin: '0 0 15px 0' }}>🍳 My Check-in Desk</h4>
                             <div className="quick-checkin-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -7513,14 +7514,14 @@ function App() {
                                     <div>
                                       {!rec ? (
                                         <button className="btn btn-success btn-small" onClick={() => {
-                                          const todayStr = new Date().toLocaleDateString('en-CA');
+                                          const todayStr = getISTTodayString();
                                           const rosterEntry = roster.find(r => r.staff_id === member.id && r.roster_date.split('T')[0] === todayStr);
                                           const shiftId = rosterEntry && rosterEntry.status !== 'Off' ? rosterEntry.shift_id : null;
                                           handleCheckIn(member.id, shiftId, 'Self check-in');
                                         }}>▶ Check In</button>
                                       ) : !rec.check_out && rec.status !== 'Absent' ? (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>In: {new Date(rec.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>In: {formatISTTime(rec.check_in)}</span>
                                           <button className="btn btn-outline-danger btn-small" onClick={() => handleCheckOut(rec.id)}>■ Check Out</button>
                                         </div>
                                       ) : (
@@ -7548,7 +7549,7 @@ function App() {
                           </div>
                         ) : (
                           <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                            ℹ️ My Check-in Desk is active for today ({new Date().toLocaleDateString('en-CA')}). Viewing records for {selectedAttendanceDate}.
+                            ℹ️ My Check-in Desk is active for today ({getISTTodayString()}). Viewing records for {selectedAttendanceDate}.
                           </div>
                         )}
                       </div>
@@ -7576,8 +7577,8 @@ function App() {
                               return (
                               <tr key={a.id} style={isShortShift ? { borderLeft: '3px solid #f59e0b' } : undefined}>
                                 <td>{a.shift_name || '—'}</td>
-                                <td>{a.check_in ? new Date(a.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                                <td>{a.check_out ? new Date(a.check_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                                <td>{a.check_in ? formatISTTime(a.check_in) : '—'}</td>
+                                <td>{a.check_out ? formatISTTime(a.check_out) : '—'}</td>
                                 <td>
                                   {(() => {
                                     const displayStatus = a.status && a.status.trim() !== '' ? a.status : 'Present';
@@ -7645,7 +7646,7 @@ function App() {
                                 <th key={i}>
                                   {dayNames[i]}<br />
                                   <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>
-                                    {start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                    {start.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric' })}
                                   </span>
                                 </th>
                               );
@@ -7751,7 +7752,7 @@ function App() {
                           {shiftSwaps.filter(sw => sw.requester_id === user.id).length > 0 ? (
                             shiftSwaps.filter(sw => sw.requester_id === user.id).map(sw => (
                               <tr key={sw.id}>
-                                <td>{new Date(sw.swap_date).toLocaleDateString()}</td>
+                                <td>{formatISTDate(sw.swap_date)}</td>
                                 <td><strong>You</strong></td>
                                 <td>{sw.target_name}</td>
                                 <td>{sw.reason}</td>
@@ -7830,8 +7831,8 @@ function App() {
                             leaves.filter(l => l.staff_id === user.id).map(l => (
                               <tr key={l.id}>
                                 <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{l.leave_type}</span></td>
-                                <td>{new Date(l.start_date).toLocaleDateString()}</td>
-                                <td>{new Date(l.end_date).toLocaleDateString()}</td>
+                                <td>{formatISTDate(l.start_date)}</td>
+                                <td>{formatISTDate(l.end_date)}</td>
                                 <td>{l.reason}</td>
                                 <td>
                                   <span className={`badge badge-${l.status === 'Approved' ? 'success' : l.status === 'Rejected' ? 'danger' : 'warning'}`}>
@@ -7866,7 +7867,7 @@ function App() {
                       const endDate = new Date(lastDay);
                       if (endDate.getDay() !== 6) endDate.setDate(endDate.getDate() + (6 - endDate.getDay()));
 
-                      const todayStr = new Date().toLocaleDateString('en-CA');
+                      const todayStr = getISTTodayString();
 
                       // Holidays for current month (strictly deduplicated by unique date)
                       const rawMonthHolidays = holidays.filter(h => {
@@ -7911,7 +7912,7 @@ function App() {
                       while (day <= endDate) {
                         for (let i = 0; i < 7; i++) {
                           const currentDate = new Date(day);
-                          const dateStr = currentDate.toLocaleDateString('en-CA');
+                          const dateStr = currentDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
                           const isCurrentMonth = currentDate.getMonth() === month;
                           const isToday = dateStr === todayStr;
                           const isSunday = currentDate.getDay() === 0;
@@ -8299,7 +8300,7 @@ function App() {
                                           </span>
                                         </div>
                                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                          {dateObj.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                                          {dateObj.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
                                         </div>
                                         <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '3px' }}>
                                           {h.description ? h.description : (user?.vendor_id ? `Marked by ${stallName} Manager` : 'Marked by Central Admin')}
@@ -8365,7 +8366,7 @@ function App() {
                                           </span>
                                         </div>
                                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                          {sObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – {eObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                          {sObj.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric' })} – {eObj.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', year: 'numeric' })}
                                         </div>
                                         <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '3px' }}>
                                           {l.reason || (isApproved ? 'Personal leave filed & approved' : 'Leave application rejected')}
@@ -9616,7 +9617,7 @@ function App() {
                           logs.map((log, idx) => (
                             <tr key={idx}>
                               <td style={{fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-muted)'}}>
-                                {new Date(log.logged_at).toLocaleString()}
+                                {formatISTDateTime(log.logged_at)}
                               </td>
                               <td><strong>{log.material_name}</strong></td>
                               <td style={{
@@ -9698,7 +9699,7 @@ function App() {
                         <tr key={idx}>
                           <td><strong>{order.token_number}</strong></td>
                           <td style={{fontSize: '0.85rem', color: 'var(--text-muted)'}}>
-                            {new Date(order.order_date).toLocaleString()}
+                            {formatISTDateTime(order.order_date)}
                             {user.vendor_id && order.order_source === 'POS' && order.billing_staff_vendor_id === null && (
                               <div style={{ marginTop: '4px' }}>
                                 <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#3b82f6', borderRadius: '4px', color: '#fff', fontWeight: 'bold' }}>
@@ -10152,7 +10153,7 @@ function App() {
                             </span>
                           </div>
                           <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                            {new Date(order.order_date).toLocaleTimeString()}
+                            {formatISTTime(order.order_date)}
                             {order.customer_name && ` | 👤 ${order.customer_name}`}
                             {order.pickup_slot && ` | ⏰ ${order.pickup_slot}`}
                           </div>
@@ -10460,7 +10461,7 @@ function App() {
                               <tr key={s.id}>
                                 <td style={{ fontWeight: 600 }}>{s.vendor_name}</td>
                                 <td>{s.stall_number || '—'}</td>
-                                <td style={{ fontSize: '0.78rem' }}>{new Date(s.start_date).toLocaleDateString()} – {new Date(s.end_date).toLocaleDateString()}</td>
+                                <td style={{ fontSize: '0.78rem' }}>{formatISTDate(s.start_date)} – {formatISTDate(s.end_date)}</td>
                                 <td className="amount-col amount-positive">₹{parseFloat(s.gross_sales).toFixed(2)}</td>
                                 <td className="amount-col amount-negative">−₹{parseFloat(s.commission_amount).toFixed(2)}</td>
                                 <td className="amount-col amount-negative">−₹{parseFloat(s.common_area_cost).toFixed(2)}</td>
@@ -10481,7 +10482,7 @@ function App() {
                                     }}>✅ Mark Paid</button>
                                   )}
                                   {s.status === 'Settled' && (
-                                    <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>Paid {s.settled_at ? new Date(s.settled_at).toLocaleDateString() : ''}</span>
+                                    <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>Paid {s.settled_at ? formatISTDate(s.settled_at) : ''}</span>
                                   )}
                                 </td>
                               </tr>
@@ -10641,7 +10642,7 @@ function App() {
                             ) : (
                               commonExpensesList.map((exp) => (
                                 <tr key={exp.id}>
-                                  <td>{new Date(exp.expense_date).toLocaleDateString()}</td>
+                                  <td>{formatISTDate(exp.expense_date)}</td>
                                   <td><span className="badge">{exp.category}</span></td>
                                   <td><strong style={{ color: 'var(--accent-danger)' }}>₹{Number(exp.amount).toFixed(2)}</strong></td>
                                   <td>{exp.description || '-'}</td>
@@ -10785,7 +10786,7 @@ function App() {
                                             }} />
                                         </td>
                                         <td>#{order.token_number || order.order_id}</td>
-                                        <td style={{ fontSize: '0.85em' }}>{new Date(order.order_date).toLocaleString()}</td>
+                                        <td style={{ fontSize: '0.85em' }}>{formatISTDateTime(order.order_date)}</td>
                                         <td><span className="badge" style={{ background: order.order_source === 'QR' ? 'var(--accent-primary, #6366f1)' : 'var(--accent-info, #06b6d4)', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75em' }}>{order.order_source}</span></td>
                                         <td style={{ fontSize: '0.85em', maxWidth: '200px', whiteSpace: 'normal' }}>{order.items.join(', ')}</td>
                                         <td><strong>₹{Number(order.total_price).toFixed(2)}</strong></td>
@@ -10842,7 +10843,7 @@ function App() {
                                 <td><strong>{h.vendor_name}</strong></td>
                                 <td>{h.stall_number || '-'}</td>
                                 <td><strong style={{ color: 'var(--accent-success, #22c55e)' }}>₹{Number(h.amount).toFixed(2)}</strong></td>
-                                <td>{new Date(h.settled_at).toLocaleString()}</td>
+                                <td>{formatISTDateTime(h.settled_at)}</td>
                               </tr>
                             ))
                           )}
@@ -10976,7 +10977,7 @@ function App() {
                                           }} />
                                       </td>
                                       <td>#{order.token_number || order.order_id}</td>
-                                      <td style={{ fontSize: '0.85em' }}>{new Date(order.order_date).toLocaleString()}</td>
+                                      <td style={{ fontSize: '0.85em' }}>{formatISTDateTime(order.order_date)}</td>
                                       <td><span className="badge" style={{ background: order.order_source === 'QR' ? 'var(--accent-primary, #6366f1)' : 'var(--accent-info, #06b6d4)', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75em' }}>{order.order_source}</span></td>
                                       <td><span className="badge" style={{ background: order.payment_mode === 'Credit' ? '#f59e0b' : order.payment_mode === 'RFID Wallet' ? '#3b82f6' : '#10b981', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75em' }}>{order.payment_mode}</span></td>
                                       <td style={{ fontSize: '0.85em', maxWidth: '200px', whiteSpace: 'normal' }}>{order.items.join(', ')}</td>
@@ -11440,7 +11441,7 @@ function App() {
                       <tbody>
                         {shiftSwaps.map(sw => (
                           <tr key={sw.id}>
-                            <td>{new Date(sw.swap_date).toLocaleDateString()}</td>
+                            <td>{formatISTDate(sw.swap_date)}</td>
                             <td>{sw.requester_name}</td>
                             <td>{sw.target_name}</td>
                             <td>{sw.reason}</td>
@@ -11504,7 +11505,7 @@ function App() {
                               <th key={i}>
                                 {dayNames[i]}<br />
                                 <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>
-                                  {start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                  {start.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric' })}
                                 </span>
                               </th>
                             );
@@ -11528,8 +11529,8 @@ function App() {
                               // Check if this staff member has approved leave covering this date
                               const approvedLeave = leaves.find(l => {
                                 if (l.staff_id !== member.id || l.status !== 'Approved') return false;
-                                const leaveStart = new Date(l.start_date).toLocaleDateString('en-CA');
-                                const leaveEnd = new Date(l.end_date).toLocaleDateString('en-CA');
+                                const leaveStart = new Date(l.start_date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+                                const leaveEnd = new Date(l.end_date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
                                 return dateStr >= leaveStart && dateStr <= leaveEnd;
                               });
 
@@ -11729,7 +11730,7 @@ function App() {
 
                   <div className="attendance-layout" style={{ display: 'flex', gap: '20px', marginTop: '20px', flexWrap: 'wrap' }}>
                     {/* Left: Quick checkin for today */}
-                    {selectedAttendanceDate === new Date().toLocaleDateString('en-CA') && (
+                    {selectedAttendanceDate === getISTTodayString() && (
                       <div style={{ flex: 1, minWidth: '400px', background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                         <h4 style={{ margin: '0 0 15px 0' }}>🍳 Today's Quick Check-in Desk</h4>
                         <div className="quick-checkin-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -11745,7 +11746,7 @@ function App() {
                                   {!rec ? (
                                     <div style={{ display: 'flex', gap: '8px' }}>
                                       <button className="btn btn-success btn-small" onClick={() => {
-                                        const todayStr = new Date().toLocaleDateString('en-CA');
+                                        const todayStr = getISTTodayString();
                                         const rosterEntry = roster.find(r => r.staff_id === member.id && r.roster_date.split('T')[0] === todayStr);
                                         const shiftId = rosterEntry && rosterEntry.status !== 'Off' ? rosterEntry.shift_id : null;
                                         handleCheckIn(member.id, shiftId, 'Desk check-in');
@@ -11753,7 +11754,7 @@ function App() {
                                     </div>
                                   ) : !rec.check_out && rec.status !== 'Absent' ? (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>In: {new Date(rec.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>In: {formatISTTime(rec.check_in)}</span>
                                       <button className="btn btn-outline-danger btn-small" onClick={() => handleCheckOut(rec.id)}>■ Check Out</button>
                                     </div>
                                   ) : (
@@ -11806,8 +11807,8 @@ function App() {
                             <tr key={a.id} style={isShortShift ? { borderLeft: '3px solid #f59e0b', background: 'rgba(245, 158, 11, 0.04)' } : undefined}>
                               <td><strong>{a.staff_name}</strong></td>
                               <td>{a.shift_name || '—'}</td>
-                              <td style={{ fontSize: '0.8rem' }}>{a.check_in ? new Date(a.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                              <td style={{ fontSize: '0.8rem' }}>{a.check_out ? new Date(a.check_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                              <td style={{ fontSize: '0.8rem' }}>{a.check_in ? formatISTTime(a.check_in) : '—'}</td>
+                              <td style={{ fontSize: '0.8rem' }}>{a.check_out ? formatISTTime(a.check_out) : '—'}</td>
                               <td>
                                 {(() => {
                                   const displayStatus = a.status && a.status.trim() !== '' ? a.status : 'Present';
@@ -11933,7 +11934,7 @@ function App() {
                             <td><strong>{lv.staff_name}</strong></td>
                             <td><span className="badge badge-category">{lv.leave_type}</span></td>
                             <td style={{ fontSize: '0.85rem' }}>
-                              {new Date(lv.start_date).toLocaleDateString()} – {new Date(lv.end_date).toLocaleDateString()}
+                              {formatISTDate(lv.start_date)} – {formatISTDate(lv.end_date)}
                             </td>
                             <td>{lv.reason}</td>
                             <td>
@@ -12193,7 +12194,7 @@ function App() {
                               return (
                                 <tr key={i} style={{ background: rowBg }}>
                                   <td>
-                                    <strong>{r.date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</strong>
+                                    <strong>{r.date.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short' })}</strong>
                                   </td>
                                   <td>
                                     {isHoliday ? (
@@ -12959,7 +12960,7 @@ function App() {
                               }}>
                                 {idx === 0 && <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.75rem', background: 'var(--accent-primary)', color: '#fff', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>OFFICIAL RECORD</span>}
                                 <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                  <strong>{new Date(rec.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</strong> • Submitted by: <strong style={{color:'var(--text-light)'}}>{rec.submitted_by_name || 'Unknown User'}</strong>
+                                  <strong>{formatISTTime(rec.created_at)}</strong> • Submitted by: <strong style={{color:'var(--text-light)'}}>{rec.submitted_by_name || 'Unknown User'}</strong>
                                 </div>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem', marginBottom: '10px' }}>
                                   <thead>
@@ -13838,7 +13839,7 @@ function App() {
                             }}
                           />
                         </td>
-                        <td>{new Date(bill.logged_at).toLocaleDateString()}</td>
+                        <td>{formatISTDate(bill.logged_at)}</td>
                         <td>{bill.material_name}</td>
                         <td>{bill.change_qty} {bill.unit}</td>
                         <td>₹{parseFloat(bill.recorded_cost || 0).toFixed(2)}</td>
@@ -14217,7 +14218,7 @@ function App() {
                             {ho.hold_name}
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            Held on: {new Date(ho.created_at).toLocaleTimeString()} | Items: {itemCount} | Total: ₹{totalVal.toFixed(2)}
+                            Held on: {formatISTTime(ho.created_at)} | Items: {itemCount} | Total: ₹{totalVal.toFixed(2)}
                           </div>
                           <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '4px', maxWidth: '350px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {ho.cart_data.map(i => `${i.name} x${i.quantity}`).join(', ')}
@@ -14708,7 +14709,7 @@ function App() {
                     <tbody>
                       {supplierHistoryModal.history.map(record => (
                         <tr key={record.id}>
-                          <td>{new Date(record.logged_at).toLocaleDateString()} {new Date(record.logged_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                          <td>{formatISTDateTime(record.logged_at)}</td>
                           <td><strong>{record.material_name}</strong></td>
                           <td><span className="badge badge-success">+{parseFloat(record.change_qty).toFixed(2)} {record.unit}</span></td>
                           <td style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{record.reason}</td>

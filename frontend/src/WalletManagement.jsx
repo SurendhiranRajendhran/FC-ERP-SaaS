@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { formatISTDateTime } from './dateUtils';
 
 const API_BASE = '/api';
 
@@ -207,7 +208,7 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
                 <div>
                   <div style={{ color: '#f9fafb', fontWeight: 600 }}>{t.description}</div>
                   <div style={{ color: '#6b7280', fontSize: 11, marginTop: 4 }}>
-                    {new Date(t.created_at).toLocaleString('en-IN')} 
+                    {formatISTDateTime(t.created_at)} 
                     {t.reference_id && ` • Ref: ${t.reference_id}`}
                   </div>
                   {t.transaction_amount > 0 && t.type === 'credit' && (
