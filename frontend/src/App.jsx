@@ -9815,24 +9815,24 @@ function App() {
                   {!kdsShowHistory ? (
                     <>
                       <div className="kds-filter-tabs">
-                        {['All', 'Breakfast', 'Lunch', 'Snacks', 'Beverages'].map(cat => (
-                          <button
-                            key={cat}
-                            className={`kds-filter-tab ${kdsFilter === cat ? 'active' : ''}`}
-                            onClick={() => setKdsFilter(cat)}
-                          >
-                            {cat}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="kds-stats-bar">
-                        <div className="kds-stat">
-                          Pending: <span className="kds-stat-value">{kdsOrders.filter(o => o.status === 'Pending').length}</span>
-                        </div>
-                        <div className="kds-stat">
-                          Preparing: <span className="kds-stat-value">{kdsOrders.filter(o => o.status === 'Preparing').length}</span>
-                        </div>
+                        <button
+                          className={`kds-filter-tab ${kdsFilter === 'All' ? 'active' : ''}`}
+                          onClick={() => setKdsFilter('All')}
+                        >
+                          All ({kdsOrders.length})
+                        </button>
+                        <button
+                          className={`kds-filter-tab ${kdsFilter === 'Pending' ? 'active' : ''}`}
+                          onClick={() => setKdsFilter(kdsFilter === 'Pending' ? 'All' : 'Pending')}
+                        >
+                          Pending: <span className="kds-stat-value" style={{ color: '#a78bfa' }}>{kdsOrders.filter(o => o.status === 'Pending').length}</span>
+                        </button>
+                        <button
+                          className={`kds-filter-tab ${kdsFilter === 'Preparing' ? 'active' : ''}`}
+                          onClick={() => setKdsFilter(kdsFilter === 'Preparing' ? 'All' : 'Preparing')}
+                        >
+                          Preparing: <span className="kds-stat-value" style={{ color: '#f59e0b' }}>{kdsOrders.filter(o => o.status === 'Preparing').length}</span>
+                        </button>
                       </div>
 
                       <button
@@ -9865,8 +9865,9 @@ function App() {
                   {/* KDS Active Order Grid */}
                   {(() => {
                     const filteredOrders = kdsOrders.filter(order => {
-                      if (kdsFilter === 'All') return true;
-                      return order.items && order.items.some(item => item.category === kdsFilter);
+                      if (kdsFilter === 'Pending') return order.status === 'Pending';
+                      if (kdsFilter === 'Preparing') return order.status === 'Preparing';
+                      return true; // 'All'
                     });
 
                     if (filteredOrders.length === 0) {
