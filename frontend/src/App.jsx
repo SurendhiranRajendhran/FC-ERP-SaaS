@@ -9759,7 +9759,25 @@ function App() {
                             </span>
                           </td>
                           <td>
-                            {order.status !== 'Cancelled' ? (
+                            {order.status === 'Ready' || order.status === 'Completed' ? (
+                              <span
+                                className="badge badge-success"
+                                style={{
+                                  background: 'rgba(34, 197, 94, 0.15)',
+                                  color: '#22c55e',
+                                  border: '1px solid rgba(34, 197, 94, 0.35)',
+                                  padding: '4px 10px',
+                                  borderRadius: '4px',
+                                  fontWeight: 600,
+                                  fontSize: '0.8rem',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                ✓ Delivered
+                              </span>
+                            ) : order.status !== 'Cancelled' ? (
                               <button className="btn btn-danger-small" onClick={() => setCancelModal({ show: true, orderId: order.id, tokenNumber: order.token_number, pin: '', reason: '', step: 1 })}>Cancel</button>
                             ) : (
                               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>

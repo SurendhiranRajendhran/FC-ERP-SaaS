@@ -3312,6 +3312,10 @@ app.post('/api/orders/:id/verify-cancel-pin', async (req, res) => {
   const { id } = req.params;
   const { pin } = req.body;
   try {
+    const [existing] = await pool.query('SELECT status FROM orders WHERE id = ?', [id]);
+    if (existing.length > 0 && (existing[0].status === 'Ready' || existing[0].status === 'Completed')) {
+      return res.status(400).json({ valid: false, error: 'Cannot cancel an order that has already been prepared and delivered.' });
+    }
     const result = await verifyOrderCancelPin(id, pin);
     if (result.valid) {
       return res.json({ valid: true, stall_name: result.stall_name });
@@ -3364,8 +3368,8 @@ app.put('/api/orders/:id/status', async (req, res) => {
     const allowedTransitions = {
       'Pending': ['Preparing', 'Cancelled'],
       'Preparing': ['Ready', 'Cancelled'],
-      'Ready': ['Completed', 'Cancelled'],
-      'Completed': ['Cancelled'],
+      'Ready': ['Completed'],
+      'Completed': [],
       'Cancelled': []
     };
 
@@ -3376,6 +3380,9 @@ app.put('/api/orders/:id/status', async (req, res) => {
     }
 
     if (status === 'Cancelled') {
+      if (currentStatus === 'Ready' || currentStatus === 'Completed') {
+        return res.status(400).json({ error: 'Cannot cancel an order that has already been prepared and delivered.' });
+      }
       const { pin } = req.body;
       const pinResult = await verifyOrderCancelPin(id, pin);
       if (!pinResult.valid) {
