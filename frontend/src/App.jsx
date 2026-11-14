@@ -2536,12 +2536,20 @@ const getCategoryEmoji =   (category) => {
 // QR ORDERING MANAGEMENT PANEL COMPONENT
 // ==========================================
 function QRManagementPanel({ user }) {
-  const [tableCount, setTableCount] = useState(10);
+  const [tableCount, setTableCount] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`fc_qr_table_count_${user?.tenant_id || 'default'}`);
+      return cached ? Math.max(1, parseInt(cached, 10)) : 10;
+    } catch (e) {
+      return 10;
+    }
+  });
   const [baseUrl, setBaseUrl] = useState('');
   const [lanIp, setLanIp] = useState('');
   const [qrImages, setQrImages] = useState([]);
   const [qrOrders, setQrOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
+  const saveTimeoutRef = React.useRef(null);
 
   useEffect(() => {
     // Auto-detect the LAN IP so QR codes work on mobile phones
@@ -2561,6 +2569,23 @@ function QRManagementPanel({ user }) {
         // Fallback: use current origin
         setBaseUrl(window.location.origin + '/menu?tenant=' + user.tenant_id);
       });
+
+    // Fetch persisted QR settings from backend
+    fetch(`${API_BASE}/qr/settings`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.table_count) {
+          const val = Math.max(1, parseInt(data.table_count, 10));
+          setTableCount(val);
+          try {
+            localStorage.setItem(`fc_qr_table_count_${user?.tenant_id || 'default'}`, val.toString());
+          } catch (e) {}
+        }
+      })
+      .catch(() => {});
+
     fetchQrOrders();
 
     // Auto-polling for QR orders every 5 seconds
@@ -2573,6 +2598,27 @@ function QRManagementPanel({ user }) {
   useEffect(() => {
     if (baseUrl) generateQrCodes();
   }, [tableCount, baseUrl]);
+
+  const handleTableCountChange = (val) => {
+    const num = Math.max(1, Math.min(100, parseInt(val) || 1));
+    setTableCount(num);
+    try {
+      localStorage.setItem(`fc_qr_table_count_${user?.tenant_id || 'default'}`, num.toString());
+    } catch (e) {}
+
+    // Debounced persist to backend
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      fetch(`${API_BASE}/qr/settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ table_count: num })
+      }).catch(err => console.error('Failed to persist table count:', err));
+    }, 600);
+  };
 
   const generateQrCodes = async () => {
     const QRCode = (await import('qrcode')).default;
@@ -2727,7 +2773,7 @@ function QRManagementPanel({ user }) {
       <div className="qr-admin-config" style={{ display: 'flex', gap: '1rem', padding: '1rem', background: 'var(--panel-bg)', borderRadius: '8px', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ flex: 1, minWidth: '200px' }}>
           <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--text-color-secondary)' }}>Number of Tables</label>
-          <input type="number" min="1" max="100" value={tableCount} onChange={e => setTableCount(Math.max(1, parseInt(e.target.value) || 1))} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)' }} />
+          <input type="number" min="1" max="100" value={tableCount} onChange={e => handleTableCountChange(e.target.value)} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)' }} />
         </div>
         <div style={{ flex: 3, minWidth: '300px' }}>
           <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--text-color-secondary)' }}>Base Menu URL</label>

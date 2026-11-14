@@ -422,13 +422,18 @@ async function runStartupMigrations() {
       }
     }
 
-    // 9. Ensure central_cancel_pin column exists on tenants table
+    // 9. Ensure central_cancel_pin and qr_table_count columns exist on tenants table
     const [tTables] = await conn.query("SHOW TABLES LIKE 'tenants'");
     if (tTables.length > 0) {
       const [cpinCols] = await conn.query("SHOW COLUMNS FROM tenants LIKE 'central_cancel_pin'");
       if (cpinCols.length === 0) {
         await conn.query("ALTER TABLE tenants ADD COLUMN central_cancel_pin VARCHAR(10) NULL DEFAULT NULL");
         console.log("Migration: Added central_cancel_pin column to tenants table.");
+      }
+      const [qrCols] = await conn.query("SHOW COLUMNS FROM tenants LIKE 'qr_table_count'");
+      if (qrCols.length === 0) {
+        await conn.query("ALTER TABLE tenants ADD COLUMN qr_table_count INT DEFAULT 10");
+        console.log("Migration: Added qr_table_count column to tenants table.");
       }
     }
 
@@ -1570,7 +1575,13 @@ if (cluster.isWorker) {
 app.get('/api/items', async (req, res) => {
   try {
     const tenantContext = tenantStorage.getStore();
-    const currentTenantId = tenantContext ? tenantContext.tenant_id : (req.user ? req.user.tenant_id : (req.query.tenant || req.query.tenant_id || 'public'));
+    const currentTenantId = tenantContext ? tenantContext.tenant_id : (req.user ? req.user.tenant_id : (req.query.tenant || req.query.tenant_id || null));
+
+    // Guard: If unauthenticated and no tenant context, return empty to prevent cross-tenant data leak
+    if (!req.user && !currentTenantId) {
+      return res.json([]);
+    }
+
     const vendorFilter = (req.user && req.user.vendor_id) 
       ? `user_${req.user.vendor_id}` 
       : `query_${req.query.vendor_id !== undefined ? req.query.vendor_id : 'all'}`;
@@ -6655,6 +6666,41 @@ app.put('/api/cancellation-pins/central', async (req, res) => {
 });
 
 // ==========================================
+// QR ORDERING SETTINGS API
+// ==========================================
+
+// GET /api/qr/settings — Retrieve QR table count for authenticated tenant
+app.get('/api/qr/settings', async (req, res) => {
+  try {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) return res.status(401).json({ error: 'Authentication required' });
+    const [rows] = await pool.query('SELECT qr_table_count FROM tenants WHERE id = ?', [tenantId]);
+    const tableCount = (rows.length > 0 && rows[0].qr_table_count) ? rows[0].qr_table_count : 10;
+    res.json({ table_count: tableCount });
+  } catch (error) {
+    console.error('Error fetching QR settings:', error);
+    res.status(500).json({ error: 'Failed to fetch QR settings' });
+  }
+});
+
+// PUT /api/qr/settings — Save QR table count for authenticated tenant
+app.put('/api/qr/settings', async (req, res) => {
+  try {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) return res.status(401).json({ error: 'Authentication required' });
+    const count = parseInt(req.body.table_count, 10);
+    if (isNaN(count) || count < 1 || count > 100) {
+      return res.status(400).json({ error: 'table_count must be between 1 and 100' });
+    }
+    await pool.query('UPDATE tenants SET qr_table_count = ? WHERE id = ?', [count, tenantId]);
+    res.json({ success: true, table_count: count });
+  } catch (error) {
+    console.error('Error saving QR settings:', error);
+    res.status(500).json({ error: 'Failed to save QR settings' });
+  }
+});
+
+// ==========================================
 // 8. MIS, REPORTS & ANALYTICS API (Module 3.9)
 // ==========================================
 
@@ -7541,6 +7587,14 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
 // Get all combos
 app.get('/api/combos', async (req, res) => {
   try {
+    const tenantContext = tenantStorage.getStore();
+    const currentTenantId = tenantContext ? tenantContext.tenant_id : (req.user ? req.user.tenant_id : (req.query.tenant || req.query.tenant_id || null));
+
+    // Guard: If unauthenticated and no tenant context, return empty to prevent cross-tenant data leak
+    if (!req.user && !currentTenantId) {
+      return res.json([]);
+    }
+
     res.set('Cache-Control', 'private, must-revalidate');
     const [rows] = await pool.query(`
       SELECT ci.combo_id, ci.child_item_id, ci.quantity, 

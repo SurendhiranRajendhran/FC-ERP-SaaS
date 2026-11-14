@@ -22,8 +22,21 @@ export default function QRMenu() {
   const [step, setStep]                 = useState(1);       // 1 menu | 2 cart | 3 checkout | 4 success
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [tableNumber, setTableNumber]   = useState('');
-  const [tenantId, setTenantId]         = useState('');
+  const [tableNumber, setTableNumber]   = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search);
+      return p.get('table') || '';
+    }
+    return '';
+  });
+  const [tenantId, setTenantId]         = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search);
+      return p.get('tenant') || '';
+    }
+    return '';
+  });
+  const [menuLoading, setMenuLoading]   = useState(true);
   const [orderStatus, setOrderStatus]   = useState(null);
   const [loading, setLoading]           = useState(false);
   const [fetchError, setFetchError]     = useState(false);
@@ -43,16 +56,13 @@ export default function QRMenu() {
   const totalItems = cart.reduce((s, i) => s + i.quantity, 0);
   const filtered   = selCat === 'All' ? items : items.filter(i => i.category === selCat);
 
-  /* ── On mount ── */
+  /* ── Fetch on mount and when tenantId changes ── */
   useEffect(() => {
-    const p = new URLSearchParams(window.location.search);
-    if (p.has('table')) setTableNumber(p.get('table'));
-    if (p.has('tenant')) setTenantId(p.get('tenant'));
-  }, []);
-  
-  // We need to delay fetch until tenantId is set (if provided)
-  useEffect(() => {
-    fetchItems();
+    if (tenantId) {
+      fetchItems(tenantId);
+    } else {
+      setMenuLoading(false);
+    }
   }, [tenantId]);
 
   /* ── UPI QR on checkout step ── */
@@ -67,20 +77,31 @@ export default function QRMenu() {
   }, [step, cartTotal]);
 
   /* ── Data ── */
-  const fetchItems = async () => {
+  const fetchItems = async (targetTenantId) => {
+    const tid = targetTenantId || tenantId;
+    if (!tid) {
+      setMenuLoading(false);
+      return;
+    }
+    setMenuLoading(true);
+    setFetchError(false);
     try {
-      const headers = tenantId ? { 'x-tenant-id': tenantId } : {};
+      const headers = { 'x-tenant-id': tid };
       const [rItems, rCombos] = await Promise.all([
-        fetch(`${QR_API_BASE}/api/items`, { headers }),
-        fetch(`${QR_API_BASE}/api/combos`, { headers })
+        fetch(`${QR_API_BASE}/api/items?tenant=${tid}`, { headers }),
+        fetch(`${QR_API_BASE}/api/combos?tenant=${tid}`, { headers })
       ]);
       const d = await rItems.json();
       const combosData = await rCombos.json();
-      const active = d.filter(i => i.is_active);
+      const active = Array.isArray(d) ? d.filter(i => i.is_active) : [];
       setItems(active);
-      setCombos(combosData);
+      setCombos(Array.isArray(combosData) ? combosData : []);
       setCategories(['All', ...new Set(active.map(i => i.category).filter(Boolean))]);
-    } catch { setFetchError(true); }
+    } catch { 
+      setFetchError(true); 
+    } finally {
+      setMenuLoading(false);
+    }
   };
 
   /* ── Status Polling & Audio Chime ── */
@@ -266,10 +287,15 @@ export default function QRMenu() {
             <div style={S.sectionLabel}>{filtered.length} items{selCat !== 'All' ? ` in ${selCat}` : ''}</div>
 
             {/* Item cards */}
-            {filtered.length === 0 && !fetchError ? (
+            {menuLoading ? (
+              <div style={S.emptyState}>
+                <div style={S.spinnerOrange} />
+                <p style={{ color: '#94a3b8', marginTop: 12, fontWeight: 500, fontSize: 14 }}>Loading fresh menu...</p>
+              </div>
+            ) : filtered.length === 0 && !fetchError ? (
               <div style={S.emptyState}>
                 <div style={{ fontSize: 48 }}>🍽️</div>
-                <p style={{ color: '#94a3b8', marginTop: 8 }}>Loading menu...</p>
+                <p style={{ color: '#94a3b8', marginTop: 8 }}>No items available at the moment.</p>
               </div>
             ) : (
               <div style={S.itemList}>
@@ -549,15 +575,27 @@ export default function QRMenu() {
 
       {/* ── FLOATING CART BAR (step 1 only) ── */}
       {step === 1 && cart.length > 0 && (
-        <div style={{ ...S.floatingBar, transform: cartAnim ? 'scale(1.03)' : 'scale(1)' }}
-          onClick={() => setStep(2)}>
+        <div 
+          style={{ 
+            ...S.floatingBar, 
+            transform: cartAnim ? 'translateX(-50%) scale(1.02)' : 'translateX(-50%)' 
+          }}
+          onClick={() => setStep(2)}
+        >
           <div style={S.floatingLeft}>
             <div style={S.floatingBadge}>{totalItems}</div>
-            <span style={{ fontWeight: 600, fontSize: 15 }}>View Cart</span>
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+              <span style={{ fontWeight: 700, fontSize: 15, color: '#ffffff', lineHeight: 1.2 }}>View Cart</span>
+              <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>{totalItems} {totalItems === 1 ? 'item' : 'items'} added</span>
+            </div>
           </div>
           <div style={S.floatingRight}>
-            <span style={{ fontWeight: 700, fontSize: 16 }}>₹{cartTotal.toFixed(2)}</span>
-            <span style={{ fontSize: 18 }}>→</span>
+            <span style={{ fontWeight: 800, fontSize: 16, color: '#ffffff', letterSpacing: '0.3px' }}>
+              ₹{cartTotal.toFixed(2)}
+            </span>
+            <div style={S.floatingArrowCircle}>
+              <span style={{ fontSize: 16, lineHeight: 1 }}>→</span>
+            </div>
           </div>
         </div>
       )}
@@ -709,12 +747,57 @@ const S = {
 
   /* Spinner */
   spinner: { width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite', display: 'inline-block' },
+  spinnerOrange: { width: 32, height: 32, border: '3px solid rgba(255,107,53,0.2)', borderTop: `3px solid ${ORANGE}`, borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block' },
 
   /* Floating bar */
-  floatingBar: { position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 448, background: DARK, borderRadius: 16, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', boxShadow: '0 8px 30px rgba(0,0,0,0.25)', zIndex: 200, transition: 'transform 0.2s ease' },
-  floatingLeft: { display: 'flex', alignItems: 'center', gap: 10, color: '#fff' },
-  floatingBadge: { background: ORANGE, color: '#fff', borderRadius: 8, minWidth: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13 },
-  floatingRight: { display: 'flex', alignItems: 'center', gap: 8, color: '#fff' },
+  floatingBar: { 
+    position: 'fixed', 
+    bottom: 'calc(16px + env(safe-area-inset-bottom, 0px))', 
+    left: '50%', 
+    transform: 'translateX(-50%)', 
+    width: 'calc(100% - 32px)', 
+    maxWidth: 448, 
+    background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
+    border: '1px solid rgba(255, 255, 255, 0.12)', 
+    borderRadius: 16, 
+    padding: '12px 18px', 
+    display: 'flex', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    cursor: 'pointer', 
+    boxShadow: '0 10px 25px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.2)', 
+    zIndex: 200, 
+    boxSizing: 'border-box',
+    transition: 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' 
+  },
+  floatingLeft: { display: 'flex', alignItems: 'center', gap: 12, color: '#fff', minWidth: 0 },
+  floatingBadge: { 
+    background: ORANGE, 
+    color: '#fff', 
+    borderRadius: 10, 
+    minWidth: 28, 
+    height: 28, 
+    padding: '0 6px',
+    display: 'flex', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    fontWeight: 800, 
+    fontSize: 13,
+    boxShadow: '0 2px 8px rgba(255, 107, 53, 0.4)',
+    flexShrink: 0
+  },
+  floatingRight: { display: 'flex', alignItems: 'center', gap: 10, color: '#fff', flexShrink: 0 },
+  floatingArrowCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: '50%',
+    background: 'rgba(255, 107, 53, 0.25)',
+    color: '#ff8c42',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 800
+  },
 
   /* Success */
   successView: { textAlign: 'center', paddingTop: 20 },
