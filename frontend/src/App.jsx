@@ -3234,9 +3234,10 @@ function App() {
     }
   }, [user, activeTab, currentPlan]);
 
-  // Auto-set Cashier / Staff select value if current user is POS staff
+  // Auto-set Cashier / Staff select value only for Billing Staff (locked UI).
+  // Owner/Manager must manually pick from the dropdown every time.
   useEffect(() => {
-    if (user && ['Billing Staff', 'Manager', 'Owner'].includes(user.role)) {
+    if (user && user.role === 'Billing Staff') {
       setPosCashierId(String(user.id));
     } else {
       setPosCashierId('');
@@ -9299,7 +9300,18 @@ function App() {
                             </ul>
                           </td>
                           <td>
-                            <strong className="text-success">₹{parseFloat(order.total_amount).toFixed(2)}</strong>
+                            {parseFloat(order.discount_amount) > 0 ? (
+                              <>
+                                <del style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>₹{(parseFloat(order.total_amount) + parseFloat(order.discount_amount)).toFixed(2)}</del>
+                                {' '}
+                                <strong className="text-success">₹{parseFloat(order.total_amount).toFixed(2)}</strong>
+                                <div style={{ fontSize: '0.7rem', color: '#f59e0b', marginTop: '2px', fontWeight: 600 }}>
+                                  💰 {order.discount_type} (-₹{parseFloat(order.discount_amount).toFixed(2)})
+                                </div>
+                              </>
+                            ) : (
+                              <strong className="text-success">₹{parseFloat(order.total_amount).toFixed(2)}</strong>
+                            )}
                             <div style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>GST: ₹{parseFloat(order.gst_amount).toFixed(2)}</div>
                           </td>
                           <td>
