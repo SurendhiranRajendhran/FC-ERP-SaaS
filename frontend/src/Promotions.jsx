@@ -322,31 +322,131 @@ function Promotions({ user }) {
           </div>
 
           {showForm && (
-            <div style={{ background: '#1e1e24', padding: '20px', borderRadius: '12px', marginBottom: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
-              <h3 style={{ marginBottom: '15px' }}>{editingId ? '✏️ Edit Promo Code' : 'Create New Promo Code'}</h3>
-              <form onSubmit={handleSubmitCoupon} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+            <div
+              style={{
+                background: 'linear-gradient(135deg, rgba(30, 30, 38, 0.98), rgba(22, 22, 28, 0.98))',
+                padding: '24px',
+                borderRadius: '14px',
+                marginBottom: '24px',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                boxShadow: '0 8px 30px rgba(0, 0, 0, 0.35)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '14px' }}>
                 <div>
-                  <label className="form-label" style={{ display: 'block', marginBottom: '5px' }}>Code *</label>
-                  <input required type="text" className="input-field" placeholder="e.g. SUMMER20" value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} />
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {editingId ? '✏️ Edit Promo Code' : '🎟️ Create New Promo Code'}
+                  </h3>
+                  <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#94a3b8' }}>
+                    {editingId ? 'Modify discount rules and usage conditions for this coupon code' : 'Configure a new promotional discount code for customer checkout'}
+                  </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.06)',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    color: '#94a3b8',
+                    borderRadius: '8px',
+                    width: '32px',
+                    height: '32px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    fontSize: '1rem',
+                    transition: 'all 0.2s'
+                  }}
+                  title="Close form"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitCoupon} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '18px' }}>
                 <div>
-                  <label className="form-label" style={{ display: 'block', marginBottom: '5px' }}>Discount Type *</label>
-                  <select required className="input-field" value={form.discount_type} onChange={e => setForm({...form, discount_type: e.target.value})}>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.78rem', fontWeight: 600, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Promo Code *
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    className="promo-input promo-input-code"
+                    placeholder="e.g. SUMMER20"
+                    value={form.code}
+                    onChange={e => setForm({...form, code: e.target.value.toUpperCase()})}
+                  />
+                  <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', marginTop: '4px' }}>
+                    Letters & numbers only, automatically capitalized
+                  </span>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.78rem', fontWeight: 600, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Discount Type *
+                  </label>
+                  <select
+                    required
+                    className="promo-input"
+                    value={form.discount_type}
+                    onChange={e => setForm({...form, discount_type: e.target.value})}
+                  >
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Fixed">Fixed Amount (₹)</option>
                   </select>
+                  <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', marginTop: '4px' }}>
+                    {form.discount_type === 'Percentage' ? 'Applies a percentage off order total' : 'Deducts a flat rupee amount off order total'}
+                  </span>
                 </div>
+
                 <div>
-                  <label className="form-label" style={{ display: 'block', marginBottom: '5px' }}>Discount Value *</label>
-                  <input required type="number" min="1" max={form.discount_type === 'Percentage' ? 100 : undefined} step="0.01" className="input-field" placeholder={form.discount_type === 'Percentage' ? 'e.g. 15 (Max 100)' : 'e.g. 50'} value={form.value} onChange={e => setForm({...form, value: e.target.value})} />
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.78rem', fontWeight: 600, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    {form.discount_type === 'Fixed' ? 'Discount Amount (₹) *' : 'Discount Percentage (%) *'}
+                  </label>
+                  <input
+                    required
+                    type="number"
+                    min="1"
+                    max={form.discount_type === 'Percentage' ? 100 : undefined}
+                    step="0.01"
+                    className="promo-input"
+                    placeholder={form.discount_type === 'Fixed' ? 'e.g. 50.00' : 'e.g. 15 (Max 100)'}
+                    value={form.value}
+                    onChange={e => setForm({...form, value: e.target.value})}
+                  />
+                  <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', marginTop: '4px' }}>
+                    {form.discount_type === 'Fixed' ? 'Flat rupee discount value' : 'Discount percentage (1% to 100%)'}
+                  </span>
                 </div>
+
                 <div>
-                  <label className="form-label" style={{ display: 'block', marginBottom: '5px' }}>Min. Order Amount (₹)</label>
-                  <input type="number" min="0" step="0.01" className="input-field" placeholder="0.00" value={form.min_order_amount} onChange={e => setForm({...form, min_order_amount: e.target.value})} />
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.78rem', fontWeight: 600, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Min. Order Amount (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="promo-input"
+                    placeholder="0.00 (No minimum)"
+                    value={form.min_order_amount}
+                    onChange={e => setForm({...form, min_order_amount: e.target.value})}
+                  />
+                  <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', marginTop: '4px' }}>
+                    Leave 0 or blank for no minimum cart threshold
+                  </span>
                 </div>
-                <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '10px' }}>
-                  <button type="submit" className="btn btn-success">{editingId ? 'Update Promo Code' : 'Save Promo Code'}</button>
-                  {editingId && <button type="button" className="btn btn-outline-primary" onClick={resetForm}>Cancel Edit</button>}
+
+                <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '12px', marginTop: '6px' }}>
+                  <button type="submit" className="btn btn-success" style={{ padding: '10px 22px', fontWeight: 600, fontSize: '0.9rem' }}>
+                    {editingId ? '✓ Update Promo Code' : '💾 Save Promo Code'}
+                  </button>
+                  {editingId && (
+                    <button type="button" className="btn btn-outline-primary" onClick={resetForm} style={{ padding: '10px 18px', fontSize: '0.9rem' }}>
+                      Cancel Edit
+                    </button>
+                  )}
                 </div>
               </form>
             </div>
@@ -550,63 +650,66 @@ function Promotions({ user }) {
                     </p>
 
                     <form onSubmit={handleSaveStallPin}>
-                      <div style={{ marginBottom: '16px' }}>
-                        <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontSize: '0.88rem' }}>
-                          New Cancellation PIN (4 Digits) *
-                        </label>
-                        <input
-                          required
-                          type="password"
-                          inputMode="numeric"
-                          pattern="[0-9]{4,6}"
-                          maxLength={6}
-                          placeholder="e.g. 5432"
-                          className="input-field"
-                          value={newPin}
-                          onChange={e => setNewPin(e.target.value.replace(/\D/g, ''))}
-                          style={{
-                            fontSize: '1.2rem',
-                            letterSpacing: '4px',
-                            textAlign: 'center',
-                            fontFamily: 'monospace'
-                          }}
-                        />
-                        <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Must be 4 to 6 digits. Numbers only.</span>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.75rem', fontWeight: 600, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            New PIN (4–6 Digits) *
+                          </label>
+                          <input
+                            required
+                            type={showPinDigits ? "text" : "password"}
+                            inputMode="numeric"
+                            pattern="[0-9]{4,6}"
+                            maxLength={6}
+                            placeholder="••••"
+                            className="pin-input-field"
+                            value={newPin}
+                            onChange={e => setNewPin(e.target.value.replace(/\D/g, ''))}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.75rem', fontWeight: 600, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            Confirm PIN *
+                          </label>
+                          <input
+                            required
+                            type={showPinDigits ? "text" : "password"}
+                            inputMode="numeric"
+                            pattern="[0-9]{4,6}"
+                            maxLength={6}
+                            placeholder="••••"
+                            className="pin-input-field"
+                            value={confirmPin}
+                            onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ''))}
+                          />
+                        </div>
                       </div>
 
-                      <div style={{ marginBottom: '20px' }}>
-                        <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontSize: '0.88rem' }}>
-                          Confirm New PIN *
-                        </label>
-                        <input
-                          required
-                          type="password"
-                          inputMode="numeric"
-                          pattern="[0-9]{4,6}"
-                          maxLength={6}
-                          placeholder="Re-enter PIN"
-                          className="input-field"
-                          value={confirmPin}
-                          onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ''))}
-                          style={{
-                            fontSize: '1.2rem',
-                            letterSpacing: '4px',
-                            textAlign: 'center',
-                            fontFamily: 'monospace'
-                          }}
-                        />
-                      </div>
+                      {newPin && confirmPin && (
+                        <div style={{
+                          fontSize: '0.76rem',
+                          fontWeight: 600,
+                          marginBottom: '14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          color: newPin === confirmPin ? '#34d399' : '#f87171'
+                        }}>
+                          {newPin === confirmPin ? '✓ PINs match' : '⚠️ PINs do not match'}
+                        </div>
+                      )}
 
                       <button
                         type="submit"
                         className="btn btn-primary"
-                        disabled={savingPin || !newPin || !confirmPin}
+                        disabled={savingPin || !newPin || !confirmPin || newPin.length < 4 || newPin !== confirmPin}
                         style={{
                           width: '100%',
                           padding: '12px',
                           fontSize: '0.95rem',
                           fontWeight: 600,
-                          borderRadius: '8px'
+                          borderRadius: '8px',
+                          cursor: savingPin || !newPin || !confirmPin || newPin.length < 4 || newPin !== confirmPin ? 'not-allowed' : 'pointer'
                         }}
                       >
                         {savingPin ? 'Saving PIN...' : '💾 Save Cancellation PIN'}
@@ -696,48 +799,96 @@ function Promotions({ user }) {
                       </div>
 
                       {/* Central Form */}
-                      <div style={{ background: '#17171c', padding: '18px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                        <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: '#f8fafc', margin: '0 0 12px 0' }}>
-                          Update Central Counter PIN
-                        </h4>
+                      <div
+                        style={{
+                          background: 'linear-gradient(135deg, rgba(23, 23, 28, 0.98), rgba(30, 26, 45, 0.98))',
+                          padding: '22px',
+                          borderRadius: '12px',
+                          border: '1px solid rgba(139, 92, 246, 0.25)',
+                          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                          <h4 style={{ fontSize: '1rem', fontWeight: 600, color: '#f8fafc', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            🔒 Update Central Counter PIN
+                          </h4>
+                          <span style={{ fontSize: '0.72rem', color: '#a78bfa', background: 'rgba(139, 92, 246, 0.15)', padding: '3px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                            4–6 Digits
+                          </span>
+                        </div>
+
+                        <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: '0 0 16px 0', lineHeight: 1.4 }}>
+                          Enter and confirm a new numeric PIN to authorize cancellations at Central Counter POS.
+                        </p>
+
                         <form onSubmit={handleSaveCentralPin}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
                             <div>
+                              <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.75rem', fontWeight: 600, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                New PIN *
+                              </label>
                               <input
                                 required
-                                type="password"
+                                type={showPinDigits ? "text" : "password"}
                                 inputMode="numeric"
                                 pattern="[0-9]{4,6}"
                                 maxLength={6}
-                                placeholder="New PIN"
-                                className="input-field"
+                                placeholder="••••"
+                                className="pin-input-field"
                                 value={newPin}
                                 onChange={e => setNewPin(e.target.value.replace(/\D/g, ''))}
-                                style={{ textAlign: 'center', letterSpacing: '3px', fontFamily: 'monospace' }}
                               />
                             </div>
                             <div>
+                              <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.75rem', fontWeight: 600, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                Confirm PIN *
+                              </label>
                               <input
                                 required
-                                type="password"
+                                type={showPinDigits ? "text" : "password"}
                                 inputMode="numeric"
                                 pattern="[0-9]{4,6}"
                                 maxLength={6}
-                                placeholder="Confirm PIN"
-                                className="input-field"
+                                placeholder="••••"
+                                className="pin-input-field"
                                 value={confirmPin}
                                 onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ''))}
-                                style={{ textAlign: 'center', letterSpacing: '3px', fontFamily: 'monospace' }}
                               />
                             </div>
                           </div>
+
+                          {/* Match indicator / validation hint */}
+                          {newPin && confirmPin && (
+                            <div style={{
+                              fontSize: '0.76rem',
+                              fontWeight: 600,
+                              marginBottom: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              color: newPin === confirmPin ? '#34d399' : '#f87171'
+                            }}>
+                              {newPin === confirmPin ? '✓ PINs match' : '⚠️ PINs do not match'}
+                            </div>
+                          )}
+
                           <button
                             type="submit"
                             className="btn btn-primary"
-                            disabled={savingPin || !newPin || !confirmPin}
-                            style={{ width: '100%', padding: '8px', fontSize: '0.88rem' }}
+                            disabled={savingPin || !newPin || !confirmPin || newPin.length < 4 || newPin !== confirmPin}
+                            style={{
+                              width: '100%',
+                              padding: '11px',
+                              fontSize: '0.9rem',
+                              fontWeight: 600,
+                              borderRadius: '8px',
+                              background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                              border: 'none',
+                              boxShadow: '0 4px 14px rgba(139, 92, 246, 0.4)',
+                              cursor: savingPin || !newPin || !confirmPin || newPin.length < 4 || newPin !== confirmPin ? 'not-allowed' : 'pointer'
+                            }}
                           >
-                            {savingPin ? 'Updating...' : '💾 Update Central Counter PIN'}
+                            {savingPin ? 'Updating PIN...' : '💾 Update Central Counter PIN'}
                           </button>
                         </form>
                       </div>
