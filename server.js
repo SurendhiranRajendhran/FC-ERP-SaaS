@@ -3324,8 +3324,8 @@ app.post('/api/orders/:id/verify-cancel-pin', async (req, res) => {
   const { pin } = req.body;
   try {
     const [existing] = await pool.query('SELECT status FROM orders WHERE id = ?', [id]);
-    if (existing.length > 0 && (existing[0].status === 'Ready' || existing[0].status === 'Completed')) {
-      return res.status(400).json({ valid: false, error: 'Cannot cancel an order that has already been prepared and delivered.' });
+    if (existing.length > 0 && (existing[0].status === 'Preparing' || existing[0].status === 'Ready' || existing[0].status === 'Completed')) {
+      return res.status(400).json({ valid: false, error: 'Cannot cancel an order that is already being prepared or has been delivered.' });
     }
     const result = await verifyOrderCancelPin(id, pin);
     if (result.valid) {
@@ -3378,7 +3378,7 @@ app.put('/api/orders/:id/status', async (req, res) => {
 
     const allowedTransitions = {
       'Pending': ['Preparing', 'Cancelled'],
-      'Preparing': ['Ready', 'Cancelled'],
+      'Preparing': ['Ready'],
       'Ready': ['Completed'],
       'Completed': [],
       'Cancelled': []
@@ -3391,8 +3391,8 @@ app.put('/api/orders/:id/status', async (req, res) => {
     }
 
     if (status === 'Cancelled') {
-      if (currentStatus === 'Ready' || currentStatus === 'Completed') {
-        return res.status(400).json({ error: 'Cannot cancel an order that has already been prepared and delivered.' });
+      if (currentStatus === 'Preparing' || currentStatus === 'Ready' || currentStatus === 'Completed') {
+        return res.status(400).json({ error: 'Cannot cancel an order that is already being prepared or has been delivered.' });
       }
       const { pin } = req.body;
       const pinResult = await verifyOrderCancelPin(id, pin);

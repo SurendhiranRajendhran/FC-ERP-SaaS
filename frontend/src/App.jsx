@@ -9348,6 +9348,24 @@ function App() {
                               >
                                 ✓ Delivered
                               </span>
+                            ) : order.status === 'Preparing' ? (
+                              <span
+                                className="badge badge-warning"
+                                style={{
+                                  background: 'rgba(245, 158, 11, 0.15)',
+                                  color: '#f59e0b',
+                                  border: '1px solid rgba(245, 158, 11, 0.35)',
+                                  padding: '4px 10px',
+                                  borderRadius: '4px',
+                                  fontWeight: 600,
+                                  fontSize: '0.8rem',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                ⏳ Preparing
+                              </span>
                             ) : order.status !== 'Cancelled' ? (
                               <button className="btn btn-danger-small" onClick={() => setCancelModal({ show: true, orderId: order.id, tokenNumber: order.token_number, pin: '', reason: '', step: 1 })}>Cancel</button>
                             ) : (
@@ -9676,7 +9694,7 @@ function App() {
                                           </button>
                                         )
                                       )}
-                                      <button
+                                      {hasPending && (<button
                                         className="kds-action-btn cancel"
                                         onClick={() => {
                                           setCancelModal({ show: true, orderId: order.id, tokenNumber: order.token_number, pin: '', reason: '', step: 1 });
@@ -9684,7 +9702,7 @@ function App() {
                                         style={{ width: '40px', flex: 'none' }}
                                       >
                                         ✕
-                                      </button>
+                                      </button>)}
                                     </div>
                                   );
                                 })()}
@@ -14321,3 +14339,4 @@ function App() {
 }
 
 export default App;
+
