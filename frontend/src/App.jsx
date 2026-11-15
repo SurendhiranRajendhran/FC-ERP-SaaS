@@ -9694,15 +9694,7 @@ function App() {
                                           </button>
                                         )
                                       )}
-                                      {hasPending && (<button
-                                        className="kds-action-btn cancel"
-                                        onClick={() => {
-                                          setCancelModal({ show: true, orderId: order.id, tokenNumber: order.token_number, pin: '', reason: '', step: 1 });
-                                        }}
-                                        style={{ width: '40px', flex: 'none' }}
-                                      >
-                                        ✕
-                                      </button>)}
+                                      
                                     </div>
                                   );
                                 })()}
