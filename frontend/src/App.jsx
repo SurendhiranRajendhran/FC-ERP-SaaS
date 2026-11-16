@@ -2888,8 +2888,11 @@ function App() {
   const [purchaseEntryModal, setPurchaseEntryModal] = useState({ show: false });
   const [isNewSupplierInPurchase, setIsNewSupplierInPurchase] = useState(false);
   const [formPurchaseSupplierDetails, setFormPurchaseSupplierDetails] = useState({
-    name: '', contact_phone: '', email: '', payment_terms: ''
+    name: '', contact_person: '', contact_phone: '', email: '', payment_terms: '', items_supplied: ''
   });
+  const [purchaseSupplierDuplicateWarning, setPurchaseSupplierDuplicateWarning] = useState(null);
+  const [supplierActionLoading, setSupplierActionLoading] = useState('');
+  const [isSettlingBills, setIsSettlingBills] = useState(false);
   const [formPurchaseEntry, setFormPurchaseEntry] = useState({
     supplier_id: '',
     invoice_number: '',
@@ -3753,20 +3756,21 @@ function App() {
   };
 
   const handleOpenSupplierHistory = async (supplier) => {
-    setSupplierHistoryModal({ show: true, supplier, history: [], loading: true });
+    setSupplierActionLoading('history');
     try {
       const res = await fetch(`${API_BASE}/suppliers/${supplier.id}/history`);
       if (res.ok) {
         const data = await res.json();
-        setSupplierHistoryModal(prev => ({ ...prev, history: data, loading: false }));
+        setSupplierViewModal({ show: false, data: null });
+        setSupplierHistoryModal({ show: true, supplier, history: data, loading: false });
       } else {
-        setSupplierHistoryModal(prev => ({ ...prev, history: [], loading: false }));
         showToast('Failed to load history', 'error');
       }
     } catch (err) {
       console.error('Error fetching supplier history:', err);
-      setSupplierHistoryModal(prev => ({ ...prev, history: [], loading: false }));
       showToast('API communication failed', 'error');
+    } finally {
+      setSupplierActionLoading('');
     }
   };
 
@@ -4829,8 +4833,9 @@ function App() {
   const handleOpenPurchaseEntry = () => {
     setIsNewSupplierInPurchase(false);
     setFormPurchaseSupplierDetails({
-      name: '', contact_phone: '', email: '', payment_terms: ''
+      name: '', contact_person: '', contact_phone: '', email: '', payment_terms: '', items_supplied: ''
     });
+    setPurchaseSupplierDuplicateWarning(null);
     setFormPurchaseEntry({
       supplier_id: '',
       invoice_number: '',
@@ -13351,21 +13356,23 @@ function App() {
                   setShowSupplierItemSuggestions(false);
                 }}>Edit ✏️</button>
                 {parseFloat(supplierViewModal.data.outstanding_balance || 0) > 0 && (
-                  <button className="btn btn-success" style={{marginLeft: '10px'}} onClick={async () => {
+                  <button className="btn btn-success" style={{marginLeft: '10px'}} disabled={supplierActionLoading === 'settle'} onClick={async () => {
+                    setSupplierActionLoading('settle');
                     try {
-                      setSupplierViewModal({ show: false, data: null });
                       const res = await fetch(`${API_BASE}/suppliers/${supplierViewModal.data.id}/pending-bills`);
                       const bills = await res.json();
+                      setSupplierViewModal({ show: false, data: null });
                       setSupplierPayModal({ show: true, supplier: supplierViewModal.data, pendingBills: bills, selectedBillIds: [] });
                     } catch (e) {
                       showToast('Failed to load pending bills', 'error');
+                    } finally {
+                      setSupplierActionLoading('');
                     }
-                  }}>Settle Bill 💰</button>
+                  }}>{supplierActionLoading === 'settle' ? 'Loading...' : 'Settle Bill 💰'}</button>
                 )}
-                <button className="btn btn-outline-primary" style={{marginLeft: '10px'}} onClick={() => {
-                   setSupplierViewModal({ show: false, data: null });
+                <button className="btn btn-outline-primary" style={{marginLeft: '10px'}} disabled={supplierActionLoading === 'history'} onClick={() => {
                    handleOpenSupplierHistory(supplierViewModal.data);
-                }}>History 🕒</button>
+                }}>{supplierActionLoading === 'history' ? 'Loading...' : 'History 🕒'}</button>
                 <button
                   className="btn btn-danger"
                   style={{
@@ -13479,8 +13486,9 @@ function App() {
                 <button 
                   type="button" 
                   className="btn btn-success" 
-                  disabled={supplierPayModal.selectedBillIds.length === 0}
+                  disabled={supplierPayModal.selectedBillIds.length === 0 || isSettlingBills}
                   onClick={async () => {
+                    setIsSettlingBills(true);
                     try {
                       const res = await fetch(`${API_BASE}/suppliers/${supplierPayModal.supplier.id}/pay`, {
                         method: 'POST',
@@ -13496,10 +13504,12 @@ function App() {
                       }
                     } catch (e) {
                       showToast('Network error', 'error');
+                    } finally {
+                      setIsSettlingBills(false);
                     }
                   }}
                 >
-                  Confirm Payment
+                  {isSettlingBills ? 'Processing...' : 'Confirm Payment'}
                 </button>
               </div>
             </div>
@@ -13551,12 +13561,35 @@ function App() {
                         required 
                         placeholder="New Supplier Name *"
                         value={formPurchaseSupplierDetails.name}
-                        onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, name: e.target.value }))}
-                        style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)', marginBottom: '8px' }}
+                        onChange={async (e) => {
+                          const val = e.target.value;
+                          setFormPurchaseSupplierDetails(prev => ({ ...prev, name: val }));
+                          setPurchaseSupplierDuplicateWarning(null);
+                          if (val.trim().length >= 2) {
+                            try {
+                              const vId = selectedVendorId === 'all' || selectedVendorId === 'null' ? 'null' : (selectedVendorId || 'null');
+                              const checkRes = await fetch(`${API_BASE}/suppliers/check-name?name=${encodeURIComponent(val.trim())}&vendor_id=${vId}`);
+                              const checkData = await checkRes.json();
+                              if (checkData.exists) {
+                                setPurchaseSupplierDuplicateWarning(`⚠️ A supplier named "${checkData.supplier.name}" already exists. The purchase will be linked to the existing supplier.`);
+                              }
+                            } catch (_) { /* ignore check errors */ }
+                          }
+                        }}
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px', border: purchaseSupplierDuplicateWarning ? '1px solid #f0ad4e' : '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)', marginBottom: '4px' }}
                       />
+                      {purchaseSupplierDuplicateWarning && (
+                        <div style={{ fontSize: '12px', color: '#f0ad4e', marginBottom: '8px', padding: '4px 6px', backgroundColor: 'rgba(240,173,78,0.1)', borderRadius: '4px' }}>
+                          {purchaseSupplierDuplicateWarning}
+                        </div>
+                      )}
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                        <input type="text" placeholder="Contact Person" value={formPurchaseSupplierDetails.contact_person} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, contact_person: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
                         <input type="tel" pattern="^\+?\d{10,15}$" title="Phone number must contain 10-15 digits" placeholder="Phone" value={formPurchaseSupplierDetails.contact_phone} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, contact_phone: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
                         <input type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" placeholder="Email" value={formPurchaseSupplierDetails.email} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, email: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                        <input type="text" placeholder="Category (e.g. Dairy, Spices)" value={formPurchaseSupplierDetails.items_supplied} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, items_supplied: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
                       </div>
                       <input type="text" placeholder="Payment Terms (e.g. Net 30, Cash)" value={formPurchaseSupplierDetails.payment_terms} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, payment_terms: e.target.value }))} style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
                     </div>

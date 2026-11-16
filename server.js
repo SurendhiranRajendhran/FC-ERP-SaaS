@@ -2192,15 +2192,56 @@ app.post('/api/purchase-entry', async (req, res) => {
 
     let sName = supplier_name || 'N/A';
     
-    // Create new supplier if details are provided
+    // Create new supplier or link existing if details are provided
     if (supplier_details && !supplier_id) {
-      const { name, contact_phone, email, payment_terms, items_supplied } = supplier_details;
-      sName = name || sName;
-      const [insertSupp] = await connection.query(
-        'INSERT INTO suppliers (name, phone, email, payment_terms, items_supplied, outstanding_balance, vendor_id) VALUES (?, ?, ?, ?, ?, 0, ?)',
-        [name, contact_phone || '', email || '', payment_terms || '', items_supplied || '', final_vendor_id]
-      );
-      supplier_id = insertSupp.insertId;
+      const { name, contact_person, contact_phone, phone, email, payment_terms, items_supplied } = supplier_details;
+      sName = (name && name.trim()) || sName;
+      const suppPhone = contact_phone || phone || '';
+
+      // Deduplication check: check if supplier with same name already exists in this facility/vendor
+      let existingSuppSql = 'SELECT id, name, contact_person, phone, email, items_supplied FROM suppliers WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))';
+      let existingSuppParams = [sName];
+      if (final_vendor_id) {
+        existingSuppSql += ' AND vendor_id = ?';
+        existingSuppParams.push(final_vendor_id);
+      } else {
+        existingSuppSql += ' AND vendor_id IS NULL';
+      }
+      const [existingSupp] = await connection.query(existingSuppSql, existingSuppParams);
+
+      if (existingSupp.length > 0) {
+        supplier_id = existingSupp[0].id;
+        sName = existingSupp[0].name;
+        // Backfill contact_person or items_supplied if existing was empty but new details were provided
+        const updates = [];
+        const updateParams = [];
+        if (!existingSupp[0].contact_person && contact_person && contact_person.trim()) {
+          updates.push('contact_person = ?');
+          updateParams.push(contact_person.trim());
+        }
+        if (!existingSupp[0].items_supplied && items_supplied && items_supplied.trim()) {
+          updates.push('items_supplied = ?');
+          updateParams.push(items_supplied.trim());
+        }
+        if (!existingSupp[0].phone && suppPhone && suppPhone.trim()) {
+          updates.push('phone = ?');
+          updateParams.push(suppPhone.trim());
+        }
+        if (!existingSupp[0].email && email && email.trim()) {
+          updates.push('email = ?');
+          updateParams.push(email.trim());
+        }
+        if (updates.length > 0) {
+          updateParams.push(supplier_id);
+          await connection.query(`UPDATE suppliers SET ${updates.join(', ')} WHERE id = ?`, updateParams);
+        }
+      } else {
+        const [insertSupp] = await connection.query(
+          'INSERT INTO suppliers (name, contact_person, phone, email, payment_terms, items_supplied, outstanding_balance, vendor_id) VALUES (?, ?, ?, ?, ?, ?, 0, ?)',
+          [sName, (contact_person && contact_person.trim()) || null, suppPhone || null, (email && email.trim()) || null, (payment_terms && payment_terms.trim()) || 'Net 30', (items_supplied && items_supplied.trim()) || null, final_vendor_id]
+        );
+        supplier_id = insertSupp.insertId;
+      }
     } else if (supplier_id) {
       const [supp] = await connection.query('SELECT name FROM suppliers WHERE id = ?', [supplier_id]);
       if (supp.length > 0) {
@@ -7642,6 +7683,27 @@ app.post('/api/combos', async (req, res) => {
 });
 
 
+
+// Supplier name duplicate check (for frontend warning in Purchase Entry modal)
+app.get('/api/suppliers/check-name', async (req, res) => {
+  const { name, vendor_id } = req.query;
+  if (!name || !name.trim()) return res.json({ exists: false });
+  try {
+    let sql = 'SELECT id, name FROM suppliers WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))';
+    let params = [name.trim()];
+    if (vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
+      sql += ' AND vendor_id = ?';
+      params.push(parseInt(vendor_id));
+    } else {
+      sql += ' AND vendor_id IS NULL';
+    }
+    const [rows] = await pool.query(sql, params);
+    res.json({ exists: rows.length > 0, supplier: rows.length > 0 ? { id: rows[0].id, name: rows[0].name } : null });
+  } catch (error) {
+    console.error('Error checking supplier name:', error);
+    res.json({ exists: false });
+  }
+});
 
 // Suppliers CRUD
 app.get('/api/suppliers', async (req, res) => {
