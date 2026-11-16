@@ -7689,7 +7689,7 @@ app.get('/api/suppliers/check-name', async (req, res) => {
   const { name, vendor_id } = req.query;
   if (!name || !name.trim()) return res.json({ exists: false });
   try {
-    let sql = 'SELECT id, name FROM suppliers WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))';
+    let sql = 'SELECT id, name, contact_person, phone, email, items_supplied, payment_terms FROM suppliers WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))';
     let params = [name.trim()];
     if (vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
       sql += ' AND vendor_id = ?';
@@ -7698,7 +7698,7 @@ app.get('/api/suppliers/check-name', async (req, res) => {
       sql += ' AND vendor_id IS NULL';
     }
     const [rows] = await pool.query(sql, params);
-    res.json({ exists: rows.length > 0, supplier: rows.length > 0 ? { id: rows[0].id, name: rows[0].name } : null });
+    res.json({ exists: rows.length > 0, supplier: rows.length > 0 ? rows[0] : null });
   } catch (error) {
     console.error('Error checking supplier name:', error);
     res.json({ exists: false });

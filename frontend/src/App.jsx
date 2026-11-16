@@ -13563,15 +13563,41 @@ function App() {
                         value={formPurchaseSupplierDetails.name}
                         onChange={async (e) => {
                           const val = e.target.value;
+                          const trimmed = val.trim();
+                          
+                          // Check local memory first for instant UI response
+                          const localMatch = trimmed.length >= 2 ? suppliers.find(s => s.name && s.name.trim().toLowerCase() === trimmed.toLowerCase()) : null;
+                          if (localMatch) {
+                            setPurchaseSupplierDuplicateWarning(`⚠️ A supplier named "${localMatch.name}" already exists. Supplier details are locked and the purchase will be linked to the existing supplier.`);
+                            setFormPurchaseSupplierDetails({
+                              name: val,
+                              contact_person: localMatch.contact_person || '',
+                              contact_phone: localMatch.phone || '',
+                              email: localMatch.email || '',
+                              items_supplied: localMatch.items_supplied || '',
+                              payment_terms: localMatch.payment_terms || ''
+                            });
+                            return;
+                          }
+
                           setFormPurchaseSupplierDetails(prev => ({ ...prev, name: val }));
                           setPurchaseSupplierDuplicateWarning(null);
-                          if (val.trim().length >= 2) {
+
+                          if (trimmed.length >= 2) {
                             try {
                               const vId = selectedVendorId === 'all' || selectedVendorId === 'null' ? 'null' : (selectedVendorId || 'null');
-                              const checkRes = await fetch(`${API_BASE}/suppliers/check-name?name=${encodeURIComponent(val.trim())}&vendor_id=${vId}`);
+                              const checkRes = await fetch(`${API_BASE}/suppliers/check-name?name=${encodeURIComponent(trimmed)}&vendor_id=${vId}`);
                               const checkData = await checkRes.json();
-                              if (checkData.exists) {
-                                setPurchaseSupplierDuplicateWarning(`⚠️ A supplier named "${checkData.supplier.name}" already exists. The purchase will be linked to the existing supplier.`);
+                              if (checkData.exists && checkData.supplier) {
+                                setPurchaseSupplierDuplicateWarning(`⚠️ A supplier named "${checkData.supplier.name}" already exists. Supplier details are locked and the purchase will be linked to the existing supplier.`);
+                                setFormPurchaseSupplierDetails({
+                                  name: val,
+                                  contact_person: checkData.supplier.contact_person || '',
+                                  contact_phone: checkData.supplier.phone || '',
+                                  email: checkData.supplier.email || '',
+                                  items_supplied: checkData.supplier.items_supplied || '',
+                                  payment_terms: checkData.supplier.payment_terms || ''
+                                });
                               }
                             } catch (_) { /* ignore check errors */ }
                           }
@@ -13579,19 +13605,103 @@ function App() {
                         style={{ width: '100%', padding: '8px', borderRadius: '4px', border: purchaseSupplierDuplicateWarning ? '1px solid #f0ad4e' : '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)', marginBottom: '4px' }}
                       />
                       {purchaseSupplierDuplicateWarning && (
-                        <div style={{ fontSize: '12px', color: '#f0ad4e', marginBottom: '8px', padding: '4px 6px', backgroundColor: 'rgba(240,173,78,0.1)', borderRadius: '4px' }}>
+                        <div style={{ fontSize: '12px', color: '#f0ad4e', marginBottom: '8px', padding: '6px 10px', backgroundColor: 'rgba(240,173,78,0.1)', border: '1px solid #f0ad4e', borderRadius: '4px' }}>
                           {purchaseSupplierDuplicateWarning}
                         </div>
                       )}
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                        <input type="text" placeholder="Contact Person" value={formPurchaseSupplierDetails.contact_person} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, contact_person: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
-                        <input type="tel" pattern="^\+?\d{10,15}$" title="Phone number must contain 10-15 digits" placeholder="Phone" value={formPurchaseSupplierDetails.contact_phone} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, contact_phone: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                        <input 
+                          type="text" 
+                          placeholder="Contact Person" 
+                          disabled={Boolean(purchaseSupplierDuplicateWarning)}
+                          value={formPurchaseSupplierDetails.contact_person} 
+                          onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, contact_person: e.target.value }))} 
+                          style={{ 
+                            flex: 1, 
+                            padding: '6px', 
+                            borderRadius: '4px', 
+                            border: '1px solid var(--border-light)', 
+                            backgroundColor: purchaseSupplierDuplicateWarning ? 'rgba(255,255,255,0.04)' : 'var(--bg-app)', 
+                            color: purchaseSupplierDuplicateWarning ? 'var(--text-muted)' : 'var(--text-main)',
+                            cursor: purchaseSupplierDuplicateWarning ? 'not-allowed' : 'text',
+                            opacity: purchaseSupplierDuplicateWarning ? 0.65 : 1
+                          }} 
+                        />
+                        <input 
+                          type="tel" 
+                          pattern="^\+?\d{10,15}$" 
+                          title="Phone number must contain 10-15 digits" 
+                          placeholder="Phone" 
+                          disabled={Boolean(purchaseSupplierDuplicateWarning)}
+                          value={formPurchaseSupplierDetails.contact_phone} 
+                          onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, contact_phone: e.target.value }))} 
+                          style={{ 
+                            flex: 1, 
+                            padding: '6px', 
+                            borderRadius: '4px', 
+                            border: '1px solid var(--border-light)', 
+                            backgroundColor: purchaseSupplierDuplicateWarning ? 'rgba(255,255,255,0.04)' : 'var(--bg-app)', 
+                            color: purchaseSupplierDuplicateWarning ? 'var(--text-muted)' : 'var(--text-main)',
+                            cursor: purchaseSupplierDuplicateWarning ? 'not-allowed' : 'text',
+                            opacity: purchaseSupplierDuplicateWarning ? 0.65 : 1
+                          }} 
+                        />
                       </div>
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                        <input type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" placeholder="Email" value={formPurchaseSupplierDetails.email} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, email: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
-                        <input type="text" placeholder="Category (e.g. Dairy, Spices)" value={formPurchaseSupplierDetails.items_supplied} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, items_supplied: e.target.value }))} style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                        <input 
+                          type="email" 
+                          pattern="[^\s@]+@[^\s@]+\.[^\s@]+" 
+                          title="Enter a valid email address (e.g., name@domain.com)" 
+                          placeholder="Email" 
+                          disabled={Boolean(purchaseSupplierDuplicateWarning)}
+                          value={formPurchaseSupplierDetails.email} 
+                          onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, email: e.target.value }))} 
+                          style={{ 
+                            flex: 1, 
+                            padding: '6px', 
+                            borderRadius: '4px', 
+                            border: '1px solid var(--border-light)', 
+                            backgroundColor: purchaseSupplierDuplicateWarning ? 'rgba(255,255,255,0.04)' : 'var(--bg-app)', 
+                            color: purchaseSupplierDuplicateWarning ? 'var(--text-muted)' : 'var(--text-main)',
+                            cursor: purchaseSupplierDuplicateWarning ? 'not-allowed' : 'text',
+                            opacity: purchaseSupplierDuplicateWarning ? 0.65 : 1
+                          }} 
+                        />
+                        <input 
+                          type="text" 
+                          placeholder="Category (e.g. Dairy, Spices)" 
+                          disabled={Boolean(purchaseSupplierDuplicateWarning)}
+                          value={formPurchaseSupplierDetails.items_supplied} 
+                          onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, items_supplied: e.target.value }))} 
+                          style={{ 
+                            flex: 1, 
+                            padding: '6px', 
+                            borderRadius: '4px', 
+                            border: '1px solid var(--border-light)', 
+                            backgroundColor: purchaseSupplierDuplicateWarning ? 'rgba(255,255,255,0.04)' : 'var(--bg-app)', 
+                            color: purchaseSupplierDuplicateWarning ? 'var(--text-muted)' : 'var(--text-main)',
+                            cursor: purchaseSupplierDuplicateWarning ? 'not-allowed' : 'text',
+                            opacity: purchaseSupplierDuplicateWarning ? 0.65 : 1
+                          }} 
+                        />
                       </div>
-                      <input type="text" placeholder="Payment Terms (e.g. Net 30, Cash)" value={formPurchaseSupplierDetails.payment_terms} onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, payment_terms: e.target.value }))} style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                      <input 
+                        type="text" 
+                        placeholder="Payment Terms (e.g. Net 30, Cash)" 
+                        disabled={Boolean(purchaseSupplierDuplicateWarning)}
+                        value={formPurchaseSupplierDetails.payment_terms} 
+                        onChange={(e) => setFormPurchaseSupplierDetails(prev => ({ ...prev, payment_terms: e.target.value }))} 
+                        style={{ 
+                          width: '100%', 
+                          padding: '6px', 
+                          borderRadius: '4px', 
+                          border: '1px solid var(--border-light)', 
+                          backgroundColor: purchaseSupplierDuplicateWarning ? 'rgba(255,255,255,0.04)' : 'var(--bg-app)', 
+                          color: purchaseSupplierDuplicateWarning ? 'var(--text-muted)' : 'var(--text-main)',
+                          cursor: purchaseSupplierDuplicateWarning ? 'not-allowed' : 'text',
+                          opacity: purchaseSupplierDuplicateWarning ? 0.65 : 1
+                        }} 
+                      />
                     </div>
                   )}
                 </div>
