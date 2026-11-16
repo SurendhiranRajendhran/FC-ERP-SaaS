@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 
 const API_BASE = '/api';
 
-function Promotions({ user }) {
+function Promotions({ user, isFeaturePermitted }) {
+  const isMultiVendor = isFeaturePermitted ? isFeaturePermitted('multi_vendor') : true;
   const [activeSubTab, setActiveSubTab] = useState('coupons'); // 'coupons' | 'pin'
 
   // --- Promo Codes State ---
@@ -250,7 +251,7 @@ function Promotions({ user }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <div>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 600, color: '#f8fafc', margin: 0 }}>
-            {user.vendor_id ? 'Stall Management & Promotions' : 'Central Admin Promotions & Security'}
+            {user.vendor_id ? 'Stall Management & Promotions' : (isMultiVendor ? 'Central Admin Promotions & Security' : 'Canteen Promotions & Security')}
           </h2>
           <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '4px 0 0 0' }}>
             Manage promo discounts, coupons, and manager authorization PINs.
@@ -303,7 +304,7 @@ function Promotions({ user }) {
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#f8fafc', margin: 0 }}>
-              {user.vendor_id ? 'My Stall Promo Codes' : 'Central Food Court Promo Codes'}
+              {user.vendor_id ? 'My Stall Promo Codes' : (isMultiVendor ? 'Central Food Court Promo Codes' : 'Canteen Promo Codes')}
             </h3>
             <button
               className="btn btn-primary"
@@ -737,14 +738,14 @@ function Promotions({ user }) {
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                           <span style={{ fontSize: '0.75rem', padding: '3px 8px', background: '#8b5cf6', color: '#fff', borderRadius: '4px', fontWeight: 600 }}>
-                            Central Food Court Counter
+                            {isMultiVendor ? 'Central Food Court Counter' : 'Canteen Counter'}
                           </span>
                         </div>
                         <h3 style={{ fontSize: '1.3rem', fontWeight: 600, color: '#f8fafc', margin: '0 0 6px 0' }}>
-                          🖥️ Central Counter Cancellation PIN
+                          🖥️ {isMultiVendor ? 'Central Counter Cancellation PIN' : 'Manager Cancellation PIN'}
                         </h3>
                         <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-                          Cashiers at the Central Counter POS must enter this PIN to authorize cancellations for Central orders.
+                          Cashiers at {isMultiVendor ? 'the Central Counter POS must enter this PIN to authorize cancellations for Central orders.' : 'the Counter POS must enter this Manager PIN to authorize order cancellations.'}
                         </p>
 
                         <div
@@ -810,7 +811,7 @@ function Promotions({ user }) {
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
                           <h4 style={{ fontSize: '1rem', fontWeight: 600, color: '#f8fafc', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            🔒 Update Central Counter PIN
+                            🔒 {isMultiVendor ? 'Update Central Counter PIN' : 'Update Manager Cancellation PIN'}
                           </h4>
                           <span style={{ fontSize: '0.72rem', color: '#a78bfa', background: 'rgba(139, 92, 246, 0.15)', padding: '3px 8px', borderRadius: '4px', fontWeight: 600 }}>
                             4–6 Digits
@@ -818,7 +819,7 @@ function Promotions({ user }) {
                         </div>
 
                         <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: '0 0 16px 0', lineHeight: 1.4 }}>
-                          Enter and confirm a new numeric PIN to authorize cancellations at Central Counter POS.
+                          Enter and confirm a new numeric PIN to authorize cancellations at {isMultiVendor ? 'Central Counter POS.' : 'Counter POS.'}
                         </p>
 
                         <form onSubmit={handleSaveCentralPin}>
@@ -888,7 +889,7 @@ function Promotions({ user }) {
                               cursor: savingPin || !newPin || !confirmPin || newPin.length < 4 || newPin !== confirmPin ? 'not-allowed' : 'pointer'
                             }}
                           >
-                            {savingPin ? 'Updating PIN...' : '💾 Update Central Counter PIN'}
+                            {savingPin ? 'Updating PIN...' : (isMultiVendor ? '💾 Update Central Counter PIN' : '💾 Update Manager Cancellation PIN')}
                           </button>
                         </form>
                       </div>

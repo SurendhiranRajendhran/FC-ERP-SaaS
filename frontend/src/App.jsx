@@ -3503,21 +3503,25 @@ function App() {
     fetchLogs();
     fetchOrders();
     fetchKdsOrders();
-    fetchVendors();
-    fetchSettlements();
-    fetchVendorPerformance();
+    if (isFeaturePermitted('multi_vendor')) {
+      fetchVendors();
+      fetchSettlements();
+      fetchVendorPerformance();
+    }
     fetchHeldOrders();
     // HR fetchers
-    fetchStaff();
-    if (!user?.vendor_id) fetchStallManagers();
-    fetchShifts();
-    fetchRoster(actualRosterWeek);
-    fetchAttendance(selectedAttendanceDate);
-    fetchLeaves();
-    fetchHolidays();
-    fetchPayroll(payrollMonth, payrollYear);
-    fetchStaffMeals();
-    fetchStaffPerformance(perfStartDate, perfEndDate);
+    if (isFeaturePermitted('hr_payroll')) {
+      fetchStaff();
+      if (!user?.vendor_id && isFeaturePermitted('multi_vendor')) fetchStallManagers();
+      fetchShifts();
+      fetchRoster(actualRosterWeek);
+      fetchAttendance(selectedAttendanceDate);
+      fetchLeaves();
+      fetchHolidays();
+      fetchPayroll(payrollMonth, payrollYear);
+      fetchStaffMeals();
+      fetchStaffPerformance(perfStartDate, perfEndDate);
+    }
     fetchCustomers();
   };
 
@@ -6887,7 +6891,9 @@ function App() {
           <div class="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div class="tenant-selector">
               <span class="tenant-badge">
-                {!user?.vendor_id ? 'Central Canteen' : (vendors.find(v => v.id === user.vendor_id)?.name || 'Stall Dashboard')}
+                {!isFeaturePermitted('multi_vendor')
+                  ? (user?.canteen_name || user?.tenant_name || user?.food_court_name || 'Canteen')
+                  : (!user?.vendor_id ? 'Central Canteen' : (vendors.find(v => v.id === user.vendor_id)?.name || 'Stall Dashboard'))}
               </span>
             </div>
             <button className="btn btn-secondary btn-small" onClick={handleOpenMyProfile} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', fontSize: '0.78rem' }}>
@@ -8767,7 +8773,7 @@ function App() {
                     <option value="Specials">Specials</option>
                   </select>
                   <span style={{ marginLeft: '10px', fontSize: '0.8rem', padding: '6px 12px', background: 'rgba(59, 130, 246, 0.12)', color: '#60a5fa', borderRadius: '6px', border: '1px solid rgba(59, 130, 246, 0.25)', fontWeight: '600' }}>
-                    🏪 {!user?.vendor_id ? 'Central Canteen Menu' : 'Stall Menu'}
+                    🏪 {!isFeaturePermitted('multi_vendor') ? 'Canteen Menu' : (!user?.vendor_id ? 'Central Canteen Menu' : 'Stall Menu')}
                   </span>
                 </div>
                 <button className="btn btn-primary" onClick={handleOpenAddMenu}>
@@ -9273,6 +9279,10 @@ function App() {
                                   <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#8b5cf6', borderRadius: '4px', color: '#fff', fontWeight: 'bold' }}>
                                     📱 QR Order
                                   </span>
+                                ) : !isFeaturePermitted('multi_vendor') ? (
+                                  <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#3b82f6', borderRadius: '4px', color: '#fff', fontWeight: 'bold' }}>
+                                    🖥️ Counter POS
+                                  </span>
                                 ) : order.billing_staff_vendor_id === null ? (
                                   <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#3b82f6', borderRadius: '4px', color: '#fff', fontWeight: 'bold' }}>
                                     🖥️ Central POS
@@ -9290,7 +9300,7 @@ function App() {
                               {order.items.map((it, i) => (
                                 <li key={i}>
                                   {it.name} <span className="text-muted">(x{it.quantity})</span>
-                                  {!user.vendor_id && it.vendor_name && (
+                                  {!user.vendor_id && isFeaturePermitted('multi_vendor') && it.vendor_name && (
                                     <span style={{ marginLeft: '6px', fontSize: '0.7rem', padding: '2px 6px', background: '#374151', borderRadius: '4px', color: '#9ca3af' }}>
                                       🏪 {it.vendor_name}
                                     </span>
@@ -9566,7 +9576,7 @@ function App() {
                                 {(() => {
                                   if (!order.items) return null;
                                   // Determine if we need to group by vendor (Expo view usually has vendor_name)
-                                  const isExpoView = order.items.some(item => item.vendor_name);
+                                  const isExpoView = isFeaturePermitted('multi_vendor') && order.is_expo && order.items.some(item => item.vendor_name);
                                   
                                   const itemsToRender = order.items;
                                   
@@ -9655,7 +9665,7 @@ function App() {
                                   const allPreparing = relevantItems.length > 0 && relevantItems.every(i => i.item_status === 'Preparing');
                                   
                                   // Expo gating: check if all external stall items are Ready
-                                  const isExpo = order.is_expo;
+                                  const isExpo = isFeaturePermitted('multi_vendor') && order.is_expo;
                                   const externalItems = isExpo ? (order.items || []).filter(i => i.is_own === 0) : [];
                                   const allExternalReady = externalItems.length === 0 || externalItems.every(i => i.item_status === 'Ready');
                                   const readyExternalStalls = isExpo ? [...new Set(externalItems.filter(i => i.item_status === 'Ready').map(i => i.vendor_name))].length : 0;
@@ -9698,7 +9708,7 @@ function App() {
                                     </div>
                                   );
                                 })()}
-                                {order.is_expo && (
+                                {isFeaturePermitted('multi_vendor') && order.is_expo && (
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
                                     <span style={{ fontSize: '0.75rem', color: 'var(--text-color-secondary)' }}>
                                       (Controls Central items only)
@@ -10613,7 +10623,7 @@ function App() {
 
           {activeTab === 'promotions' && (
             <div className="view-panel active" style={{ height: '100%', overflowY: 'auto' }}>
-              <Promotions user={user} />
+              <Promotions user={user} isFeaturePermitted={isFeaturePermitted} />
             </div>
           )}
 
@@ -10625,7 +10635,7 @@ function App() {
               {/* Sub-tab Navigation */}
               <div className="hr-sub-tabs">
                 {[
-                  ...(!user?.vendor_id ? [['stall-managers', '👔 Stall Managers']] : []),
+                  ...(!user?.vendor_id && isFeaturePermitted('multi_vendor') ? [['stall-managers', '👔 Stall Managers']] : []),
                   ['directory', '👥 Staff Directory'],
                   ['shifts', '⏰ Shift Management'],
                   ['swaps', '🔄 Shift Swaps'],
@@ -10642,7 +10652,7 @@ function App() {
                     className={`hr-sub-tab ${hrSubTab === key ? 'active' : ''}`}
                     onClick={() => {
                       setHrSubTab(key);
-                      if (key === 'stall-managers') fetchStallManagers();
+                      if (key === 'stall-managers' && isFeaturePermitted('multi_vendor')) fetchStallManagers();
                       if (key === 'directory') fetchStaff();
                       if (key === 'shifts') fetchShifts();
                       if (key === 'swaps') fetchShiftSwaps();
@@ -10660,7 +10670,7 @@ function App() {
               </div>
 
               {/* ============ SUB-TAB: STALL MANAGERS (Central Admin Only) ============ */}
-              {hrSubTab === 'stall-managers' && (!user?.vendor_id) && (
+              {hrSubTab === 'stall-managers' && (!user?.vendor_id) && isFeaturePermitted('multi_vendor') && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                     <div>
@@ -10810,13 +10820,13 @@ function App() {
                                   </div>
                                   <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>Operational staff will be assigned to your stall.</div>
                                 </div>
-                              ) : (
+                              ) : isFeaturePermitted('multi_vendor') ? (
                                 <div className="hr-form-group" style={{ background: 'rgba(59,130,246,0.08)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)' }}>
                                   <label style={{ color: '#60a5fa', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>🏢 Central Canteen Operational Staff</label>
                                   <div style={{ fontSize: '0.88rem', color: '#e2e8f0', marginTop: '4px' }}>Central Canteen (Kitchen & Counters)</div>
                                   <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>Stalls & Stall Managers are managed via Multi-Vendor.</div>
                                 </div>
-                              )}
+                              ) : null}
                               {formStaff.id && (
                                 <div className="hr-form-group">
                                   <label>Status</label>
@@ -10875,7 +10885,9 @@ function App() {
                             <span className="hr-role-badge">{s.role}</span>
                           </div>
                           <div className="hr-card-info">
-                            <div className="hr-info-row"><span className="info-label">📍 Placement</span><span className="info-value">{stall ? `🏪 Stall: ${stall.name}` : '🏢 Central Canteen'}</span></div>
+                            {isFeaturePermitted('multi_vendor') && (
+                              <div className="hr-info-row"><span className="info-label">📍 Placement</span><span className="info-value">{stall ? `🏪 Stall: ${stall.name}` : '🏢 Central Canteen'}</span></div>
+                            )}
                             <div className="hr-info-row"><span className="info-label">📞 Phone</span><span className="info-value">{s.phone || '—'}</span></div>
                             <div className="hr-info-row"><span className="info-label">✉️ Email</span><span className="info-value">{s.email || '—'}</span></div>
                             <div className="hr-info-row"><span className="info-label">💳 Payment</span><span className="info-value">{s.pay_type === 'monthly' ? `₹${parseFloat(s.monthly_salary).toLocaleString()}/mo` : `₹${parseFloat(s.daily_rate).toLocaleString()}/day`}</span></div>
@@ -11952,14 +11964,14 @@ function App() {
                   <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <span className="badge badge-primary" style={{ fontSize: '0.8rem', padding: '4px 10px' }}>
-                        {user?.vendor_id ? `🏪 ${vendors.find(v => v.id === user.vendor_id)?.name || `Stall #${user.vendor_id}`}` : '🏢 Central Canteen'}
+                        {user?.vendor_id ? `🏪 ${vendors.find(v => v.id === user.vendor_id)?.name || `Stall #${user.vendor_id}`}` : (isFeaturePermitted('multi_vendor') ? '🏢 Central Canteen' : '🏢 Canteen')}
                       </span>
                       <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-light)' }}>
-                        {user?.vendor_id ? 'Stall Holiday Calendar' : 'Central Canteen Holiday Calendar'}
+                        {user?.vendor_id ? 'Stall Holiday Calendar' : (isFeaturePermitted('multi_vendor') ? 'Central Canteen Holiday Calendar' : 'Canteen Holiday Calendar')}
                       </span>
                     </div>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      🔒 Holidays configured here apply strictly to {user?.vendor_id ? `${vendors.find(v => v.id === user.vendor_id)?.name || 'this stall'}'s staff` : 'Central Canteen staff only'}.
+                      🔒 Holidays configured here apply {user?.vendor_id ? `strictly to ${vendors.find(v => v.id === user.vendor_id)?.name || 'this stall'}'s staff` : (isFeaturePermitted('multi_vendor') ? 'strictly to Central Canteen staff only.' : 'to all canteen staff.')}
                     </span>
                   </div>
                   <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -12430,33 +12442,35 @@ function App() {
                         </div>
                       </div>
 
-                      <div className="panel-card">
-                        <div className="panel-card-header">
-                          <h3>Vendor-wise GST Summary</h3>
-                        </div>
-                        <div className="table-container" style={{ maxHeight: '220px', overflowY: 'auto' }}>
-                          <table className="data-table">
-                            <thead>
-                              <tr>
-                                <th>Vendor</th>
-                                <th>Total Sales</th>
-                                <th>Taxable Value</th>
-                                <th>Total GST</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {reportsData.gst.vendorSummary && reportsData.gst.vendorSummary.map((item, idx) => (
-                                <tr key={idx}>
-                                  <td>{item.vendor_name}</td>
-                                  <td>₹{Number(item.total_sales).toFixed(2)}</td>
-                                  <td>₹{Number(item.taxable_value).toFixed(2)}</td>
-                                  <td>₹{Number(item.gst_amount).toFixed(2)}</td>
+                      {isFeaturePermitted('multi_vendor') && (
+                        <div className="panel-card">
+                          <div className="panel-card-header">
+                            <h3>Vendor-wise GST Summary</h3>
+                          </div>
+                          <div className="table-container" style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                            <table className="data-table">
+                              <thead>
+                                <tr>
+                                  <th>Vendor</th>
+                                  <th>Total Sales</th>
+                                  <th>Taxable Value</th>
+                                  <th>Total GST</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody>
+                                {reportsData.gst.vendorSummary && reportsData.gst.vendorSummary.map((item, idx) => (
+                                  <tr key={idx}>
+                                    <td>{item.vendor_name}</td>
+                                    <td>₹{Number(item.total_sales).toFixed(2)}</td>
+                                    <td>₹{Number(item.taxable_value).toFixed(2)}</td>
+                                    <td>₹{Number(item.gst_amount).toFixed(2)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -12729,7 +12743,7 @@ function App() {
           )}
 
           {activeTab === 'crm' && (
-            <CrmNotifications userRole={user?.role} />
+            <CrmNotifications userRole={user?.role} isFeaturePermitted={isFeaturePermitted} />
           )}
           
           {activeTab === 'wallet' && (

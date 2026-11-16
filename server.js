@@ -3027,18 +3027,21 @@ app.get('/api/kds/orders', async (req, res) => {
     const orderIds = orders.map(o => o.id);
 
     if (isCentral) {
-      // EXPO MODE: fetch ALL items from ALL stalls for these orders, with vendor names
+      const planName = req.tenantPlan || 'Food Court';
+      const isMultiVendor = PLAN_ENTITLEMENTS[planName]?.multi_vendor !== false;
+
+      // EXPO MODE (only for multi-vendor facilities): fetch ALL items from ALL stalls for these orders
       const [items] = await pool.query(`
         SELECT oi.id as order_item_id, oi.order_id, oi.quantity, oi.price,
                oi.spice_level, oi.special_instructions, oi.status as item_status,
                i.name, i.category, i.vendor_id,
-               COALESCE(v.name, 'Central Canteen') as vendor_name,
+               COALESCE(v.name, ?) as vendor_name,
                CASE WHEN i.vendor_id IS NULL THEN 1 ELSE 0 END as is_own
         FROM order_items oi
         JOIN items i ON oi.item_id = i.id
         LEFT JOIN vendors v ON i.vendor_id = v.id
         WHERE oi.order_id IN (?)
-      `, [orderIds]);
+      `, [isMultiVendor ? 'Central Canteen' : 'Canteen', orderIds]);
 
       const itemsByOrder = {};
       items.forEach(item => {
@@ -3050,7 +3053,7 @@ app.get('/api/kds/orders', async (req, res) => {
         ...order,
         elapsed_seconds: Math.max(0, order.elapsed_seconds || 0),
         items: itemsByOrder[order.id] || [],
-        is_expo: true
+        is_expo: isMultiVendor
       })).filter(order => order.items.length > 0);
 
       return res.json(result);

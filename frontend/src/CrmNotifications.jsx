@@ -34,7 +34,7 @@ function Badge({ v }) {
 }
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
-function OverviewTab() {
+function OverviewTab({ isMultiVendor }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -83,10 +83,10 @@ function OverviewTab() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {/* Low Stock */}
         <div style={{ background: '#1f2937', borderRadius: 12, padding: 20 }}>
-          <h3 style={{ color: '#ef4444', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}><span>⚠️</span> Central Canteen Low Stock</h3>
-          <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 12px' }}>Ingredients in Central Canteen needing reorder (Stall stock is managed on Stall Dashboards)</p>
+          <h3 style={{ color: '#ef4444', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}><span>⚠️</span> {isMultiVendor ? 'Central Canteen Low Stock' : 'Low Stock Ingredients'}</h3>
+          <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 12px' }}>{isMultiVendor ? 'Ingredients in Central Canteen needing reorder (Stall stock is managed on Stall Dashboards)' : 'Ingredients needing reorder'}</p>
           {data?.low_stock_items?.length === 0
-            ? <div style={{ color: '#10b981', fontSize: 14 }}>✅ All central materials well stocked</div>
+            ? <div style={{ color: '#10b981', fontSize: 14 }}>{isMultiVendor ? '✅ All central materials well stocked' : '✅ All materials well stocked'}</div>
             : (data?.low_stock_items || []).map(i => (
               <div key={i.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #374151', fontSize: 13 }}>
                 <span style={{ color: '#f9fafb' }}>{i.name}</span>
@@ -98,10 +98,10 @@ function OverviewTab() {
 
         {/* Daily Summary */}
         <div style={{ background: '#1f2937', borderRadius: 12, padding: 20 }}>
-          <h3 style={{ color: '#10b981', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}><span>📊</span> Food Court Daily Summary</h3>
-          <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 14px' }}>Send consolidated food court summary (total revenue, orders, cash, and stall breakdown) to owner.</p>
+          <h3 style={{ color: '#10b981', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}><span>📊</span> {isMultiVendor ? 'Food Court Daily Summary' : 'Canteen Daily Summary'}</h3>
+          <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 14px' }}>{isMultiVendor ? 'Send consolidated food court summary (total revenue, orders, cash, and stall breakdown) to owner.' : 'Send daily canteen summary (total revenue, orders, cash) to owner.'}</p>
           <button id="crm-send-daily-summary" onClick={sendSummary} disabled={summaryLoading} style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 700, cursor: 'pointer', width: '100%' }}>
-            {summaryLoading ? '⏳ Sending...' : '📤 Send Food Court Daily Summary Now'}
+            {summaryLoading ? '⏳ Sending...' : (isMultiVendor ? '📤 Send Food Court Daily Summary Now' : '📤 Send Canteen Daily Summary Now')}
           </button>
           {summaryMsg && <div style={{ marginTop: 12, color: summaryMsg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13, whiteSpace: 'pre-line' }}>{summaryMsg}</div>}
         </div>
@@ -785,7 +785,8 @@ function SettingsTab({ userRole }) {
 }
 
 // ─── Main CRM & Notifications Component ──────────────────────────────────────
-export default function CrmNotifications({ userRole }) {
+export default function CrmNotifications({ userRole, isFeaturePermitted }) {
+  const isMultiVendor = isFeaturePermitted ? isFeaturePermitted('multi_vendor') : true;
   const [activeTab, setActiveTab] = useState('overview');
 
   const tabs = [
@@ -819,7 +820,7 @@ export default function CrmNotifications({ userRole }) {
 
       {/* Tab content */}
       <div>
-        {activeTab === 'overview' && <OverviewTab />}
+        {activeTab === 'overview' && <OverviewTab isMultiVendor={isMultiVendor} />}
         {activeTab === 'loyalty' && <LoyaltyTab />}
         {activeTab === 'broadcasts' && <BroadcastsTab />}
         {activeTab === 'feedback' && <FeedbackTab />}
