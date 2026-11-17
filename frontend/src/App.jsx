@@ -3170,11 +3170,10 @@ function App() {
   const [showSupplierItemSuggestions, setShowSupplierItemSuggestions] = useState(false);
   
   
-  // Overheads & Customers Modal States
+  // Overhead Expenses Modal State
   const [showOverheadModal, setShowOverheadModal] = useState(false);
+  const [isSubmittingOverhead, setIsSubmittingOverhead] = useState(false);
   const [overheadForm, setOverheadForm] = useState({ category: 'Rent', description: '', amount: '', expense_date: getISTTodayString() });
-  const [showCustomerModal, setShowCustomerModal] = useState(false);
-  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '' });
 
   // ── Authentication State ──
   const isExplicitLoginRoute = typeof window !== 'undefined' && (
@@ -3372,8 +3371,25 @@ function App() {
 
   const handleOverheadSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmittingOverhead) return;
+    const amountVal = parseFloat(overheadForm.amount);
+    if (isNaN(amountVal) || amountVal <= 0) {
+      showToast('Please enter an expense amount greater than zero', 'error');
+      return;
+    }
+    setIsSubmittingOverhead(true);
     try {
-      const res = await fetch(`${API_BASE}/overheads`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(overheadForm) });
+      const res = await fetch(`${API_BASE}/overheads`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          ...overheadForm,
+          amount: amountVal
+        })
+      });
       const data = await res.json();
       if (res.ok) {
         showToast('Overhead expense logged successfully!', 'success');
@@ -3383,24 +3399,11 @@ function App() {
       } else {
         showToast(data.error || 'Failed to save expense', 'error');
       }
-    } catch (err) { showToast('Error saving overhead', 'error'); }
-  };
-
-  const handleCustomerSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch(`${API_BASE}/customers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(customerForm) });
-      if (res.ok) {
-        showToast('Customer registered successfully', 'success');
-        setShowCustomerModal(false);
-        setCustomerForm({ name: '', phone: '', email: '' });
-        fetchCustomers();
-        if (reportsSubTab === 'customer-analytics') fetchReportData('customer-analytics');
-      } else {
-        const data = await res.json().catch(() => ({}));
-        showToast(data.error || 'Failed to register customer', 'error');
-      }
-    } catch (err) { showToast('Error registering customer', 'error'); }
+    } catch (err) {
+      showToast('Error saving overhead expense', 'error');
+    } finally {
+      setIsSubmittingOverhead(false);
+    }
   };
 
   const [selectedRosterWeek, setSelectedRosterWeek] = useState(() => {
@@ -6956,10 +6959,10 @@ function App() {
       {/* Overhead Modal */}
       {showOverheadModal && (
         <div className="modal-overlay active">
-          <div className="modal-card" style={{ maxWidth: '400px' }}>
+          <div className="modal-card" style={{ maxWidth: '420px' }}>
             <div className="modal-header">
               <h2>Log Overhead Expense</h2>
-              <button className="close-btn" onClick={() => setShowOverheadModal(false)}>×</button>
+              <button className="close-btn" onClick={() => !isSubmittingOverhead && setShowOverheadModal(false)}>×</button>
             </div>
             <form onSubmit={handleOverheadSubmit} className="modal-body">
               <div className="form-group">
@@ -6972,47 +6975,27 @@ function App() {
                   <option>Rent</option>
                   <option>Electricity</option>
                   <option>Water</option>
+                  <option>Gas</option>
                   <option>Marketing</option>
                   <option>Maintenance</option>
+                  <option>Cleaning</option>
+                  <option>Security</option>
+                  <option>Internet / Wi-Fi</option>
+                  <option>Packaging</option>
                   <option>Other</option>
                 </select>
               </div>
               <div className="form-group">
                 <label>Amount (₹)</label>
-                <input type="number" step="0.01" className="form-control" value={overheadForm.amount} onChange={e => setOverheadForm({...overheadForm, amount: e.target.value})} required />
+                <input type="number" step="0.01" min="0.01" className="form-control" placeholder="0.00" value={overheadForm.amount} onChange={e => setOverheadForm({...overheadForm, amount: e.target.value})} required />
               </div>
               <div className="form-group">
-                <label>Description</label>
-                <input type="text" className="form-control" value={overheadForm.description} onChange={e => setOverheadForm({...overheadForm, description: e.target.value})} />
+                <label>Description (Optional)</label>
+                <input type="text" className="form-control" placeholder="e.g. Monthly maintenance or utility bill" value={overheadForm.description} onChange={e => setOverheadForm({...overheadForm, description: e.target.value})} />
               </div>
-              <button type="submit" className="btn btn-primary btn-block">Save Expense</button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Customer Modal */}
-      {showCustomerModal && (
-        <div className="modal-overlay active">
-          <div className="modal-card" style={{ maxWidth: '400px' }}>
-            <div className="modal-header">
-              <h2>Register Customer</h2>
-              <button className="close-btn" onClick={() => setShowCustomerModal(false)}>×</button>
-            </div>
-            <form onSubmit={handleCustomerSubmit} className="modal-body">
-              <div className="form-group">
-                <label>Name</label>
-                <input type="text" className="form-control" value={customerForm.name} onChange={e => setCustomerForm({...customerForm, name: e.target.value})} required />
-              </div>
-              <div className="form-group">
-                <label>Phone Number</label>
-                <input type="tel" pattern="^\+?\d{10,15}$" title="Phone number must contain 10-15 digits" className="form-control" value={customerForm.phone} onChange={e => setCustomerForm({...customerForm, phone: e.target.value})} required />
-              </div>
-              <div className="form-group">
-                <label>Email (Optional)</label>
-                <input type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address (e.g., name@domain.com)" className="form-control" value={customerForm.email} onChange={e => setCustomerForm({...customerForm, email: e.target.value})} />
-              </div>
-              <button type="submit" className="btn btn-primary btn-block">Register Customer</button>
+              <button type="submit" className="btn btn-primary btn-block" disabled={isSubmittingOverhead}>
+                {isSubmittingOverhead ? 'Saving Expense...' : 'Save Expense'}
+              </button>
             </form>
           </div>
         </div>
@@ -12219,10 +12202,7 @@ function App() {
                   <input type="date" className="header-date-input" value={reportDateRange.endDate} onChange={e => setReportDateRange(prev => ({...prev, endDate: e.target.value}))} />
                   
                   {!user.vendor_id && (
-                    <>
-                      <button className="btn btn-outline-primary" onClick={() => setShowOverheadModal(true)}>+ Log Expense</button>
-                      <button className="btn btn-outline-primary" onClick={() => setShowCustomerModal(true)}>+ New Customer</button>
-                    </>
+                    <button className="btn btn-outline-primary" onClick={() => setShowOverheadModal(true)}>+ Log Expense</button>
                   )}
                   <button className="btn btn-primary" onClick={handleExportMisReportPdf}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{marginRight: 6}}><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6z"/></svg>

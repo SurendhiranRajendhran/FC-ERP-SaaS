@@ -469,6 +469,34 @@ async function runStartupMigrations() {
       }
     }
 
+    // 9b. Ensure overheads table exists, category is VARCHAR(100), and tenant_id column exists
+    const [ohTables] = await conn.query("SHOW TABLES LIKE 'overheads'");
+    if (ohTables.length === 0) {
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS overheads (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          expense_date DATE NOT NULL,
+          category VARCHAR(100) NOT NULL,
+          amount DECIMAL(10,2) NOT NULL,
+          description VARCHAR(255) DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          tenant_id INT DEFAULT 1
+        )
+      `);
+      console.log("Migration: Created overheads table.");
+    } else {
+      const [catCols] = await conn.query("SHOW COLUMNS FROM overheads LIKE 'category'");
+      if (catCols.length > 0 && catCols[0].Type.toLowerCase().startsWith('enum')) {
+        await conn.query("ALTER TABLE overheads MODIFY COLUMN category VARCHAR(100) NOT NULL");
+        console.log("Migration: Altered overheads.category from restrictive ENUM to VARCHAR(100).");
+      }
+      const [tenantCols] = await conn.query("SHOW COLUMNS FROM overheads LIKE 'tenant_id'");
+      if (tenantCols.length === 0) {
+        await conn.query("ALTER TABLE overheads ADD COLUMN tenant_id INT DEFAULT 1");
+        console.log("Migration: Added tenant_id column to overheads table.");
+      }
+    }
+
     // 10. Ensure attendance table supports 'Missed Shift' status and heal empty statuses
     const [attTables] = await conn.query("SHOW TABLES LIKE 'attendance'");
     if (attTables.length > 0) {
@@ -6981,7 +7009,15 @@ app.get('/api/feedback', async (req, res) => {
 // --- OVERHEAD EXPENSES ---
 app.get('/api/overheads', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM overheads ORDER BY expense_date DESC');
+    const tenantId = req.user?.tenant_id;
+    let query = 'SELECT * FROM overheads';
+    let params = [];
+    if (tenantId) {
+      query += ' WHERE tenant_id = ?';
+      params.push(tenantId);
+    }
+    query += ' ORDER BY expense_date DESC';
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching overheads:', error);
@@ -7044,25 +7080,35 @@ app.get('/api/vendors/expenses/sum', async (req, res) => {
 
 app.post('/api/overheads', async (req, res) => {
   const { expense_date, category, amount, description } = req.body;
-  if (!expense_date || !category || amount === undefined) {
-    return res.status(400).json({ error: 'Date, Category, and Amount are required.' });
+  if (!expense_date || !category || amount === undefined || amount === '' || isNaN(parseFloat(amount))) {
+    return res.status(400).json({ error: 'Valid Date, Category, and Amount are required.' });
   }
+  const parsedAmount = parseFloat(amount);
+  if (parsedAmount <= 0) {
+    return res.status(400).json({ error: 'Expense amount must be greater than zero.' });
+  }
+  const tenantId = req.user?.tenant_id || 1;
   try {
     const [result] = await pool.query(
-      'INSERT INTO overheads (expense_date, category, amount, description) VALUES (?, ?, ?, ?)',
-      [expense_date, category, parseFloat(amount), description || null]
+      'INSERT INTO overheads (expense_date, category, amount, description, tenant_id) VALUES (?, ?, ?, ?, ?)',
+      [expense_date, category.trim(), parsedAmount, description ? description.trim() : null, tenantId]
     );
-    res.status(201).json({ id: result.insertId, expense_date, category, amount: parseFloat(amount), description });
+    res.status(201).json({ id: result.insertId, expense_date, category: category.trim(), amount: parsedAmount, description, tenant_id: tenantId });
   } catch (error) {
     console.error('Error creating overhead expense:', error);
-    res.status(500).json({ error: 'Failed to create overhead expense' });
+    res.status(500).json({ error: error.message || 'Failed to create overhead expense' });
   }
 });
 
 app.delete('/api/overheads/:id', async (req, res) => {
   const { id } = req.params;
+  const tenantId = req.user?.tenant_id;
   try {
-    await pool.query('DELETE FROM overheads WHERE id = ?', [id]);
+    if (tenantId) {
+      await pool.query('DELETE FROM overheads WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+    } else {
+      await pool.query('DELETE FROM overheads WHERE id = ?', [id]);
+    }
     res.json({ success: true, message: 'Expense deleted successfully.' });
   } catch (error) {
     console.error('Error deleting overhead expense:', error);
