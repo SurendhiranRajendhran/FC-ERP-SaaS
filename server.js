@@ -682,8 +682,6 @@ function rewriteQuery(sql, params, tenantId) {
   matchedTables.sort((a, b) => a.index - b.index);
   const targetTable = matchedTables[0].name;
 
-  if (/\btenant_id\b/i.test(sql)) return { sql, params };
-
   let rewrittenSql = sql;
   let rewrittenParams = params ? [...params] : [];
   const lowerSql = sql.toLowerCase();
@@ -691,6 +689,12 @@ function rewriteQuery(sql, params, tenantId) {
   if (/^\s*(select|update|delete)\b/i.test(sql)) {
     if (/\bwhere\b/i.test(sql)) {
       const whereIdx = lowerSql.lastIndexOf('where');
+      const whereClause = lowerSql.slice(whereIdx);
+      // If tenant_id is already filtered in the WHERE clause, do not duplicate
+      if (/\btenant_id\b/i.test(whereClause)) {
+        return { sql, params };
+      }
+
       const sqlBeforeWhere = sql.slice(0, whereIdx);
       const paramsBeforeWhereCount = (sqlBeforeWhere.match(/\?/g) || []).length;
       
@@ -719,6 +723,10 @@ function rewriteQuery(sql, params, tenantId) {
     if (/\bvalues\b/i.test(sql)) {
       const valuesIdx = lowerSql.indexOf('values');
       const colsPart = sql.slice(0, valuesIdx);
+      // If tenant_id is already in the INSERT columns list, do not duplicate
+      if (/\btenant_id\b/i.test(colsPart)) {
+        return { sql, params };
+      }
       const valuesPart = sql.slice(valuesIdx);
       
       const lastParenInCols = colsPart.lastIndexOf(')');
@@ -744,6 +752,7 @@ function rewriteQuery(sql, params, tenantId) {
         }
       }
     } else if (/\bset\b/i.test(sql)) {
+      if (/\btenant_id\b/i.test(sql)) return { sql, params };
       rewrittenSql = sql + ', tenant_id = ?';
       rewrittenParams.push(tenantId);
     }
@@ -8502,6 +8511,22 @@ app.post('/api/shifts/swap-request', async (req, res) => {
     return res.status(400).json({ error: 'You cannot swap shifts with yourself.' });
   }
   try {
+    let tenantId = req.user ? req.user.tenant_id : null;
+    if (!tenantId && req.headers['x-tenant-id']) {
+      tenantId = parseInt(req.headers['x-tenant-id'], 10);
+    }
+
+    // Verify both staff members belong to the authenticated tenant
+    if (tenantId) {
+      const [staffCheck] = await pool.query(
+        'SELECT id FROM staff WHERE id IN (?, ?) AND tenant_id = ?',
+        [requester_id, target_id, tenantId]
+      );
+      if (staffCheck.length < 2) {
+        return res.status(400).json({ error: 'Invalid staff members for this facility.' });
+      }
+    }
+
     const [reqRoster] = await pool.query('SELECT shift_id FROM shift_roster WHERE staff_id = ? AND roster_date = ?', [requester_id, swap_date]);
     const [targetRoster] = await pool.query('SELECT shift_id FROM shift_roster WHERE staff_id = ? AND roster_date = ?', [target_id, swap_date]);
     
@@ -8509,9 +8534,9 @@ app.post('/api/shifts/swap-request', async (req, res) => {
     const tShiftId = targetRoster.length > 0 ? targetRoster[0].shift_id : null;
 
     await pool.query(
-      `INSERT INTO shift_swap_requests (requester_id, target_id, swap_date, requester_shift_id, target_shift_id, reason, status) 
-       VALUES (?, ?, ?, ?, ?, ?, 'Pending')`,
-      [requester_id, target_id, swap_date, rShiftId, tShiftId, reason || null]
+      `INSERT INTO shift_swap_requests (requester_id, target_id, swap_date, requester_shift_id, target_shift_id, reason, status, tenant_id) 
+       VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?)`,
+      [requester_id, target_id, swap_date, rShiftId, tShiftId, reason || null, tenantId]
     );
     res.status(201).json({ success: true, message: 'Shift swap request submitted.' });
   } catch (error) {
@@ -8523,9 +8548,31 @@ app.post('/api/shifts/swap-request', async (req, res) => {
 // Shift swap requests list
 app.get('/api/shifts/swap-requests', async (req, res) => {
   try {
-    const scopeClause = req.user.vendor_id
-      ? `WHERE s1.vendor_id = ${pool.escape(req.user.vendor_id)} AND s1.role NOT IN ('Manager', 'Owner')`
-      : `WHERE s1.vendor_id IS NULL AND s1.role NOT IN ('Manager', 'Owner')`;
+    let tenantId = req.user ? req.user.tenant_id : null;
+    if (!tenantId && req.headers['x-tenant-id']) {
+      tenantId = parseInt(req.headers['x-tenant-id'], 10);
+    }
+
+    const whereConditions = [];
+    const params = [];
+
+    // Strict tenant isolation
+    if (tenantId) {
+      whereConditions.push('r.tenant_id = ?');
+      params.push(tenantId);
+    }
+
+    // Strict vendor scoping (central vs stall)
+    if (req.user?.vendor_id) {
+      whereConditions.push('s1.vendor_id = ?');
+      params.push(req.user.vendor_id);
+    } else {
+      whereConditions.push('s1.vendor_id IS NULL');
+    }
+
+    whereConditions.push("s1.role NOT IN ('Manager', 'Owner')");
+
+    const whereClause = 'WHERE ' + whereConditions.join(' AND ');
 
     const [rows] = await pool.query(`
       SELECT r.id, r.requester_id, r.target_id, r.requester_shift_id, r.target_shift_id, DATE_FORMAT(r.swap_date, '%Y-%m-%d') as swap_date, r.reason, r.status, r.approved_by, r.created_at, r.tenant_id, 
@@ -8538,9 +8585,9 @@ app.get('/api/shifts/swap-requests', async (req, res) => {
       JOIN staff s2 ON r.target_id = s2.id
       LEFT JOIN shifts sh1 ON r.requester_shift_id = sh1.id
       LEFT JOIN shifts sh2 ON r.target_shift_id = sh2.id
-      ${scopeClause}
+      ${whereClause}
       ORDER BY r.created_at DESC
-    `);
+    `, params);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching shift swap requests:', error);
@@ -8556,7 +8603,20 @@ app.put('/api/shifts/swap/:id/approve', async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const [rows] = await connection.query('SELECT * FROM shift_swap_requests WHERE id = ? FOR UPDATE', [id]);
+    let tenantId = req.user ? req.user.tenant_id : null;
+    if (!tenantId && req.headers['x-tenant-id']) {
+      tenantId = parseInt(req.headers['x-tenant-id'], 10);
+    }
+
+    let checkSql = 'SELECT * FROM shift_swap_requests WHERE id = ?';
+    let checkParams = [id];
+    if (tenantId) {
+      checkSql += ' AND tenant_id = ?';
+      checkParams.push(tenantId);
+    }
+    checkSql += ' FOR UPDATE';
+
+    const [rows] = await connection.query(checkSql, checkParams);
     if (rows.length === 0) {
       connection.release();
       return res.status(404).json({ error: 'Swap request not found.' });
@@ -8579,23 +8639,27 @@ app.put('/api/shifts/swap/:id/approve', async (req, res) => {
     );
 
     // Insert swapped shifts (only if they had a shift to swap, else they become 'Off')
+    const finalTenantId = request.tenant_id || tenantId;
     if (request.target_shift_id !== null) {
       await connection.query(
-        'INSERT INTO shift_roster (staff_id, shift_id, roster_date, status, swap_with_staff_id) VALUES (?, ?, ?, ?, ?)',
-        [request.requester_id, request.target_shift_id, request.swap_date, 'Swapped', request.target_id]
+        'INSERT INTO shift_roster (staff_id, shift_id, roster_date, status, swap_with_staff_id, tenant_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [request.requester_id, request.target_shift_id, request.swap_date, 'Swapped', request.target_id, finalTenantId]
       );
     }
     if (request.requester_shift_id !== null) {
       await connection.query(
-        'INSERT INTO shift_roster (staff_id, shift_id, roster_date, status, swap_with_staff_id) VALUES (?, ?, ?, ?, ?)',
-        [request.target_id, request.requester_shift_id, request.swap_date, 'Swapped', request.requester_id]
+        'INSERT INTO shift_roster (staff_id, shift_id, roster_date, status, swap_with_staff_id, tenant_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [request.target_id, request.requester_shift_id, request.swap_date, 'Swapped', request.requester_id, finalTenantId]
       );
     }
 
-    await connection.query(
-      'UPDATE shift_swap_requests SET status = "Approved", approved_by = ? WHERE id = ?',
-      [approved_by || null, id]
-    );
+    let updateSql = 'UPDATE shift_swap_requests SET status = "Approved", approved_by = ? WHERE id = ?';
+    let updateParams = [approved_by || null, id];
+    if (tenantId) {
+      updateSql += ' AND tenant_id = ?';
+      updateParams.push(tenantId);
+    }
+    await connection.query(updateSql, updateParams);
 
     await connection.commit();
     res.json({ success: true, message: 'Shift swap approved and roster updated successfully.' });
@@ -8612,11 +8676,21 @@ app.put('/api/shifts/swap/:id/approve', async (req, res) => {
 app.put('/api/shifts/swap/:id/reject', async (req, res) => {
   const { id } = req.params;
   const { approved_by } = req.body;
+  let tenantId = req.user ? req.user.tenant_id : null;
+  if (!tenantId && req.headers['x-tenant-id']) {
+    tenantId = parseInt(req.headers['x-tenant-id'], 10);
+  }
   try {
-    await pool.query(
-      'UPDATE shift_swap_requests SET status = "Rejected", approved_by = ? WHERE id = ?',
-      [approved_by || null, id]
-    );
+    let updateSql = 'UPDATE shift_swap_requests SET status = "Rejected", approved_by = ? WHERE id = ?';
+    let updateParams = [approved_by || null, id];
+    if (tenantId) {
+      updateSql += ' AND tenant_id = ?';
+      updateParams.push(tenantId);
+    }
+    const [result] = await pool.query(updateSql, updateParams);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Swap request not found.' });
+    }
     res.json({ success: true, message: 'Shift swap request rejected.' });
   } catch (error) {
     console.error('Error rejecting shift swap:', error);
