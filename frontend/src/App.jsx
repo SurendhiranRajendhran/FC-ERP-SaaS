@@ -2891,6 +2891,7 @@ function App() {
     name: '', contact_person: '', contact_phone: '', email: '', payment_terms: '', items_supplied: ''
   });
   const [purchaseSupplierDuplicateWarning, setPurchaseSupplierDuplicateWarning] = useState(null);
+  const [duplicateSupplierMatchId, setDuplicateSupplierMatchId] = useState(null);
   const [supplierActionLoading, setSupplierActionLoading] = useState('');
   const [isSettlingBills, setIsSettlingBills] = useState(false);
   const [formPurchaseEntry, setFormPurchaseEntry] = useState({
@@ -4836,6 +4837,7 @@ function App() {
       name: '', contact_person: '', contact_phone: '', email: '', payment_terms: '', items_supplied: ''
     });
     setPurchaseSupplierDuplicateWarning(null);
+    setDuplicateSupplierMatchId(null);
     setFormPurchaseEntry({
       supplier_id: '',
       invoice_number: '',
@@ -4903,6 +4905,10 @@ function App() {
     e.preventDefault();
     if (isNewSupplierInPurchase && !formPurchaseSupplierDetails.name.trim()) {
       showToast('Please provide a name for the new supplier.', 'error');
+      return;
+    }
+    if (isNewSupplierInPurchase && purchaseSupplierDuplicateWarning) {
+      showToast('This supplier already exists. Please select the existing supplier from the Select Supplier dropdown.', 'error');
       return;
     }
     if (!isNewSupplierInPurchase && !formPurchaseEntry.supplier_id) {
@@ -13536,7 +13542,14 @@ function App() {
                       type="button" 
                       className="btn btn-sm btn-outline-primary" 
                       style={{ padding: '2px 8px', fontSize: '12px' }}
-                      onClick={() => setIsNewSupplierInPurchase(!isNewSupplierInPurchase)}
+                      onClick={() => {
+                        setIsNewSupplierInPurchase(!isNewSupplierInPurchase);
+                        setPurchaseSupplierDuplicateWarning(null);
+                        setDuplicateSupplierMatchId(null);
+                        setFormPurchaseSupplierDetails({
+                          name: '', contact_person: '', contact_phone: '', email: '', payment_terms: '', items_supplied: ''
+                        });
+                      }}
                     >
                       {isNewSupplierInPurchase ? 'Select Existing Supplier' : '+ New Supplier'}
                     </button>
@@ -13568,20 +13581,22 @@ function App() {
                           // Check local memory first for instant UI response
                           const localMatch = trimmed.length >= 2 ? suppliers.find(s => s.name && s.name.trim().toLowerCase() === trimmed.toLowerCase()) : null;
                           if (localMatch) {
-                            setPurchaseSupplierDuplicateWarning(`⚠️ A supplier named "${localMatch.name}" already exists. Supplier details are locked and the purchase will be linked to the existing supplier.`);
+                            setPurchaseSupplierDuplicateWarning(`⚠️ A supplier named "${localMatch.name}" already exists. Please select this existing supplier from the Select Supplier dropdown.`);
+                            setDuplicateSupplierMatchId(localMatch.id);
                             setFormPurchaseSupplierDetails({
                               name: val,
-                              contact_person: localMatch.contact_person || '',
-                              contact_phone: localMatch.phone || '',
-                              email: localMatch.email || '',
-                              items_supplied: localMatch.items_supplied || '',
-                              payment_terms: localMatch.payment_terms || ''
+                              contact_person: '',
+                              contact_phone: '',
+                              email: '',
+                              items_supplied: '',
+                              payment_terms: ''
                             });
                             return;
                           }
 
                           setFormPurchaseSupplierDetails(prev => ({ ...prev, name: val }));
                           setPurchaseSupplierDuplicateWarning(null);
+                          setDuplicateSupplierMatchId(null);
 
                           if (trimmed.length >= 2) {
                             try {
@@ -13589,14 +13604,15 @@ function App() {
                               const checkRes = await fetch(`${API_BASE}/suppliers/check-name?name=${encodeURIComponent(trimmed)}&vendor_id=${vId}`);
                               const checkData = await checkRes.json();
                               if (checkData.exists && checkData.supplier) {
-                                setPurchaseSupplierDuplicateWarning(`⚠️ A supplier named "${checkData.supplier.name}" already exists. Supplier details are locked and the purchase will be linked to the existing supplier.`);
+                                setPurchaseSupplierDuplicateWarning(`⚠️ A supplier named "${checkData.supplier.name}" already exists. Please select this existing supplier from the Select Supplier dropdown.`);
+                                setDuplicateSupplierMatchId(checkData.supplier.id);
                                 setFormPurchaseSupplierDetails({
                                   name: val,
-                                  contact_person: checkData.supplier.contact_person || '',
-                                  contact_phone: checkData.supplier.phone || '',
-                                  email: checkData.supplier.email || '',
-                                  items_supplied: checkData.supplier.items_supplied || '',
-                                  payment_terms: checkData.supplier.payment_terms || ''
+                                  contact_person: '',
+                                  contact_phone: '',
+                                  email: '',
+                                  items_supplied: '',
+                                  payment_terms: ''
                                 });
                               }
                             } catch (_) { /* ignore check errors */ }
@@ -13605,8 +13621,26 @@ function App() {
                         style={{ width: '100%', padding: '8px', borderRadius: '4px', border: purchaseSupplierDuplicateWarning ? '1px solid #f0ad4e' : '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)', marginBottom: '4px' }}
                       />
                       {purchaseSupplierDuplicateWarning && (
-                        <div style={{ fontSize: '12px', color: '#f0ad4e', marginBottom: '8px', padding: '6px 10px', backgroundColor: 'rgba(240,173,78,0.1)', border: '1px solid #f0ad4e', borderRadius: '4px' }}>
-                          {purchaseSupplierDuplicateWarning}
+                        <div style={{ fontSize: '12px', color: '#f0ad4e', marginBottom: '8px', padding: '6px 10px', backgroundColor: 'rgba(240,173,78,0.1)', border: '1px solid #f0ad4e', borderRadius: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span>{purchaseSupplierDuplicateWarning}</span>
+                          {duplicateSupplierMatchId && (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-warning"
+                              style={{ fontSize: '11px', padding: '2px 8px', whiteSpace: 'nowrap', cursor: 'pointer' }}
+                              onClick={() => {
+                                setIsNewSupplierInPurchase(false);
+                                setFormPurchaseEntry(prev => ({ ...prev, supplier_id: duplicateSupplierMatchId }));
+                                setPurchaseSupplierDuplicateWarning(null);
+                                setDuplicateSupplierMatchId(null);
+                                setFormPurchaseSupplierDetails({
+                                  name: '', contact_person: '', contact_phone: '', email: '', payment_terms: '', items_supplied: ''
+                                });
+                              }}
+                            >
+                              Select Supplier Now
+                            </button>
+                          )}
                         </div>
                       )}
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
