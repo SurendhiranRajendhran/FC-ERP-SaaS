@@ -380,13 +380,28 @@ async function runStartupMigrations() {
       console.log("Migration: Deduplicated holidays table ensuring one record per date per stall/tenant.");
     }
 
-    // 5. Ensure staff table has staff_meal_limit and staff_meal_auto_reset
+    // 5. Ensure staff table has staff_meal_limit, staff_meal_auto_reset, staff_meal_enabled, staff_meal_active, staff_meal_allocated_at
     const [sTables] = await conn.query("SHOW TABLES LIKE 'staff'");
     if (sTables.length > 0) {
       const [mealCols] = await conn.query("SHOW COLUMNS FROM staff LIKE 'staff_meal_limit'");
       if (mealCols.length === 0) {
         await conn.query("ALTER TABLE staff ADD COLUMN staff_meal_limit DECIMAL(10,2) NULL DEFAULT 0.00, ADD COLUMN staff_meal_auto_reset TINYINT(1) NULL DEFAULT 1");
         console.log("Migration: Added staff_meal columns to staff table.");
+      }
+      const [enabledCols] = await conn.query("SHOW COLUMNS FROM staff LIKE 'staff_meal_enabled'");
+      if (enabledCols.length === 0) {
+        await conn.query("ALTER TABLE staff ADD COLUMN staff_meal_enabled TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN staff_meal_active TINYINT(1) NOT NULL DEFAULT 1, ADD COLUMN staff_meal_allocated_at TIMESTAMP NULL DEFAULT NULL");
+        console.log("Migration: Added staff_meal_enabled, staff_meal_active, staff_meal_allocated_at columns to staff table.");
+
+        // Migration Backfill for existing staff with limit > 0
+        await conn.query(`
+          UPDATE staff 
+          SET staff_meal_enabled = 1,
+              staff_meal_active = 1,
+              staff_meal_allocated_at = COALESCE(created_at, CURRENT_TIMESTAMP)
+          WHERE staff_meal_limit > 0
+        `);
+        console.log("Migration: Backfilled staff_meal_enabled and staff_meal_allocated_at for existing staff with limits.");
       }
     }
 
@@ -407,6 +422,23 @@ async function runStartupMigrations() {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
       console.log("Migration: Created staff_meal_adjustments table.");
+    }
+
+    // 6b. Backfill initial baseline reset for staff with meal allowance but zero reset logs
+    const [unseededStaff] = await conn.query(`
+      SELECT s.id, COALESCE(s.staff_meal_allocated_at, s.created_at, CURRENT_TIMESTAMP) as alloc_date, s.tenant_id
+      FROM staff s
+      LEFT JOIN staff_meal_adjustments sma ON s.id = sma.staff_id AND sma.type = 'reset'
+      WHERE s.staff_meal_enabled = 1 AND sma.id IS NULL
+    `);
+    for (const st of unseededStaff) {
+      await conn.query(
+        "INSERT INTO staff_meal_adjustments (staff_id, type, amount, note, created_at, tenant_id) VALUES (?, 'reset', 0, 'Initial meal allowance assigned', ?, ?)",
+        [st.id, st.alloc_date, st.tenant_id || null]
+      );
+    }
+    if (unseededStaff.length > 0) {
+      console.log(`Migration: Backfilled initial meal allowance reset records for ${unseededStaff.length} staff members.`);
     }
 
     // 7. Standardize non-standard item GST rates (e.g. 2%, 2.5%, 3% entered by mistake -> 5.00%)
@@ -2388,13 +2420,17 @@ function getLocalMonthStart() {
 }
 
 async function calculateStaffMealUsage(db, staffId) {
-  const [staffRows] = await db.query('SELECT id, name, staff_meal_limit, staff_meal_auto_reset, vendor_id, created_at FROM staff WHERE id = ?', [staffId]);
+  const [staffRows] = await db.query(
+    'SELECT id, name, staff_meal_limit, staff_meal_auto_reset, vendor_id, created_at, staff_meal_enabled, staff_meal_active, staff_meal_allocated_at FROM staff WHERE id = ?',
+    [staffId]
+  );
   if (staffRows.length === 0) return null;
 
   const staff = staffRows[0];
-  const limit = parseFloat(staff.staff_meal_limit || 0);
+  const isMealEnabled = staff.staff_meal_enabled === 1;
+  const isMealActive = staff.staff_meal_active === 1;
+  const rawLimit = parseFloat(staff.staff_meal_limit || 0);
   const autoReset = staff.staff_meal_auto_reset === 1;
-
   const monthStart = getLocalMonthStart();
 
   // Find latest manual reset
@@ -2405,6 +2441,41 @@ async function calculateStaffMealUsage(db, staffId) {
 
   let periodStart;
   let resetId = 0;
+
+  // When meal allowance is not assigned or is suspended
+  if (!isMealEnabled || !isMealActive) {
+    periodStart = staff.staff_meal_allocated_at || staff.created_at || monthStart;
+
+    // Calculate usage in current calendar month for reporting
+    const [usageRows] = await db.query(`
+      SELECT IFNULL(SUM(oi.quantity * oi.price), 0) as used
+      FROM orders o
+      JOIN order_items oi ON o.id = oi.order_id
+      WHERE o.customer_staff_id = ?
+        AND o.discount_type = 'StaffMeal'
+        AND o.order_date >= ?
+        AND o.status != 'Cancelled'
+    `, [staffId, monthStart]);
+
+    const used = parseFloat(usageRows[0].used || 0);
+    return {
+      staff,
+      limit: rawLimit,
+      auto_reset: autoReset,
+      period_start: periodStart,
+      used,
+      additional: 0,
+      total_allowance: 0,
+      remaining: 0,
+      unlimited: false,
+      staff_meal_enabled: isMealEnabled,
+      staff_meal_active: isMealActive,
+      allowance_suspended: isMealEnabled && !isMealActive,
+      has_allowance: false
+    };
+  }
+
+  const limit = rawLimit;
 
   if (autoReset) {
     if (resetLogs.length > 0) {
@@ -2418,7 +2489,7 @@ async function calculateStaffMealUsage(db, staffId) {
         resetId = 0;
       }
     } else {
-      periodStart = monthStart;
+      periodStart = staff.staff_meal_allocated_at || monthStart;
       resetId = 0;
     }
   } else {
@@ -2426,7 +2497,7 @@ async function calculateStaffMealUsage(db, staffId) {
       periodStart = resetLogs[0].created_at;
       resetId = resetLogs[0].id;
     } else {
-      periodStart = staff.created_at || getLocalMonthStart();
+      periodStart = staff.staff_meal_allocated_at || staff.created_at || monthStart;
       resetId = 0;
     }
   }
@@ -2466,7 +2537,11 @@ async function calculateStaffMealUsage(db, staffId) {
     additional,
     total_allowance: totalAllowance,
     remaining,
-    unlimited: limit === 0
+    unlimited: false,
+    staff_meal_enabled: true,
+    staff_meal_active: true,
+    allowance_suspended: false,
+    has_allowance: true
   };
 }
 
@@ -4715,7 +4790,11 @@ app.get('/api/staff/:id/meal-usage', async (req, res) => {
       additional: usageData.additional,
       total_allowance: usageData.total_allowance,
       remaining: usageData.remaining,
-      unlimited: usageData.unlimited
+      unlimited: usageData.unlimited,
+      staff_meal_enabled: usageData.staff_meal_enabled,
+      staff_meal_active: usageData.staff_meal_active,
+      allowance_suspended: usageData.allowance_suspended,
+      has_allowance: usageData.has_allowance
     });
   } catch (error) {
     console.error('Error fetching meal usage:', error);
@@ -4804,7 +4883,11 @@ app.get('/api/staff/:id/meal-ledger', async (req, res) => {
         additional: usageData.additional,
         total_allowance: usageData.total_allowance,
         remaining: usageData.remaining,
-        unlimited: usageData.unlimited
+        unlimited: usageData.unlimited,
+        staff_meal_enabled: usageData.staff_meal_enabled,
+        staff_meal_active: usageData.staff_meal_active,
+        allowance_suspended: usageData.allowance_suspended,
+        has_allowance: usageData.has_allowance
       },
       timeline,
       orders,
@@ -4856,7 +4939,7 @@ app.post('/api/staff', async (req, res) => {
     name, phone, email, password, role, pay_type, daily_rate, monthly_salary,
     pf_enabled, esi_enabled, tds_percentage, bank_account, joined_at,
     exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance, vendor_id,
-    staff_meal_limit, staff_meal_auto_reset
+    staff_meal_enabled, staff_meal_active, staff_meal_limit, staff_meal_auto_reset
   } = req.body;
 
   // Operational staff only: Managers and Owners cannot be registered via operational staff form
@@ -4875,21 +4958,34 @@ app.post('/api/staff', async (req, res) => {
       }
     }
 
+    const mealEnabled = staff_meal_enabled ? 1 : 0;
+    const mealActive = staff_meal_active === false || staff_meal_active === 0 ? 0 : 1;
+    const mealLimit = mealEnabled ? parseFloat(staff_meal_limit || 0) : 0;
+    const mealAllocatedAt = mealEnabled ? new Date() : null;
+
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
     const [result] = await pool.query(
       `INSERT INTO staff (
         name, phone, email, password_hash, role, pay_type, daily_rate, monthly_salary,
         pf_enabled, esi_enabled, tds_percentage, bank_account, joined_at,
         exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance, vendor_id,
-        staff_meal_limit, staff_meal_auto_reset, tenant_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        staff_meal_limit, staff_meal_auto_reset, staff_meal_enabled, staff_meal_active, staff_meal_allocated_at, tenant_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name, phone, cleanStaffEmail, passwordHash, role, pay_type, daily_rate || 0, monthly_salary || 0,
         pf_enabled || 0, esi_enabled || 0, tds_percentage || 0.00, bank_account, joined_at,
         0, 0, 0, 0,
-        assigned_vendor_id, staff_meal_limit || 0, staff_meal_auto_reset === false ? 0 : 1, req.user.tenant_id
+        assigned_vendor_id, mealLimit, staff_meal_auto_reset === false ? 0 : 1, mealEnabled, mealActive, mealAllocatedAt, req.user.tenant_id
       ]
     );
+
+    if (mealEnabled && mealLimit > 0) {
+      await pool.query(
+        'INSERT INTO staff_meal_adjustments (staff_id, type, amount, note, created_by, tenant_id) VALUES (?, "reset", 0, "Initial meal allowance assigned", ?, ?)',
+        [result.insertId, req.user.id || null, req.user.tenant_id || null]
+      );
+    }
+
     res.status(201).json({
       id: result.insertId,
       name, phone, email, role,
@@ -4906,7 +5002,10 @@ app.post('/api/staff', async (req, res) => {
       exclude_from_roster: exclude_from_roster ? 1 : 0,
       exclude_from_attendance: exclude_from_attendance ? 1 : 0,
       exclude_from_performance: exclude_from_performance ? 1 : 0,
-      staff_meal_limit: parseFloat(staff_meal_limit || 0),
+      staff_meal_enabled: mealEnabled,
+      staff_meal_active: mealActive,
+      staff_meal_allocated_at: mealAllocatedAt,
+      staff_meal_limit: mealLimit,
       staff_meal_auto_reset: staff_meal_auto_reset === false ? 0 : 1
     });
   } catch (error) {
@@ -4921,7 +5020,13 @@ app.put('/api/staff/:id', async (req, res) => {
     return res.status(403).json({ error: 'Only Owners and Managers can update staff.' });
   }
   const { id } = req.params;
-  const { name, phone, email, role, pay_type, daily_rate, monthly_salary, pf_enabled, esi_enabled, tds_percentage, bank_account, is_active, vendor_id, exclude_from_payroll, exclude_from_roster, exclude_from_attendance, exclude_from_performance, staff_meal_limit, staff_meal_auto_reset } = req.body;
+  const { 
+    name, phone, email, role, pay_type, daily_rate, monthly_salary, 
+    pf_enabled, esi_enabled, tds_percentage, bank_account, is_active, 
+    vendor_id, exclude_from_payroll, exclude_from_roster, exclude_from_attendance, 
+    exclude_from_performance, staff_meal_enabled, staff_meal_active, 
+    staff_meal_limit, staff_meal_auto_reset 
+  } = req.body;
 
   try {
     const [existing] = await pool.query('SELECT * FROM staff WHERE id = ?', [id]);
@@ -4966,8 +5071,17 @@ app.put('/api/staff/:id', async (req, res) => {
     const updateExcludeRoster = exclude_from_roster !== undefined ? (exclude_from_roster ? 1 : 0) : s.exclude_from_roster;
     const updateExcludeAttendance = exclude_from_attendance !== undefined ? (exclude_from_attendance ? 1 : 0) : s.exclude_from_attendance;
     const updateExcludePerformance = exclude_from_performance !== undefined ? (exclude_from_performance ? 1 : 0) : s.exclude_from_performance;
-    const updateMealLimit = staff_meal_limit !== undefined ? staff_meal_limit : s.staff_meal_limit;
+
+    const prevEnabled = s.staff_meal_enabled === 1;
+    const updateMealEnabled = staff_meal_enabled !== undefined ? (staff_meal_enabled ? 1 : 0) : (s.staff_meal_enabled || 0);
+    const updateMealActive = staff_meal_active !== undefined ? (staff_meal_active ? 1 : 0) : (s.staff_meal_active !== undefined ? s.staff_meal_active : 1);
+    const updateMealLimit = updateMealEnabled ? (staff_meal_limit !== undefined ? parseFloat(staff_meal_limit || 0) : parseFloat(s.staff_meal_limit || 0)) : 0;
     const updateMealAutoReset = staff_meal_auto_reset !== undefined ? (staff_meal_auto_reset ? 1 : 0) : s.staff_meal_auto_reset;
+
+    let updateMealAllocatedAt = s.staff_meal_allocated_at;
+    if (!prevEnabled && updateMealEnabled && !updateMealAllocatedAt) {
+      updateMealAllocatedAt = new Date();
+    }
 
     let updatePasswordHash = s.password_hash;
     if (req.body.password) {
@@ -4977,10 +5091,23 @@ app.put('/api/staff/:id', async (req, res) => {
 
     await pool.query(
       `UPDATE staff SET name = ?, phone = ?, email = ?, role = ?, pay_type = ?, daily_rate = ?, monthly_salary = ?,
-       pf_enabled = ?, esi_enabled = ?, tds_percentage = ?, bank_account = ?, is_active = ?, vendor_id = ?, exclude_from_payroll = ?, exclude_from_roster = ?, exclude_from_attendance = ?, exclude_from_performance = ?, password_hash = ?, staff_meal_limit = ?, staff_meal_auto_reset = ? WHERE id = ?`,
-      [updateName, updatePhone, updateEmail, updateRole, updatePayType, updateDailyRate, updateMonthlySalary,
-       updatePf, updateEsi, updateTds, updateBank, updateActive, updateVendor, updateExclude, updateExcludeRoster, updateExcludeAttendance, updateExcludePerformance, updatePasswordHash, updateMealLimit, updateMealAutoReset, id]
+       pf_enabled = ?, esi_enabled = ?, tds_percentage = ?, bank_account = ?, is_active = ?, vendor_id = ?, exclude_from_payroll = ?, exclude_from_roster = ?, exclude_from_attendance = ?, exclude_from_performance = ?, password_hash = ?, staff_meal_limit = ?, staff_meal_auto_reset = ?, staff_meal_enabled = ?, staff_meal_active = ?, staff_meal_allocated_at = ? WHERE id = ?`,
+      [
+        updateName, updatePhone, updateEmail, updateRole, updatePayType, updateDailyRate, updateMonthlySalary,
+        updatePf, updateEsi, updateTds, updateBank, updateActive, updateVendor, updateExclude, updateExcludeRoster, updateExcludeAttendance, updateExcludePerformance, updatePasswordHash, 
+        updateMealLimit, updateMealAutoReset, updateMealEnabled, updateMealActive, updateMealAllocatedAt, id
+      ]
     );
+
+    if (updateMealEnabled && updateMealLimit > 0) {
+      const [resets] = await pool.query('SELECT id FROM staff_meal_adjustments WHERE staff_id = ? AND type = "reset" LIMIT 1', [id]);
+      if (resets.length === 0) {
+        await pool.query(
+          'INSERT INTO staff_meal_adjustments (staff_id, type, amount, note, created_by, tenant_id) VALUES (?, "reset", 0, "Initial meal allowance assigned", ?, ?)',
+          [id, req.user.id || null, req.user.tenant_id || null]
+        );
+      }
+    }
 
     res.json({
       id: parseInt(id),
@@ -5001,6 +5128,9 @@ app.put('/api/staff/:id', async (req, res) => {
       exclude_from_roster: parseInt(updateExcludeRoster),
       exclude_from_attendance: parseInt(updateExcludeAttendance),
       exclude_from_performance: parseInt(updateExcludePerformance),
+      staff_meal_enabled: updateMealEnabled,
+      staff_meal_active: updateMealActive,
+      staff_meal_allocated_at: updateMealAllocatedAt,
       staff_meal_limit: parseFloat(updateMealLimit),
       staff_meal_auto_reset: parseInt(updateMealAutoReset)
     });
@@ -6052,20 +6182,28 @@ app.post('/api/payroll/generate', async (req, res) => {
 
       const totalMealCost = parseFloat(mealSum[0].total_meal_cost || 0);
       const baseLimit = parseFloat(staff.staff_meal_limit || 0);
+      const isMealEnabled = staff.staff_meal_enabled === 1;
+      const isMealActive = staff.staff_meal_active === 1;
 
-      // Query extra allowance top-ups added for this staff in this payroll month/year
-      const [extraAdjustments] = await connection.query(`
-        SELECT IFNULL(SUM(amount), 0) as extra_allowance
-        FROM staff_meal_adjustments
-        WHERE staff_id = ? 
-          AND type = 'additional'
-          AND MONTH(created_at) = ? 
-          AND YEAR(created_at) = ?
-      `, [staff.id, month, year]);
+      let mealDeduction = 0;
+      if (!isMealEnabled || !isMealActive) {
+        // No allowance assigned or allowance suspended: 100% of meal consumption is deducted from salary
+        mealDeduction = totalMealCost;
+      } else {
+        // Query extra allowance top-ups added for this staff in this payroll month/year
+        const [extraAdjustments] = await connection.query(`
+          SELECT IFNULL(SUM(amount), 0) as extra_allowance
+          FROM staff_meal_adjustments
+          WHERE staff_id = ? 
+            AND type = 'additional'
+            AND MONTH(created_at) = ? 
+            AND YEAR(created_at) = ?
+        `, [staff.id, month, year]);
 
-      const extraAllowance = parseFloat(extraAdjustments[0].extra_allowance || 0);
-      const effectiveMealLimit = baseLimit + extraAllowance;
-      const mealDeduction = baseLimit > 0 ? Math.max(0, totalMealCost - effectiveMealLimit) : 0;
+        const extraAllowance = parseFloat(extraAdjustments[0].extra_allowance || 0);
+        const effectiveMealLimit = baseLimit + extraAllowance;
+        mealDeduction = Math.max(0, totalMealCost - effectiveMealLimit);
+      }
 
       // Net salary
       const netSalary = grossSalary - pfDeduction - esiDeduction - tdsDeduction - mealDeduction;

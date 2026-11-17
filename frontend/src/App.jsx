@@ -80,7 +80,9 @@ function StaffMealLedgerModal({ staffId, staffName, token, onClose }) {
                 <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Monthly Limit</div>
                   <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '2px' }}>₹{summary.limit.toFixed(2)}</div>
-                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>{summary.auto_reset ? 'Auto (Monthly)' : 'Manual Reset'}</div>
+                  <div style={{ fontSize: '0.68rem', color: summary.allowance_suspended ? '#ef4444' : 'var(--text-muted)', marginTop: '2px', fontWeight: summary.allowance_suspended ? 600 : 400 }}>
+                    {summary.allowance_suspended ? '⏸ Suspended (Salary Deduct)' : !summary.staff_meal_enabled ? 'No Allowance (Salary Deduct)' : (summary.auto_reset ? 'Auto (Monthly)' : 'Manual Reset')}
+                  </div>
                 </div>
 
                 <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
@@ -407,7 +409,7 @@ function ResetMealAllowanceModal({ staffId, staffName, token, onClose, onSuccess
 }
 
 // --- MEAL ALLOWANCE WIDGET ---
-function MealAllowanceWidget({ staffId, staffName, limit, autoReset, token, showToast, fetchStaff }) {
+function MealAllowanceWidget({ staffId, staffName, limit, autoReset, mealActive, token, showToast, fetchStaff }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showLedger, setShowLedger] = useState(false);
@@ -423,29 +425,45 @@ function MealAllowanceWidget({ staffId, staffName, limit, autoReset, token, show
 
   useEffect(() => {
     fetchUsage();
-  }, [staffId, token, limit, autoReset]);
+  }, [staffId, token, limit, autoReset, mealActive]);
 
   if (loading) return <div style={{ fontSize: '0.8rem', color: '#666' }}>Loading allowance...</div>;
   if (!data) return null;
 
-  const pct = Math.min(100, Math.round((data.used / data.total_allowance) * 100)) || 0;
+  const isSuspended = data.allowance_suspended || mealActive === false;
+  const pct = !isSuspended && data.total_allowance > 0 ? Math.min(100, Math.round((data.used / data.total_allowance) * 100)) : 0;
   const barColor = pct > 90 ? '#dc3545' : pct > 75 ? '#ffc107' : '#28a745';
 
   return (
     <div style={{ fontSize: '0.8rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-        <strong>🍽️ Meal Allowance:</strong>
-        <span style={{ color: pct >= 100 ? '#dc3545' : 'inherit' }}>
-          ₹{data.remaining.toFixed(2)} remaining of ₹{data.total_allowance.toFixed(2)}
-        </span>
+        <strong style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          🍽️ Meal Allowance:
+          {isSuspended && (
+            <span style={{ fontSize: '0.68rem', background: 'rgba(239,68,68,0.15)', color: '#ef4444', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+              ⏸ Suspended
+            </span>
+          )}
+        </strong>
+        {isSuspended ? (
+          <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.75rem' }}>
+            Deducted from salary
+          </span>
+        ) : (
+          <span style={{ color: pct >= 100 ? '#dc3545' : 'inherit' }}>
+            ₹{data.remaining.toFixed(2)} remaining of ₹{data.total_allowance.toFixed(2)}
+          </span>
+        )}
       </div>
-      <div style={{ width: '100%', height: '8px', background: '#e9ecef', borderRadius: '4px', overflow: 'hidden', marginBottom: '8px' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: barColor, transition: 'width 0.3s' }}></div>
+      <div style={{ width: '100%', height: '8px', background: '#e9ecef', borderRadius: '4px', overflow: 'hidden', marginBottom: '8px', opacity: isSuspended ? 0.4 : 1 }}>
+        <div style={{ width: `${isSuspended ? 100 : pct}%`, height: '100%', background: isSuspended ? '#94a3b8' : barColor, transition: 'width 0.3s' }}></div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted, #94a3b8)' }}>
-          {autoReset ? 'Resets 1st of month' : 'Manual reset only'}
-          {data.additional > 0 ? ` (Base: ₹${data.limit.toFixed(0)} + ₹${data.additional.toFixed(0)} extra)` : ''}
+        <span style={{ fontSize: '0.7rem', color: isSuspended ? '#ef4444' : 'var(--text-muted, #94a3b8)' }}>
+          {isSuspended 
+            ? `Allowance suspended (Limit: ₹${data.limit.toFixed(0)})` 
+            : `${autoReset ? 'Resets 1st of month' : 'Manual reset only'}${data.additional > 0 ? ` (Base: ₹${data.limit.toFixed(0)} + ₹${data.additional.toFixed(0)} extra)` : ''}`
+          }
         </span>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           <button
@@ -3435,7 +3453,7 @@ function App() {
     pay_type: 'monthly', daily_rate: '0', monthly_salary: '0',
     pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '',
     exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false,
-    staff_meal_limit: '0', staff_meal_auto_reset: true
+    staff_meal_enabled: false, staff_meal_active: true, staff_meal_limit: '1000', staff_meal_auto_reset: true
   });
   const [showShiftForm, setShowShiftForm] = useState(false);
   const [formShift, setFormShift] = useState({ id: '', name: '', start_time: '09:00:00', end_time: '17:00:00' });
@@ -5033,6 +5051,14 @@ function App() {
       }
     }
 
+    if (formStaff.staff_meal_enabled) {
+      const mealLimitNum = parseFloat(formStaff.staff_meal_limit || 0);
+      if (!mealLimitNum || mealLimitNum <= 0) {
+        showToast('Please enter a valid monthly meal limit greater than ₹0.', 'error');
+        return;
+      }
+    }
+
     try {
       const url = formStaff.id ? `${API_BASE}/staff/${formStaff.id}` : `${API_BASE}/staff`;
       const method = formStaff.id ? 'PUT' : 'POST';
@@ -5054,7 +5080,9 @@ function App() {
         exclude_from_roster: 0,
         exclude_from_attendance: 0,
         exclude_from_performance: 0,
-        staff_meal_limit: parseFloat(formStaff.staff_meal_limit || 0),
+        staff_meal_enabled: formStaff.staff_meal_enabled ? 1 : 0,
+        staff_meal_active: formStaff.staff_meal_active ? 1 : 0,
+        staff_meal_limit: formStaff.staff_meal_enabled ? parseFloat(formStaff.staff_meal_limit || 0) : 0,
         staff_meal_auto_reset: formStaff.staff_meal_auto_reset ? 1 : 0
       };
       if (formStaff.id) {
@@ -5075,7 +5103,7 @@ function App() {
           pay_type: 'monthly', daily_rate: '0', monthly_salary: '0',
           pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '',
           exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false,
-          staff_meal_limit: '0', staff_meal_auto_reset: true
+          staff_meal_enabled: false, staff_meal_active: true, staff_meal_limit: '1000', staff_meal_auto_reset: true
         });
         fetchStaff();
       } else {
@@ -5107,7 +5135,9 @@ function App() {
       exclude_from_attendance: member.exclude_from_attendance === 1,
       exclude_from_performance: member.exclude_from_performance === 1,
       is_active: member.is_active,
-      staff_meal_limit: (member.staff_meal_limit || 0).toString(),
+      staff_meal_enabled: member.staff_meal_enabled === 1,
+      staff_meal_active: member.staff_meal_active !== 0,
+      staff_meal_limit: (member.staff_meal_limit && parseFloat(member.staff_meal_limit) > 0 ? member.staff_meal_limit : '1000').toString(),
       staff_meal_auto_reset: member.staff_meal_auto_reset === 1
     });
     setShowStaffForm(true);
@@ -6271,8 +6301,15 @@ function App() {
       const res = await fetch(`${API_BASE}/staff/${staffId}/meal-usage`, { headers: { 'Authorization': `Bearer ${token}` } });
       const usageData = await res.json();
       
-      if (!usageData.unlimited && cartSubtotal > usageData.remaining) {
-        showToast(`Staff Meal allowance exceeded for ${staffMember.name}. Remaining: ₹${usageData.remaining.toFixed(2)}. The excess amount will be deferred to payroll.`, 'warning');
+      if (!usageData.staff_meal_enabled) {
+        showToast(`Staff Meal applied for ${staffMember.name}. No meal allowance assigned — ₹${cartSubtotal.toFixed(2)} will be deducted from salary.`, 'info');
+      } else if (usageData.allowance_suspended) {
+        showToast(`Staff Meal applied for ${staffMember.name}. Meal allowance is suspended — ₹${cartSubtotal.toFixed(2)} will be deducted from salary.`, 'warning');
+      } else if (cartSubtotal > usageData.remaining) {
+        const excess = cartSubtotal - usageData.remaining;
+        showToast(`Staff Meal allowance exceeded for ${staffMember.name}. Remaining: ₹${usageData.remaining.toFixed(2)}. The excess amount (₹${excess.toFixed(2)}) will be deferred to payroll.`, 'warning');
+      } else {
+        showToast(`Staff Meal applied for ${staffMember.name}`, 'success');
       }
     } catch (e) {
       console.error('Error checking meal limit:', e);
@@ -10755,7 +10792,7 @@ function App() {
                       <div className="modal-card" style={{ maxWidth: '600px', width: '95%' }}>
                         <div className="modal-header">
                           <h3>{formStaff.id ? '✏️ Edit Staff Member' : '➕ Register New Staff Member'}</h3>
-                          <button className="close-btn" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Helper', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); }}>&times;</button>
+                          <button className="close-btn" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Helper', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_enabled: false, staff_meal_active: true, staff_meal_limit: '1000', staff_meal_auto_reset: true }); }}>&times;</button>
                         </div>
                         <form onSubmit={handleSaveStaff}>
                           <div className="modal-body">
@@ -10858,26 +10895,96 @@ function App() {
                                 Enable ESI (@0.75%)
                               </label>
                             </div>
-                            <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '12px' }}>
-                              <h4 style={{ margin: '0 0 10px 0', fontSize: '0.95rem' }}>🍽️ Staff Meal Allowance</h4>
-                              <div className="hr-form-grid">
-                                <div className="form-group">
-                                  <label>Monthly Meal Limit (₹)</label>
-                                  <input type="number" min="0" step="0.01" value={formStaff.staff_meal_limit} onChange={e => setFormStaff({ ...formStaff, staff_meal_limit: e.target.value })} placeholder="0 = Unlimited" />
-                                  <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Set to 0 for unlimited</small>
-                                </div>
-                                <div className="form-group">
-                                  <label>Auto Reset Monthly</label>
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer', marginTop: '6px' }}>
-                                    <input type="checkbox" checked={formStaff.staff_meal_auto_reset} onChange={e => setFormStaff({ ...formStaff, staff_meal_auto_reset: e.target.checked })} />
-                                    {formStaff.staff_meal_auto_reset ? 'ON — Resets on 1st of each month' : 'OFF — Manual reset only'}
-                                  </label>
-                                </div>
+                            <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '14px', marginTop: '14px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                <h4 style={{ margin: 0, fontSize: '0.95rem' }}>🍽️ Staff Meal Allowance</h4>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 600 }}>
+                                  <input 
+                                    type="checkbox" 
+                                    checked={formStaff.staff_meal_enabled} 
+                                    onChange={e => setFormStaff(prev => ({ ...prev, staff_meal_enabled: e.target.checked }))} 
+                                  />
+                                  <span>Assign Meal Allowance</span>
+                                </label>
                               </div>
+
+                              {formStaff.staff_meal_enabled ? (
+                                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                                  {/* Active / Inactive Status Toggle */}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px dashed var(--border-light)' }}>
+                                    <div>
+                                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>Allowance Status:</span>
+                                      <span style={{ 
+                                        marginLeft: '8px', 
+                                        fontSize: '0.75rem', 
+                                        padding: '2px 8px', 
+                                        borderRadius: '12px', 
+                                        background: formStaff.staff_meal_active ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                        color: formStaff.staff_meal_active ? '#10b981' : '#ef4444',
+                                        fontWeight: 700
+                                      }}>
+                                        {formStaff.staff_meal_active ? '● Active' : '⏸ Inactive (Suspended)'}
+                                      </span>
+                                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                        {formStaff.staff_meal_active 
+                                          ? 'Allowance is active. Meals within limit are covered by canteen.' 
+                                          : 'Allowance is suspended. Staff can still order via Staff Meal, but 100% of the cost is deducted from salary.'}
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setFormStaff(prev => ({ ...prev, staff_meal_active: !prev.staff_meal_active }))}
+                                      style={{
+                                        padding: '4px 12px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 600,
+                                        borderRadius: '4px',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        background: formStaff.staff_meal_active ? '#ef4444' : '#10b981',
+                                        color: '#fff'
+                                      }}
+                                    >
+                                      {formStaff.staff_meal_active ? 'Pause / Deactivate' : 'Activate Allowance'}
+                                    </button>
+                                  </div>
+
+                                  <div className="hr-form-grid">
+                                    <div className="form-group">
+                                      <label>Monthly Meal Limit (₹) *</label>
+                                      <input 
+                                        type="number" 
+                                        min="1" 
+                                        step="0.01" 
+                                        required 
+                                        value={formStaff.staff_meal_limit} 
+                                        onChange={e => setFormStaff(prev => ({ ...prev, staff_meal_limit: e.target.value }))} 
+                                        placeholder="e.g. 2000" 
+                                      />
+                                      <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Amount covered by canteen per month</small>
+                                    </div>
+                                    <div className="form-group">
+                                      <label>Auto Reset Monthly</label>
+                                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer', marginTop: '6px' }}>
+                                        <input 
+                                          type="checkbox" 
+                                          checked={formStaff.staff_meal_auto_reset} 
+                                          onChange={e => setFormStaff(prev => ({ ...prev, staff_meal_auto_reset: e.target.checked }))} 
+                                        />
+                                        <span>{formStaff.staff_meal_auto_reset ? 'ON — Resets on 1st of each month' : 'OFF — Manual reset only'}</span>
+                                      </label>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div style={{ padding: '10px 12px', borderRadius: '6px', background: 'rgba(255,255,255,0.02)', border: '1px dashed var(--border-light)', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                  ℹ️ No meal allowance assigned. This staff member can still consume meals through <strong>Staff Meal</strong> in Counter POS, and the full consumption amount will be deducted from their monthly salary.
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="modal-footer" style={{ borderTop: '1px solid var(--border-light)', paddingTop: '15px' }}>
-                            <button type="button" className="btn btn-outline-primary" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Helper', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); }}>Cancel</button>
+                            <button type="button" className="btn btn-outline-primary" onClick={() => { setShowStaffForm(false); setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Helper', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_enabled: false, staff_meal_active: true, staff_meal_limit: '1000', staff_meal_auto_reset: true }); }}>Cancel</button>
                             <button type="submit" className="btn btn-success">{formStaff.id ? 'Update Staff Info' : 'Add Staff'}</button>
                           </div>
                         </form>
@@ -10919,9 +11026,23 @@ function App() {
                               </span>
                             </div>
                           </div>
-                          {parseFloat(s.staff_meal_limit || 0) > 0 && (
+                          {s.staff_meal_enabled === 1 ? (
                             <div style={{ padding: '8px 15px', borderTop: '1px solid var(--border-light)', background: 'var(--bg-secondary)' }}>
-                              <MealAllowanceWidget staffId={s.id} staffName={s.name} limit={parseFloat(s.staff_meal_limit)} autoReset={s.staff_meal_auto_reset === 1} token={token} showToast={showToast} fetchStaff={fetchStaff} />
+                              <MealAllowanceWidget 
+                                staffId={s.id} 
+                                staffName={s.name} 
+                                limit={parseFloat(s.staff_meal_limit || 0)} 
+                                autoReset={s.staff_meal_auto_reset === 1} 
+                                mealActive={s.staff_meal_active === 1}
+                                token={token} 
+                                showToast={showToast} 
+                                fetchStaff={fetchStaff} 
+                              />
+                            </div>
+                          ) : (
+                            <div style={{ padding: '6px 15px', borderTop: '1px solid var(--border-light)', background: 'rgba(255,255,255,0.01)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>🍽️ Meal Allowance: <strong style={{ color: 'var(--text-main)' }}>None</strong></span>
+                              <span style={{ fontSize: '0.68rem', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>Deducted from salary</span>
                             </div>
                           )}
                           <div className="hr-card-footer">
@@ -10936,7 +11057,7 @@ function App() {
                       );
                     })}
 
-                    <div className="hr-add-card" onClick={() => { setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Helper', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_limit: '0', staff_meal_auto_reset: true }); setShowStaffForm(true); }}>
+                    <div className="hr-add-card" onClick={() => { setFormStaff({ id: '', name: '', phone: '', email: '', role: 'Helper', pay_type: 'monthly', daily_rate: '0', monthly_salary: '0', pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '', exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false, staff_meal_enabled: false, staff_meal_active: true, staff_meal_limit: '1000', staff_meal_auto_reset: true }); setShowStaffForm(true); }}>
                       <div className="add-icon">＋</div>
                       <span>Add Staff Member</span>
                     </div>
