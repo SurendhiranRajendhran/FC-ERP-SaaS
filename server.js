@@ -2388,7 +2388,7 @@ function getLocalMonthStart() {
 }
 
 async function calculateStaffMealUsage(db, staffId) {
-  const [staffRows] = await db.query('SELECT id, name, staff_meal_limit, staff_meal_auto_reset, vendor_id FROM staff WHERE id = ?', [staffId]);
+  const [staffRows] = await db.query('SELECT id, name, staff_meal_limit, staff_meal_auto_reset, vendor_id, created_at FROM staff WHERE id = ?', [staffId]);
   if (staffRows.length === 0) return null;
 
   const staff = staffRows[0];
@@ -2426,7 +2426,7 @@ async function calculateStaffMealUsage(db, staffId) {
       periodStart = resetLogs[0].created_at;
       resetId = resetLogs[0].id;
     } else {
-      periodStart = '2000-01-01 00:00:00';
+      periodStart = staff.created_at || getLocalMonthStart();
       resetId = 0;
     }
   }
