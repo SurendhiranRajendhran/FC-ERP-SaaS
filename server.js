@@ -2917,7 +2917,9 @@ app.post('/api/orders', async (req, res) => {
         const currentOutstanding = parseFloat(balRows[0].outstanding || 0);
         if (currentOutstanding + finalPayable > creditLimit) {
           const availableCredit = Math.max(0, creditLimit - currentOutstanding);
-          throw new Error(`Credit Limit Exceeded! Customer: ${creditCust.name}, Limit: ₹${creditLimit.toFixed(2)}, Current Outstanding: ₹${currentOutstanding.toFixed(2)}, Order Total: ₹${finalPayable.toFixed(2)}. Available Credit: ₹${availableCredit.toFixed(2)}.`);
+          await connection.rollback();
+          connection.release();
+          return res.status(400).json({ error: `Credit Limit Exceeded! Customer: ${creditCust.name}, Limit: ₹${creditLimit.toFixed(2)}, Current Outstanding: ₹${currentOutstanding.toFixed(2)}, Order Total: ₹${finalPayable.toFixed(2)}. Available Credit: ₹${availableCredit.toFixed(2)}.` });
         }
       }
 
