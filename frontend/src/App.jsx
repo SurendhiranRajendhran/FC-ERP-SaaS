@@ -3157,6 +3157,9 @@ function App() {
   const [creditLedger, setCreditLedger] = useState([]);
   const [selectedCreditCustomer, setSelectedCreditCustomer] = useState(null);
   const [selectedCreditItems, setSelectedCreditItems] = useState([]);
+  const [showCreditCustomerModal, setShowCreditCustomerModal] = useState(false);
+  const [isSubmittingCreditCustomer, setIsSubmittingCreditCustomer] = useState(false);
+  const [creditCustForm, setCreditCustForm] = useState({ name: '', phone: '', email: '', organization: '', credit_limit: '' });
   const [combos, setCombos] = useState([]);
   const [comboModal, setComboModal] = useState({ show: false, comboId: null, comboName: '', childItems: [] });
   const [suppliers, setSuppliers] = useState([]);
@@ -3548,6 +3551,7 @@ function App() {
       fetchStaffPerformance(perfStartDate, perfEndDate);
     }
     fetchCustomers();
+    fetchCreditCustomers();
   };
 
   useEffect(() => {
@@ -4108,6 +4112,43 @@ function App() {
       if (res.ok) setCreditLedger(await res.json());
     } catch (err) {
       console.error('Failed to fetch credit ledger:', err);
+    }
+  };
+
+  const handleRegisterCreditCustomer = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!creditCustForm.name.trim() || !creditCustForm.phone.trim()) {
+      showToast('Name and phone number are required', 'error');
+      return;
+    }
+    setIsSubmittingCreditCustomer(true);
+    try {
+      const res = await fetch(`${API_BASE}/credits/customers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: creditCustForm.name.trim(),
+          phone: creditCustForm.phone.trim(),
+          email: creditCustForm.email ? creditCustForm.email.trim() : null,
+          organization: creditCustForm.organization ? creditCustForm.organization.trim() : null,
+          credit_limit: parseFloat(creditCustForm.credit_limit) || 0
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to register credit customer');
+      }
+      showToast(`Credit customer "${creditCustForm.name.trim()}" registered successfully!`, 'success');
+      setShowCreditCustomerModal(false);
+      setCreditCustForm({ name: '', phone: '', email: '', organization: '', credit_limit: '' });
+      await fetchCreditCustomers();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsSubmittingCreditCustomer(false);
     }
   };
 
@@ -6438,12 +6479,6 @@ function App() {
     
     
 
-    if (posPaymentMode === 'Credit' && !posCustomerId && !currentCustomerInfo) {
-      showToast('Please select a Loyalty Customer for Credit payments.', 'error');
-      setIsPosCheckoutLoading(false);
-      return;
-    }
-
     if (cart.length === 0) {
       showToast('Order cart is empty.', 'error');
       setIsPosCheckoutLoading(false);
@@ -6458,6 +6493,24 @@ function App() {
         showToast(`Split payments total (₹${sumSplits.toFixed(2)}) must exactly equal the payable amount (₹${payableTotal.toFixed(2)}).`, 'error');
         setIsPosCheckoutLoading(false);
         return;
+      }
+    }
+
+    if (posPaymentMode === 'Credit') {
+      if (!posCustomerId) {
+        showToast('Please select a Credit Customer for Credit orders.', 'error');
+        setIsPosCheckoutLoading(false);
+        return;
+      }
+      const creditCust = creditCustomers.find(c => c.id === parseInt(posCustomerId));
+      if (creditCust && parseFloat(creditCust.credit_limit || 0) > 0) {
+        const currentOutstanding = parseFloat(creditCust.outstanding || 0);
+        const limit = parseFloat(creditCust.credit_limit);
+        if (currentOutstanding + payableTotal > limit) {
+          showToast(`Credit limit exceeded! Customer limit: ₹${limit.toFixed(2)}, Current due: ₹${currentOutstanding.toFixed(2)}, Order: ₹${payableTotal.toFixed(2)}`, 'error');
+          setIsPosCheckoutLoading(false);
+          return;
+        }
       }
     }
 
@@ -6995,6 +7048,80 @@ function App() {
               </div>
               <button type="submit" className="btn btn-primary btn-block" disabled={isSubmittingOverhead}>
                 {isSubmittingOverhead ? 'Saving Expense...' : 'Save Expense'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Register Credit Customer Modal */}
+      {showCreditCustomerModal && (
+        <div className="modal-overlay active" style={{ zIndex: 1200 }}>
+          <div className="modal-card" style={{ maxWidth: '440px' }}>
+            <div className="modal-header">
+              <h2>Register Credit Customer</h2>
+              <button className="close-btn" onClick={() => !isSubmittingCreditCustomer && setShowCreditCustomerModal(false)}>×</button>
+            </div>
+            <form onSubmit={handleRegisterCreditCustomer} className="modal-body">
+              <div className="form-group">
+                <label>Customer / Company Name *</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  placeholder="e.g. Ramesh Kumar or Acme Corp" 
+                  value={creditCustForm.name} 
+                  onChange={e => setCreditCustForm({...creditCustForm, name: e.target.value})} 
+                  required 
+                />
+              </div>
+              <div className="form-group">
+                <label>Phone Number *</label>
+                <input 
+                  type="tel" 
+                  className="form-control" 
+                  placeholder="e.g. 9876543210" 
+                  value={creditCustForm.phone} 
+                  onChange={e => setCreditCustForm({...creditCustForm, phone: e.target.value})} 
+                  required 
+                />
+              </div>
+              <div className="form-group">
+                <label>Organization / Department (Optional)</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  placeholder="e.g. Accounts Dept / Floor 3" 
+                  value={creditCustForm.organization} 
+                  onChange={e => setCreditCustForm({...creditCustForm, organization: e.target.value})} 
+                />
+              </div>
+              <div className="form-group">
+                <label>Email (Optional)</label>
+                <input 
+                  type="email" 
+                  className="form-control" 
+                  placeholder="e.g. ramesh@example.com" 
+                  value={creditCustForm.email} 
+                  onChange={e => setCreditCustForm({...creditCustForm, email: e.target.value})} 
+                />
+              </div>
+              <div className="form-group">
+                <label>Credit Limit (₹)</label>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  min="0" 
+                  className="form-control" 
+                  placeholder="0.00 (0 = Unlimited)" 
+                  value={creditCustForm.credit_limit} 
+                  onChange={e => setCreditCustForm({...creditCustForm, credit_limit: e.target.value})} 
+                />
+                <small style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', marginTop: '4px' }}>
+                  💡 Enter 0 or leave blank for unlimited credit. If set, Counter POS blocks orders that exceed this limit.
+                </small>
+              </div>
+              <button type="submit" className="btn btn-primary btn-block" disabled={isSubmittingCreditCustomer}>
+                {isSubmittingCreditCustomer ? 'Registering...' : 'Register Credit Customer'}
               </button>
             </form>
           </div>
@@ -8610,22 +8737,53 @@ function App() {
                     {/* POS Metadata & Cashier Section */}
                     <div className="pos-metadata-section" style={{ marginTop: '12px', padding: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
                       <div className="hr-form-group" style={{ marginBottom: '8px' }}>
-                        <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Loyalty Customer</label>
-                        <div style={{ position: 'relative', height: '28px' }}>
-                          <select 
-                            className="input-field input-xs" 
-                            value={posCustomerId}
-                            onChange={(e) => { setPosCustomerId(e.target.value); e.target.blur(); }}
-                            onFocus={(e) => e.target.size = 5}
-                            onBlur={(e) => e.target.size = 1}
-                            style={{ width: '100%', padding: '4px 8px', fontSize: '11px', position: 'absolute', top: 0, left: 0, zIndex: 50, background: '#111827', border: '1px solid var(--border-color)', borderRadius: '4px' }}
-                          >
-                            <option value="">-- Guest Order (No Loyalty) --</option>
-                            {customers.map(c => (
-                              <option key={c.id} value={c.id}>{c.name} ({c.phone} - {c.loyalty_points} pts)</option>
-                            ))}
-                          </select>
-                        </div>
+                        {posPaymentMode === 'Credit' ? (
+                          <>
+                            <label style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 600 }}>💳 Credit Customer *</label>
+                            <div style={{ position: 'relative', height: '28px' }}>
+                              <select 
+                                required
+                                className="input-field input-xs" 
+                                value={posCustomerId}
+                                onChange={(e) => { setPosCustomerId(e.target.value); e.target.blur(); }}
+                                onFocus={(e) => e.target.size = 5}
+                                onBlur={(e) => e.target.size = 1}
+                                style={{ width: '100%', padding: '4px 8px', fontSize: '11px', position: 'absolute', top: 0, left: 0, zIndex: 50, background: '#111827', border: '1px solid #f59e0b', borderRadius: '4px' }}
+                              >
+                                <option value="">-- Select Credit Customer (Required) --</option>
+                                {creditCustomers.map(c => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.name} ({c.phone}{c.organization ? ` | ${c.organization}` : ''} | Due: ₹{parseFloat(c.outstanding || 0).toFixed(2)}{parseFloat(c.credit_limit || 0) > 0 ? ` | Limit: ₹${parseFloat(c.credit_limit).toFixed(2)}` : ''})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            {creditCustomers.length === 0 && (
+                              <div style={{ fontSize: '10px', color: '#ef4444', marginTop: '4px' }}>
+                                No credit customers registered yet. Add one in MIS Reports → Credits.
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>⭐ Loyalty Customer</label>
+                            <div style={{ position: 'relative', height: '28px' }}>
+                              <select 
+                                className="input-field input-xs" 
+                                value={posCustomerId}
+                                onChange={(e) => { setPosCustomerId(e.target.value); e.target.blur(); }}
+                                onFocus={(e) => e.target.size = 5}
+                                onBlur={(e) => e.target.size = 1}
+                                style={{ width: '100%', padding: '4px 8px', fontSize: '11px', position: 'absolute', top: 0, left: 0, zIndex: 50, background: '#111827', border: '1px solid var(--border-color)', borderRadius: '4px' }}
+                              >
+                                <option value="">-- Guest Order (No Loyalty) --</option>
+                                {customers.map(c => (
+                                  <option key={c.id} value={c.id}>{c.name} ({c.phone} - {c.loyalty_points} pts)</option>
+                                ))}
+                              </select>
+                            </div>
+                          </>
+                        )}
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <div className="hr-form-group" style={{ flex: 1, marginBottom: 0 }}>
@@ -8682,7 +8840,12 @@ function App() {
                             type="button"
                             className={`pay-btn ${posPaymentMode === mode ? 'active' : ''}`}
                             onClick={() => {
+                              const prevMode = posPaymentMode;
                               setPosPaymentMode(mode);
+                              // Reset customer selection when switching between Credit and non-Credit modes
+                              if ((prevMode === 'Credit' && mode !== 'Credit') || (prevMode !== 'Credit' && mode === 'Credit')) {
+                                setPosCustomerId('');
+                              }
                               // Clear RFID state when switching away from RFID modes
                               if (mode !== 'RFID Wallet') {
                                 setRfidScanInput('');
@@ -12733,13 +12896,26 @@ function App() {
                 {/* E2: Credit Settle UI */}
                 {reportsSubTab === 'credits' && (
                   <div className="report-section">
-                    <div className="panel-card-header"><h3>Credit Customers (Outstanding)</h3></div>
+                    <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3>Credit Customers (House Accounts)</h3>
+                      <button 
+                        className="btn btn-primary btn-small"
+                        onClick={() => {
+                          setCreditCustForm({ name: '', phone: '', email: '', organization: '', credit_limit: '' });
+                          setShowCreditCustomerModal(true);
+                        }}
+                      >
+                        + Register Credit Customer
+                      </button>
+                    </div>
                     <div className="table-container mt-3">
                       <table className="data-table">
                         <thead>
                           <tr>
                             <th>Customer</th>
                             <th>Phone</th>
+                            <th>Organization</th>
+                            <th>Credit Limit</th>
                             <th>Outstanding</th>
                             <th>Action</th>
                           </tr>
@@ -12749,6 +12925,8 @@ function App() {
                             <tr key={cust.id}>
                               <td><strong>{cust.name}</strong></td>
                               <td>{cust.phone || '-'}</td>
+                              <td>{cust.organization || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                              <td>{parseFloat(cust.credit_limit || 0) > 0 ? `₹${parseFloat(cust.credit_limit).toFixed(2)}` : <span className="badge badge-secondary">Unlimited</span>}</td>
                               <td><span className={`badge ${Number(cust.outstanding) > 0 ? 'badge-danger' : 'badge-success'}`}>₹{Number(cust.outstanding).toFixed(2)}</span></td>
                               <td>
                                 {selectedCreditCustomer?.id === cust.id ? (
@@ -12770,7 +12948,7 @@ function App() {
                               </td>
                             </tr>
                           )) : (
-                            <tr><td colSpan="4" className="empty-state">No credit transactions found.</td></tr>
+                            <tr><td colSpan="6" className="empty-state">No credit customers registered yet. Click "+ Register Credit Customer" to add one.</td></tr>
                           )}
                         </tbody>
                       </table>

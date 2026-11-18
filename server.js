@@ -688,6 +688,79 @@ async function runStartupMigrations() {
       console.log("Migration: Added payment_amount column to registrations table.");
     }
 
+    // 18. Ensure customer_type, organization, credit_limit columns on customers and smart migration
+    const [cTypeCols] = await conn.query("SHOW COLUMNS FROM customers LIKE 'customer_type'");
+    if (cTypeCols.length === 0) {
+      await conn.query("ALTER TABLE customers ADD COLUMN customer_type ENUM('loyalty', 'credit') NOT NULL DEFAULT 'loyalty'");
+      console.log("Migration: Added customer_type column to customers table.");
+    }
+    const [cOrgCols] = await conn.query("SHOW COLUMNS FROM customers LIKE 'organization'");
+    if (cOrgCols.length === 0) {
+      await conn.query("ALTER TABLE customers ADD COLUMN organization VARCHAR(255) NULL DEFAULT NULL");
+      console.log("Migration: Added organization column to customers table.");
+    }
+    const [cLimitCols] = await conn.query("SHOW COLUMNS FROM customers LIKE 'credit_limit'");
+    if (cLimitCols.length === 0) {
+      await conn.query("ALTER TABLE customers ADD COLUMN credit_limit DECIMAL(10,2) NOT NULL DEFAULT 0.00");
+      console.log("Migration: Added credit_limit column to customers table.");
+    }
+
+    // Ensure credit_ledger has tenant_id
+    const [clTenantCols] = await conn.query("SHOW COLUMNS FROM credit_ledger LIKE 'tenant_id'");
+    if (clTenantCols.length === 0) {
+      await conn.query("ALTER TABLE credit_ledger ADD COLUMN tenant_id INT NOT NULL DEFAULT 1");
+      await conn.query("UPDATE credit_ledger cl JOIN customers c ON cl.customer_id = c.id SET cl.tenant_id = COALESCE(c.tenant_id, 1)");
+      console.log("Migration: Added tenant_id column to credit_ledger and backfilled tenant IDs.");
+    }
+
+    // Update phone index on customers to allow same phone across different customer_type / tenant_id
+    const [phoneIndex] = await conn.query("SHOW INDEX FROM customers WHERE Key_name = 'phone'");
+    if (phoneIndex.length > 0) {
+      await conn.query("ALTER TABLE customers DROP INDEX phone");
+      console.log("Migration: Dropped global phone UNIQUE index from customers.");
+    }
+    const [compositePhoneIdx] = await conn.query("SHOW INDEX FROM customers WHERE Key_name = 'idx_tenant_type_phone'");
+    if (compositePhoneIdx.length === 0) {
+      await conn.query("ALTER TABLE customers ADD UNIQUE KEY idx_tenant_type_phone (tenant_id, customer_type, phone)");
+      console.log("Migration: Added composite unique index idx_tenant_type_phone on customers(tenant_id, customer_type, phone).");
+    }
+
+    // Smart Migration for Existing Customers with Credit History
+    const [existingCreditCusts] = await conn.query("SELECT id FROM customers WHERE customer_type = 'credit' LIMIT 1");
+    if (existingCreditCusts.length === 0) {
+      const [creditCustIds] = await conn.query("SELECT DISTINCT customer_id FROM credit_ledger WHERE customer_id IS NOT NULL");
+      for (const row of creditCustIds) {
+        const oldId = row.customer_id;
+        const [custRows] = await conn.query("SELECT * FROM customers WHERE id = ?", [oldId]);
+        if (custRows.length === 0) continue;
+        const cust = custRows[0];
+
+        // Check if customer has RFID / wallet activity
+        const hasRfid = cust.rfid_tag && cust.rfid_tag.trim() !== '';
+        const hasWalletBal = parseFloat(cust.wallet_balance || 0) > 0;
+        const [wtRows] = await conn.query("SELECT id FROM wallet_transactions WHERE customer_id = ? LIMIT 1", [oldId]);
+        const hasWalletTx = wtRows.length > 0;
+
+        if (hasRfid || hasWalletBal || hasWalletTx) {
+          // Keep old record as 'loyalty', create separate dedicated 'credit' record
+          const [ins] = await conn.query(
+            "INSERT INTO customers (name, phone, email, customer_type, tenant_id) VALUES (?, ?, ?, 'credit', ?)",
+            [cust.name, cust.phone, cust.email, cust.tenant_id || 1]
+          );
+          const newCreditId = ins.insertId;
+          // Re-link credit_ledger entries to this new dedicated credit customer
+          await conn.query("UPDATE credit_ledger SET customer_id = ? WHERE customer_id = ?", [newCreditId, oldId]);
+          // Re-link orders where payment_mode = 'Credit'
+          await conn.query("UPDATE orders SET customer_id = ? WHERE customer_id = ? AND payment_mode = 'Credit'", [newCreditId, oldId]);
+          console.log(`Migration: Created separate Credit Customer ID ${newCreditId} for Loyalty Customer ${oldId} (${cust.name}) and migrated credit history.`);
+        } else {
+          // Customer only ever did credit — directly classify as credit customer
+          await conn.query("UPDATE customers SET customer_type = 'credit' WHERE id = ?", [oldId]);
+          console.log(`Migration: Classified Customer ${oldId} (${cust.name}) as Credit Customer.`);
+        }
+      }
+    }
+
     conn.release();
   } catch (err) {
     console.error("Migration error on startup:", err.message);
@@ -709,7 +782,7 @@ const tenantTables = [
   'holidays', 'customers', 'customer_feedback', 'daily_reconciliation',
   'stock_logs', 'suppliers', 'vendor_settlements', 'broadcast_campaigns',
   'cash_drawer', 'notification_logs', 'vendor_common_expenses', 'overheads', 'central_settlements',
-  'notification_settings'
+  'notification_settings', 'credit_ledger'
 ];
 
 function getTableIdentifier(sql, tableName) {
@@ -2819,11 +2892,38 @@ app.post('/api/orders', async (req, res) => {
     // Credit Ledger Entry if credit payment
     if (payment_mode === 'Credit') {
       if (!customer_id) {
-        throw new Error('Customer ID is required for Credit transactions.');
+        throw new Error('Customer ID is required for Credit transactions. Please select a Credit Customer.');
       }
+      const [creditCustRows] = await connection.query(
+        'SELECT id, name, customer_type, credit_limit, tenant_id FROM customers WHERE id = ?',
+        [parseInt(customer_id)]
+      );
+      if (creditCustRows.length === 0) {
+        throw new Error('Credit Customer not found.');
+      }
+      const creditCust = creditCustRows[0];
+      if (creditCust.customer_type !== 'credit') {
+        throw new Error('The selected customer is not registered as a Credit Customer. Please register them in the Credits sub-tab or select an existing Credit Customer.');
+      }
+
+      // Hard block on Credit Limit:
+      const creditLimit = parseFloat(creditCust.credit_limit || 0);
+      if (creditLimit > 0) {
+        const [balRows] = await connection.query(`
+          SELECT IFNULL(SUM(CASE WHEN type = 'Credit' THEN amount ELSE 0 END), 0) - 
+                 IFNULL(SUM(CASE WHEN type = 'Payment' THEN amount ELSE 0 END), 0) as outstanding
+          FROM credit_ledger WHERE customer_id = ?
+        `, [creditCust.id]);
+        const currentOutstanding = parseFloat(balRows[0].outstanding || 0);
+        if (currentOutstanding + finalPayable > creditLimit) {
+          const availableCredit = Math.max(0, creditLimit - currentOutstanding);
+          throw new Error(`Credit Limit Exceeded! Customer: ${creditCust.name}, Limit: ₹${creditLimit.toFixed(2)}, Current Outstanding: ₹${currentOutstanding.toFixed(2)}, Order Total: ₹${finalPayable.toFixed(2)}. Available Credit: ₹${availableCredit.toFixed(2)}.`);
+        }
+      }
+
       await connection.query(
-        'INSERT INTO credit_ledger (customer_id, order_id, amount, type, notes) VALUES (?, ?, ?, "Credit", ?)',
-        [parseInt(customer_id), orderId, finalPayable, `Order Token Checkout (Token: ${tokenNumber})`]
+        'INSERT INTO credit_ledger (customer_id, order_id, amount, type, notes, tenant_id) VALUES (?, ?, ?, "Credit", ?, ?)',
+        [parseInt(customer_id), orderId, finalPayable, `Order Token Checkout (Token: ${tokenNumber})`, req.user?.tenant_id || creditCust.tenant_id || 1]
       );
     }
 
@@ -2876,7 +2976,8 @@ app.post('/api/orders', async (req, res) => {
       }
     }
 
-    if (customer_id && payment_mode !== 'Credit') {
+    // Only customers using RFID Wallet earn loyalty points when spending through their wallets. Credit and other modes do not earn loyalty points.
+    if (customer_id && payment_mode === 'RFID Wallet') {
       crm.awardLoyaltyPoints(parseInt(customer_id), orderId, finalPayable)
         .catch(e => console.error('[CRM] Loyalty award err:', e.message));
     }
@@ -6926,7 +7027,8 @@ app.put('/api/qr/settings', async (req, res) => {
 // --- CUSTOMERS ---
 app.get('/api/customers', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM customers ORDER BY name');
+    const type = req.query.type || 'loyalty';
+    const [rows] = await pool.query('SELECT * FROM customers WHERE customer_type = ? ORDER BY name', [type]);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching customers:', error);
@@ -6935,20 +7037,22 @@ app.get('/api/customers', async (req, res) => {
 });
 
 app.post('/api/customers', async (req, res) => {
-  const { name, phone, email } = req.body;
-  if (!name) return res.status(400).json({ error: 'Name is required.' });
+  const { name, phone, email, customer_type } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
   try {
     const cleanPhone = phone && phone.trim() ? phone.trim() : null;
     const cleanEmail = email && email.trim() ? email.trim() : null;
+    const type = customer_type === 'credit' ? 'credit' : 'loyalty';
+    const tenantId = req.user?.tenant_id || 1;
     const [result] = await pool.query(
-      'INSERT INTO customers (name, phone, email, loyalty_points) VALUES (?, ?, ?, 0)',
-      [name.trim(), cleanPhone, cleanEmail]
+      'INSERT INTO customers (name, phone, email, loyalty_points, customer_type, tenant_id) VALUES (?, ?, ?, 0, ?, ?)',
+      [name.trim(), cleanPhone, cleanEmail, type, tenantId]
     );
-    res.status(201).json({ id: result.insertId, name: name.trim(), phone: cleanPhone, email: cleanEmail, loyalty_points: 0 });
+    res.status(201).json({ id: result.insertId, name: name.trim(), phone: cleanPhone, email: cleanEmail, loyalty_points: 0, customer_type: type, tenant_id: tenantId });
   } catch (error) {
     console.error('Error creating customer:', error);
     if (error.code === 'ER_DUP_ENTRY') {
-      return res.status(400).json({ error: 'A customer with this phone number already exists.' });
+      return res.status(400).json({ error: 'A customer with this phone number already exists in this category.' });
     }
     res.status(500).json({ error: 'Failed to create customer: ' + error.message });
   }
@@ -8475,21 +8579,66 @@ app.post('/api/digital-settlements/settle', async (req, res) => {
 app.get('/api/credits/customers', async (req, res) => {
   try {
     const tenantId = req.user?.tenant_id;
-    const [rows] = await pool.query(`
-      SELECT c.id, c.name, c.phone, c.email,
+    let query = `
+      SELECT c.id, c.name, c.phone, c.email, c.organization, c.credit_limit, c.tenant_id,
              IFNULL(SUM(CASE WHEN cl.type = 'Credit' THEN cl.amount ELSE 0 END), 0) - 
              IFNULL(SUM(CASE WHEN cl.type = 'Payment' THEN cl.amount ELSE 0 END), 0) as outstanding
       FROM customers c
       LEFT JOIN credit_ledger cl ON c.id = cl.customer_id
-      WHERE c.tenant_id = ?
-      GROUP BY c.id
-      HAVING outstanding > 0 OR outstanding < 0 OR EXISTS (SELECT 1 FROM credit_ledger WHERE customer_id = c.id)
-      ORDER BY c.name
-    `, [tenantId]);
+      WHERE c.customer_type = 'credit'
+    `;
+    const params = [];
+    if (tenantId) {
+      query += ' AND c.tenant_id = ?';
+      params.push(tenantId);
+    }
+    query += ' GROUP BY c.id ORDER BY c.name';
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching credits:', error);
     res.status(500).json({ error: 'Failed to fetch customer credits' });
+  }
+});
+
+// Register new Credit Customer
+app.post('/api/credits/customers', async (req, res) => {
+  const { name, phone, email, organization, credit_limit } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Customer name is required.' });
+  if (!phone || !phone.trim()) return res.status(400).json({ error: 'Phone number is required.' });
+
+  const tenantId = req.user?.tenant_id || 1;
+  const cleanPhone = phone.trim();
+  const cleanEmail = email && email.trim() ? email.trim() : null;
+  const cleanOrg = organization && organization.trim() ? organization.trim() : null;
+  const parsedLimit = credit_limit !== undefined && credit_limit !== '' ? parseFloat(credit_limit) : 0.00;
+
+  if (isNaN(parsedLimit) || parsedLimit < 0) {
+    return res.status(400).json({ error: 'Credit limit must be a valid positive number or 0 (unlimited).' });
+  }
+
+  try {
+    const [result] = await pool.query(
+      'INSERT INTO customers (name, phone, email, organization, credit_limit, customer_type, loyalty_points, tenant_id) VALUES (?, ?, ?, ?, ?, "credit", 0, ?)',
+      [name.trim(), cleanPhone, cleanEmail, cleanOrg, parsedLimit, tenantId]
+    );
+    res.status(201).json({
+      id: result.insertId,
+      name: name.trim(),
+      phone: cleanPhone,
+      email: cleanEmail,
+      organization: cleanOrg,
+      credit_limit: parsedLimit,
+      customer_type: 'credit',
+      outstanding: 0,
+      tenant_id: tenantId
+    });
+  } catch (error) {
+    console.error('Error creating credit customer:', error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ error: 'A Credit Customer with this phone number already exists in your canteen.' });
+    }
+    res.status(500).json({ error: 'Failed to create credit customer: ' + error.message });
   }
 });
 
@@ -8511,13 +8660,14 @@ app.get('/api/credits/ledger/:customerId', async (req, res) => {
 // Credit settlement post
 app.post('/api/credits/settle', async (req, res) => {
   const { customer_id, amount, payment_mode, notes } = req.body;
-  if (!customer_id || amount === undefined) {
-    return res.status(400).json({ error: 'customer_id and amount are required.' });
+  if (!customer_id || amount === undefined || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+    return res.status(400).json({ error: 'customer_id and valid positive amount are required.' });
   }
+  const tenantId = req.user?.tenant_id || 1;
   try {
     await pool.query(
-      'INSERT INTO credit_ledger (customer_id, amount, type, notes, is_settled, settled_date) VALUES (?, ?, "Payment", ?, 1, NOW())',
-      [customer_id, parseFloat(amount), notes || `Credit settlement payment via ${payment_mode || 'Cash'}`]
+      'INSERT INTO credit_ledger (customer_id, amount, type, notes, is_settled, settled_date, tenant_id) VALUES (?, ?, "Payment", ?, 1, NOW(), ?)',
+      [customer_id, parseFloat(amount), notes || `Credit settlement payment via ${payment_mode || 'Cash'}`, tenantId]
     );
     res.json({ success: true, message: 'Credit settlement recorded successfully.' });
   } catch (error) {
@@ -8551,8 +8701,8 @@ app.post('/api/credits/settle-items', async (req, res) => {
 
     // Insert a Payment entry as a record
     await pool.query(
-      'INSERT INTO credit_ledger (customer_id, amount, type, notes, is_settled, settled_date) VALUES (?, ?, "Payment", ?, 1, NOW())',
-      [customer_id, totalAmount, `Partial settlement of ${rows.length} item(s) via ${payment_mode || 'Cash'}`]
+      'INSERT INTO credit_ledger (customer_id, amount, type, notes, is_settled, settled_date, tenant_id) VALUES (?, ?, "Payment", ?, 1, NOW(), ?)',
+      [customer_id, totalAmount, `Partial settlement of ${rows.length} item(s) via ${payment_mode || 'Cash'}`, req.user?.tenant_id || 1]
     );
 
     res.json({ success: true, message: `₹${totalAmount.toFixed(2)} settled for ${rows.length} item(s).` });
