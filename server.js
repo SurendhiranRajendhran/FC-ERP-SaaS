@@ -10124,10 +10124,31 @@ app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), as
       tenantUpdateSql += ', subscription_status = ?';
       tenantParams.push(subscription_status);
     }
-    if (duration_days) {
-      tenantUpdateSql += ', subscription_expires_at = DATE_ADD(NOW(), INTERVAL ? DAY)';
-      tenantParams.push(parseInt(duration_days, 10));
+
+    // Handle subscription expiry: explicit duration_days takes priority
+    if (duration_days !== undefined && duration_days !== null && duration_days !== '') {
+      const days = parseInt(duration_days, 10);
+      if (days === 0) {
+        // 0 means unlimited / no expiration
+        tenantUpdateSql += ', subscription_expires_at = NULL';
+      } else if (days > 0) {
+        tenantUpdateSql += ', subscription_expires_at = DATE_ADD(NOW(), INTERVAL ? DAY)';
+        tenantParams.push(days);
+      }
+    } else if (subscription_status === 'active') {
+      // Auto-extend: if status is being changed to 'active' and no explicit duration was provided,
+      // check if the current expiry is in the past or the previous status was trial/expired — auto-extend by 365 days
+      const [currentTenant] = await conn.query('SELECT subscription_status, subscription_expires_at FROM tenants WHERE id = ?', [id]);
+      if (currentTenant.length > 0) {
+        const prevStatus = currentTenant[0].subscription_status;
+        const prevExpiry = currentTenant[0].subscription_expires_at;
+        const isExpiredDate = prevExpiry && new Date(prevExpiry) < new Date();
+        if (prevStatus === 'trial' || prevStatus === 'expired' || isExpiredDate) {
+          tenantUpdateSql += ', subscription_expires_at = DATE_ADD(NOW(), INTERVAL 365 DAY)';
+        }
+      }
     }
+
     tenantUpdateSql += ' WHERE id = ?';
     tenantParams.push(id);
 

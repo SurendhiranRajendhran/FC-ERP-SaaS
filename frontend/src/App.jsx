@@ -835,7 +835,10 @@ function SuperAdminDashboard({ user, onLogout }) {
       password: '', // Leave blank unless changing
       is_active: t.is_active === 1 || t.is_active === true,
       plan_name: t.plan_name || t.plan || 'Food Court',
-      subscription_status: t.subscription_status || 'active'
+      subscription_status: t.subscription_status || 'active',
+      duration_days: '', // empty = Keep current (auto-extends if activating an expired/trial tenant)
+      custom_days: '',
+      current_expires_at: t.subscription_expires_at || null
     });
     setShowEditModal(true);
   };
@@ -888,13 +891,26 @@ function SuperAdminDashboard({ user, onLogout }) {
     }
     setEditing(true);
     try {
+      const payload = { ...editFormParams };
+      if (editFormParams.duration_days === 'custom') {
+        payload.duration_days = parseInt(editFormParams.custom_days, 10) || 365;
+      } else if (editFormParams.duration_days === 'unlimited') {
+        payload.duration_days = 0; // 0 signals NULL / unlimited in backend
+      } else if (editFormParams.duration_days) {
+        payload.duration_days = parseInt(editFormParams.duration_days, 10);
+      } else {
+        delete payload.duration_days;
+      }
+      delete payload.custom_days;
+      delete payload.current_expires_at;
+
       const res = await originalFetch(`${API_BASE}/tenants/${editingTenantId}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}` 
         },
-        body: JSON.stringify(editFormParams)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update food court');
@@ -1132,6 +1148,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                       <th style={saStyles.th}>Food Court Name</th>
                       <th style={saStyles.th}>Owner Email</th>
                       <th style={saStyles.th}>Plan</th>
+                      <th style={{...saStyles.th, textAlign: 'center'}}>Expires On</th>
                       <th style={{...saStyles.th, textAlign: 'center'}}>Status</th>
                       <th style={{...saStyles.th, textAlign: 'right'}}>Registered</th>
                       <th style={{...saStyles.th, textAlign: 'center'}}>Actions</th>
@@ -1169,6 +1186,61 @@ function SuperAdminDashboard({ user, onLogout }) {
                             {t.plan_name || t.plan || 'Food Court'}
                             {t.subscription_status === 'trial' ? ' · Trial' : ''}
                           </span>
+                        </td>
+                        <td style={{...saStyles.td, textAlign: 'center'}}>
+                          {(() => {
+                            if (t.id === 1) {
+                              return <span style={{ color: '#10b981', fontSize: '0.78rem', fontWeight: 600 }}>♾️ Permanent</span>;
+                            }
+                            if (!t.subscription_expires_at) {
+                              return <span style={{ color: '#10b981', fontSize: '0.78rem', fontWeight: 600 }}>♾️ Unlimited</span>;
+                            }
+                            const expDate = new Date(t.subscription_expires_at);
+                            const now = new Date();
+                            const diffDays = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
+                            const isExpired = diffDays <= 0 || t.subscription_status === 'expired';
+
+                            if (isExpired) {
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                  <span style={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    background: 'rgba(239, 68, 68, 0.15)',
+                                    color: '#ef4444',
+                                    border: '1px solid rgba(239, 68, 68, 0.3)'
+                                  }}>
+                                    ⚠️ Expired
+                                  </span>
+                                  <span style={{ fontSize: '0.68rem', color: '#ef4444' }}>
+                                    {formatISTDate(t.subscription_expires_at, { year: 'numeric', month: 'short', day: 'numeric' })}
+                                  </span>
+                                </div>
+                              );
+                            }
+
+                            const isWarning = diffDays <= 7;
+                            return (
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                <span style={{
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  padding: '2px 8px',
+                                  borderRadius: '12px',
+                                  background: isWarning ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.12)',
+                                  color: isWarning ? '#f59e0b' : '#34d399',
+                                  border: `1px solid ${isWarning ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.25)'}`
+                                }}>
+                                  {formatISTDate(t.subscription_expires_at, { year: 'numeric', month: 'short', day: 'numeric' })}
+                                </span>
+                                <span style={{ fontSize: '0.68rem', color: isWarning ? '#f59e0b' : '#94a3b8' }}>
+                                  {diffDays} {diffDays === 1 ? 'day' : 'days'} left
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td style={{...saStyles.td, textAlign: 'center'}}>
                           {t.is_active ? (
@@ -1910,13 +1982,79 @@ function SuperAdminDashboard({ user, onLogout }) {
                   <select 
                     style={saStyles.formInput} 
                     value={editFormParams.subscription_status || 'active'}
-                    onChange={e => setEditFormParams({...editFormParams, subscription_status: e.target.value})}
+                    onChange={e => {
+                      const newStatus = e.target.value;
+                      const wasExpiredOrTrial = editFormParams.subscription_status === 'trial' || 
+                        editFormParams.subscription_status === 'expired' || 
+                        (editFormParams.current_expires_at && new Date(editFormParams.current_expires_at) < new Date());
+                      setEditFormParams({
+                        ...editFormParams, 
+                        subscription_status: newStatus,
+                        duration_days: (newStatus === 'active' && wasExpiredOrTrial && !editFormParams.duration_days) ? '365' : editFormParams.duration_days
+                      });
+                    }}
                   >
                     <option value="active">Active</option>
                     <option value="trial">7-Day Free Trial</option>
                     <option value="expired">Expired</option>
                     <option value="suspended">Suspended</option>
                   </select>
+                </div>
+
+                {/* Subscription Expiry & Duration Configuration */}
+                <div style={{
+                  padding: '12px 14px',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '8px',
+                  marginBottom: '16px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Current Expiry:</span>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: (() => {
+                      if (!editFormParams.current_expires_at) return '#10b981';
+                      return new Date(editFormParams.current_expires_at) < new Date() ? '#ef4444' : '#34d399';
+                    })() }}>
+                      {editFormParams.current_expires_at ? (
+                        <>
+                          {formatISTDate(editFormParams.current_expires_at, { year: 'numeric', month: 'short', day: 'numeric' })}
+                          {new Date(editFormParams.current_expires_at) < new Date() ? ' (Expired ⚠️)' : ''}
+                        </>
+                      ) : '♾️ Unlimited / No Expiry'}
+                    </span>
+                  </div>
+
+                  <div style={{ ...saStyles.formGroup, marginBottom: editFormParams.duration_days === 'custom' ? '8px' : 0 }}>
+                    <label style={{ ...saStyles.formLabel, fontSize: '0.78rem' }}>Extend / Set Validity</label>
+                    <select
+                      style={{ ...saStyles.formInput, fontSize: '0.85rem' }}
+                      value={editFormParams.duration_days}
+                      onChange={e => setEditFormParams({ ...editFormParams, duration_days: e.target.value })}
+                    >
+                      <option value="">Keep Current Expiry (Auto-extends +1 Year if activating)</option>
+                      <option value="7">+7 Days (1 Week Trial)</option>
+                      <option value="30">+30 Days (1 Month)</option>
+                      <option value="90">+90 Days (Quarterly)</option>
+                      <option value="365">+1 Year (365 Days)</option>
+                      <option value="unlimited">Unlimited / No Expiry Date</option>
+                      <option value="custom">Custom Days...</option>
+                    </select>
+                  </div>
+
+                  {editFormParams.duration_days === 'custom' && (
+                    <div style={{ ...saStyles.formGroup, marginTop: '8px', marginBottom: 0 }}>
+                      <label style={{ ...saStyles.formLabel, fontSize: '0.78rem' }}>Enter Custom Days</label>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="e.g. 60 or 180"
+                        style={saStyles.formInput}
+                        value={editFormParams.custom_days}
+                        onChange={e => setEditFormParams({ ...editFormParams, custom_days: e.target.value })}
+                        required
+                      />
+                    </div>
+                  )}
                 </div>
                 <div style={saStyles.formGroup}>
                   <label style={{display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', ...saStyles.formLabel}}>
