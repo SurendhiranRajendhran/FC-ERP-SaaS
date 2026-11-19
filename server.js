@@ -2978,9 +2978,16 @@ app.post('/api/orders', async (req, res) => {
       }
     }
 
-    // Only customers using RFID Wallet earn loyalty points when spending through their wallets. Credit and other modes do not earn loyalty points.
-    if (customer_id && payment_mode === 'RFID Wallet') {
-      crm.awardLoyaltyPoints(parseInt(customer_id), orderId, finalPayable)
+    // All loyalty customers (registered through Cards & Wallets) earn loyalty points on their purchases.
+    // Only Credit Customers should not earn any loyalty points.
+    if (customer_id && payment_mode !== 'Credit' && payment_mode !== 'Staff Meal' && finalPayable > 0) {
+      pool.query('SELECT customer_type FROM customers WHERE id = ?', [customer_id])
+        .then(([custCheck]) => {
+          const isCredit = custCheck.length > 0 && custCheck[0].customer_type === 'credit';
+          if (!isCredit) {
+            return crm.awardLoyaltyPoints(parseInt(customer_id), orderId, finalPayable);
+          }
+        })
         .catch(e => console.error('[CRM] Loyalty award err:', e.message));
     }
     // ──────────────────────────────────────────────────────────────────────────    // ==========================================
@@ -7030,7 +7037,19 @@ app.put('/api/qr/settings', async (req, res) => {
 app.get('/api/customers', async (req, res) => {
   try {
     const type = req.query.type || 'loyalty';
-    const [rows] = await pool.query('SELECT * FROM customers WHERE customer_type = ? ORDER BY name', [type]);
+    let query;
+    let params;
+    if (type === 'all') {
+      query = 'SELECT * FROM customers ORDER BY name';
+      params = [];
+    } else if (type === 'credit') {
+      query = "SELECT * FROM customers WHERE customer_type = 'credit' ORDER BY name";
+      params = [];
+    } else {
+      query = "SELECT * FROM customers WHERE (customer_type = 'loyalty' OR customer_type IS NULL) ORDER BY name";
+      params = [];
+    }
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching customers:', error);
@@ -7039,21 +7058,25 @@ app.get('/api/customers', async (req, res) => {
 });
 
 app.post('/api/customers', async (req, res) => {
-  const { name, phone, email, customer_type } = req.body;
+  const { name, phone, email, customer_type, rfid_tag } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
   try {
     const cleanPhone = phone && phone.trim() ? phone.trim() : null;
     const cleanEmail = email && email.trim() ? email.trim() : null;
+    const cleanRfid = rfid_tag && rfid_tag.trim() ? rfid_tag.trim() : null;
     const type = customer_type === 'credit' ? 'credit' : 'loyalty';
     const tenantId = req.user?.tenant_id || 1;
     const [result] = await pool.query(
-      'INSERT INTO customers (name, phone, email, loyalty_points, customer_type, tenant_id) VALUES (?, ?, ?, 0, ?, ?)',
-      [name.trim(), cleanPhone, cleanEmail, type, tenantId]
+      'INSERT INTO customers (name, phone, email, rfid_tag, loyalty_points, customer_type, tenant_id) VALUES (?, ?, ?, ?, 0, ?, ?)',
+      [name.trim(), cleanPhone, cleanEmail, cleanRfid, type, tenantId]
     );
-    res.status(201).json({ id: result.insertId, name: name.trim(), phone: cleanPhone, email: cleanEmail, loyalty_points: 0, customer_type: type, tenant_id: tenantId });
+    res.status(201).json({ id: result.insertId, name: name.trim(), phone: cleanPhone, email: cleanEmail, rfid_tag: cleanRfid, loyalty_points: 0, customer_type: type, tenant_id: tenantId });
   } catch (error) {
     console.error('Error creating customer:', error);
     if (error.code === 'ER_DUP_ENTRY') {
+      if (error.message && error.message.includes('rfid_tag')) {
+        return res.status(400).json({ error: 'This RFID tag is already assigned to another customer.' });
+      }
       return res.status(400).json({ error: 'A customer with this phone number already exists in this category.' });
     }
     res.status(500).json({ error: 'Failed to create customer: ' + error.message });
@@ -7848,27 +7871,23 @@ app.get('/api/reports/monthly-pl', async (req, res) => {
 // 6. Customer Analytics & Feedback Summary
 app.get('/api/reports/customer-analytics', async (req, res) => {
   try {
-    // Total registered loyalty customers with RFID Wallets
+    // Total registered loyalty customers (from Cards & Wallets)
     const [custCountRows] = await reportPool.query(`
       SELECT COUNT(id) as total 
       FROM customers 
       WHERE (customer_type = 'loyalty' OR customer_type IS NULL)
-        AND rfid_tag IS NOT NULL 
-        AND rfid_tag != ''
     `);
     const totalCustomers = custCountRows[0].total;
 
-    // Total outstanding loyalty points (only for RFID loyalty customers)
+    // Total outstanding loyalty points (for all loyalty customers)
     const [loyaltyRows] = await reportPool.query(`
       SELECT IFNULL(SUM(loyalty_points), 0) as total 
       FROM customers 
       WHERE (customer_type = 'loyalty' OR customer_type IS NULL)
-        AND rfid_tag IS NOT NULL 
-        AND rfid_tag != ''
     `);
     const totalLoyaltyPoints = loyaltyRows[0].total || 0;
 
-    // Loyalty leaderboard (Top 10 loyalty customers with RFID Wallets)
+    // Loyalty leaderboard (All loyalty customers registered through Cards & Wallets)
     const [leaderboard] = await reportPool.query(`
       SELECT c.id, c.name, c.phone, c.loyalty_points, c.rfid_tag, c.wallet_balance,
              COUNT(o.id) as total_visits,
@@ -7876,14 +7895,11 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
       FROM customers c
       LEFT JOIN orders o ON c.id = o.customer_id AND o.status != 'Cancelled'
       WHERE (c.customer_type = 'loyalty' OR c.customer_type IS NULL)
-        AND c.rfid_tag IS NOT NULL 
-        AND c.rfid_tag != ''
       GROUP BY c.id
       ORDER BY c.loyalty_points DESC, total_spent DESC
-      LIMIT 10
     `);
 
-    // Repeat customer rate (RFID Loyalty Customers with more than 1 order)
+    // Repeat customer rate (Loyalty Customers with more than 1 order)
     const [repeatRows] = await reportPool.query(`
       SELECT 
         COUNT(CASE WHEN order_count > 1 THEN 1 END) as repeat_count,
@@ -7893,8 +7909,6 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
         FROM customers c
         JOIN orders o ON c.id = o.customer_id AND o.status != 'Cancelled'
         WHERE (c.customer_type = 'loyalty' OR c.customer_type IS NULL)
-          AND c.rfid_tag IS NOT NULL 
-          AND c.rfid_tag != ''
         GROUP BY c.id
       ) t
     `);
@@ -9302,7 +9316,7 @@ app.get('/api/notifications/loyalty', async (req, res) => {
   try {
     const { page = 1, limit = 50, search } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    let where = '1=1';
+    let where = "(customer_type = 'loyalty' OR customer_type IS NULL)";
     const params = [];
     if (search) { where += ' AND (name LIKE ? OR phone LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
     const [customers] = await pool.query(
@@ -9529,7 +9543,7 @@ app.get('/api/wallet/rfid/:tag', authenticateToken, async (req, res) => {
 
 // 2. Prepaid Wallet Top-up (Admin/Cashier)
 app.post('/api/wallet/topup', authenticateToken, async (req, res) => {
-  if (!['Owner', 'Manager', 'Cashier', 'Admin'].includes(req.user.role)) {
+  if (!['Owner', 'Manager', 'Cashier', 'Admin', 'Billing Staff'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Access denied' });
   }
   const { customer_id, amount, description, paymentMode, transaction_amount } = req.body;
@@ -9592,7 +9606,7 @@ app.get('/api/wallet/history/:customerId', authenticateToken, async (req, res) =
 
 // 4. Update RFID Tag for Customer
 app.put('/api/wallet/assign-rfid', authenticateToken, async (req, res) => {
-  if (!['Owner', 'Manager', 'Cashier', 'Admin'].includes(req.user.role)) {
+  if (!['Owner', 'Manager', 'Cashier', 'Admin', 'Billing Staff'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Access denied' });
   }
   const { customer_id, rfid_tag } = req.body;

@@ -27,7 +27,7 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
   
   const [rfidInput, setRfidInput] = useState('');
   const [showRegister, setShowRegister] = useState(false);
-  const [registerForm, setRegisterForm] = useState({ name: '', phone: '', email: '' });
+  const [registerForm, setRegisterForm] = useState({ name: '', phone: '', email: '', rfid_tag: '' });
 
   const handleRegisterCustomer = async (e) => {
     e.preventDefault(); setMsg('');
@@ -35,7 +35,7 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
       await api('/api/customers', { method: 'POST', body: JSON.stringify(registerForm) });
       setMsg('✅ Customer Registered Successfully!');
       setShowRegister(false);
-      setRegisterForm({ name: '', phone: '', email: '' });
+      setRegisterForm({ name: '', phone: '', email: '', rfid_tag: '' });
       load();
       if (refreshCustomers) refreshCustomers();
     } catch(err) { setMsg('❌ ' + err.message); }
@@ -48,7 +48,7 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
     setLoading(true);
     try {
       // Reusing the loyalty endpoint for customer list since it returns customers with pagination/search
-      const r = await api(`/api/notifications/loyalty?search=${encodeURIComponent(search)}&limit=50`);
+      const r = await api(`/api/notifications/loyalty?search=${encodeURIComponent(search)}&limit=100`);
       setCustomers(r.customers || []);
     } catch(e) { console.error(e); }
     setLoading(false);
@@ -61,7 +61,9 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
     try {
       await api('/api/wallet/assign-rfid', { method: 'PUT', body: JSON.stringify({ customer_id: selected.id, rfid_tag: rfidInput }) });
       setMsg('✅ RFID Tag Assigned Successfully!');
-      setShowRfid(false); setRfidInput(''); load();
+      setShowRfid(false); setRfidInput(''); 
+      load();
+      if (refreshCustomers) refreshCustomers();
     } catch(err) { setMsg('❌ ' + err.message); }
   };
 
@@ -76,7 +78,9 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
         paymentMode: topupForm.paymentMode
       })});
       setMsg('✅ Top-up Successful!');
-      setShowTopup(false); setTopupForm({ amount: '', desc: '', paymentMode: 'Cash' }); load();
+      setShowTopup(false); setTopupForm({ amount: '', desc: '', paymentMode: 'Cash' }); 
+      load();
+      if (refreshCustomers) refreshCustomers();
     } catch(err) { setMsg('❌ ' + err.message); }
   };
 
@@ -92,6 +96,7 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
       await api(`/api/customers/${c.id}`, { method: 'DELETE' });
       setMsg(`✅ Customer "${c.name}" removed successfully.`);
       load();
+      if (refreshCustomers) refreshCustomers();
     } catch(e) { setMsg('❌ ' + e.message); }
   };
 
@@ -251,6 +256,10 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
               <div style={{ marginBottom: 16 }}>
                 <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Phone Number</label>
                 <input required value={registerForm.phone} onChange={e=>setRegisterForm(p=>({...p, phone: e.target.value}))} style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>RFID Card Tag (Optional)</label>
+                <input value={registerForm.rfid_tag} onChange={e=>setRegisterForm(p=>({...p, rfid_tag: e.target.value}))} placeholder="e.g. RFID0005 (or scan card)" style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box' }} />
               </div>
               <div style={{ marginBottom: 20 }}>
                 <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Email (Optional)</label>

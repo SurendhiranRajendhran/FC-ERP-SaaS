@@ -12748,7 +12748,7 @@ function App() {
                     <div className="dashboard-details-grid">
                       <div className="panel-card">
                       <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <h3>Loyalty Leaderboard (RFID Wallet)</h3>
+                        <h3>Loyalty Leaderboard (Cards & Wallets)</h3>
                         <button className="btn btn-outline-primary btn-small" onClick={() => {
                           const csvContent = "data:text/csv;charset=utf-8,Customer,RFID Tag,Phone,Total Visits,Total Spent,Points\n" +
                             reportsData.customerAnalytics.leaderboard.map(e => `${e.name},${e.rfid_tag || ''},${e.phone},${e.total_visits},${e.total_spent},${e.loyalty_points}`).join("\n");
