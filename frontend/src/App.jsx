@@ -12666,8 +12666,8 @@ function App() {
                     <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <h3>Monthly P&L Ledger</h3>
                       <button className="btn btn-outline-primary" onClick={() => {
-                        const csvContent = "data:text/csv;charset=utf-8,Month,Total Revenue,Total COGS,Total Overheads,Raw Material Purchases,Net Profit\n" +
-                          reportsData.monthlyPl.map(e => `${e.monthName},${e.revenue},${e.cogs},${e.overheads},${e.purchases || 0},${e.netProfit}`).join("\n");
+                        const csvContent = "data:text/csv;charset=utf-8,Month,Total Revenue,Food COGS,Gross Profit,Staff Cost,Operating Overheads,Wastage Cost,Purchases (Cash Outflow),Net Profit\n" +
+                          reportsData.monthlyPl.map(e => `${e.monthName},${e.revenue},${e.cogs},${e.grossProfit},${e.staffCost || 0},${e.overheads},${e.wastageCost || 0},${e.purchases || 0},${e.netProfit}`).join("\n");
                         const link = document.createElement("a");
                         link.setAttribute("href", encodeURI(csvContent));
                         link.setAttribute("download", `monthly_pl_report.csv`);
@@ -12682,25 +12682,36 @@ function App() {
                           <tr>
                             <th>Month</th>
                             <th>Total Revenue</th>
-                            <th>Total COGS</th>
-                            <th>Total Overheads</th>
-                            <th>Raw Material Purchases (Outflow)</th>
+                            <th>Food COGS</th>
+                            <th>Gross Profit</th>
+                            <th>Staff Cost</th>
+                            <th>Operating Overheads</th>
+                            <th>Wastage Cost</th>
+                            <th>Purchases (Outflow)</th>
                             <th>Net Profit</th>
                           </tr>
                         </thead>
                         <tbody>
                           {reportsData.monthlyPl.map((pl, idx) => (
                             <tr key={idx}>
-                              <td>{pl.monthName}</td>
+                              <td><strong>{pl.monthName}</strong></td>
                               <td>₹{Number(pl.revenue || 0).toFixed(2)}</td>
-                              <td style={{color: 'var(--accent-danger)'}}>₹{Number(pl.cogs || 0).toFixed(2)}</td>
-                              <td style={{color: 'var(--accent-danger)'}}>₹{Number(pl.overheads || 0).toFixed(2)}</td>
+                              <td style={{color: '#f87171'}}>₹{Number(pl.cogs || 0).toFixed(2)}</td>
+                              <td><span className="badge" style={{ background: pl.grossProfit >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: pl.grossProfit >= 0 ? '#34d399' : '#ef4444' }}>₹{Number(pl.grossProfit || 0).toFixed(2)}</span></td>
+                              <td style={{color: '#f87171'}}>₹{Number(pl.staffCost || 0).toFixed(2)}</td>
+                              <td style={{color: '#f87171'}}>₹{Number(pl.overheads || 0).toFixed(2)}</td>
+                              <td style={{color: '#f87171'}}>₹{Number(pl.wastageCost || 0).toFixed(2)}</td>
                               <td style={{color: 'var(--text-muted)'}}>₹{Number(pl.purchases || 0).toFixed(2)}</td>
                               <td><strong style={{color: pl.netProfit >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)'}}>₹{Number(pl.netProfit || 0).toFixed(2)}</strong></td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                    <div style={{ marginTop: '12px', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                      <span>💡 <strong>Gross Profit</strong> = Total Revenue − Food COGS</span>
+                      <span>💡 <strong>Net Profit</strong> = Gross Profit − Staff Cost − Operating Overheads − Wastage Cost</span>
+                      <span>💡 <strong>Purchases (Outflow)</strong> reflects inventory cash paid to suppliers (held in stock until consumed).</span>
                     </div>
                   </div>
                 )}
@@ -12737,10 +12748,10 @@ function App() {
                     <div className="dashboard-details-grid">
                       <div className="panel-card">
                       <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <h3>Loyalty Leaderboard</h3>
+                        <h3>Loyalty Leaderboard (RFID Wallet)</h3>
                         <button className="btn btn-outline-primary btn-small" onClick={() => {
-                          const csvContent = "data:text/csv;charset=utf-8,Customer,Phone,Total Visits,Total Spent,Points\n" +
-                            reportsData.customerAnalytics.leaderboard.map(e => `${e.name},${e.phone},${e.total_visits},${e.total_spent},${e.loyalty_points}`).join("\n");
+                          const csvContent = "data:text/csv;charset=utf-8,Customer,RFID Tag,Phone,Total Visits,Total Spent,Points\n" +
+                            reportsData.customerAnalytics.leaderboard.map(e => `${e.name},${e.rfid_tag || ''},${e.phone},${e.total_visits},${e.total_spent},${e.loyalty_points}`).join("\n");
                           const link = document.createElement("a");
                           link.setAttribute("href", encodeURI(csvContent));
                           link.setAttribute("download", `customer_loyalty.csv`);
@@ -12755,7 +12766,14 @@ function App() {
                           <tbody>
                             {reportsData.customerAnalytics.leaderboard && reportsData.customerAnalytics.leaderboard.map((c, idx) => (
                               <tr key={idx}>
-                                <td>{c.name}</td>
+                                <td>
+                                  <strong>{c.name}</strong>
+                                  {c.rfid_tag && (
+                                    <span className="badge" style={{ fontSize: '0.7rem', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', marginLeft: '6px' }}>
+                                      💳 {c.rfid_tag}
+                                    </span>
+                                  )}
+                                </td>
                                 <td>{c.phone}</td>
                                 <td>{c.total_visits}</td>
                                 <td>₹{Number(c.total_spent || 0).toFixed(2)}</td>

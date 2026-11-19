@@ -7848,36 +7848,54 @@ app.get('/api/reports/monthly-pl', async (req, res) => {
 // 6. Customer Analytics & Feedback Summary
 app.get('/api/reports/customer-analytics', async (req, res) => {
   try {
-    // Total registered customers
-    const [custCountRows] = await reportPool.query('SELECT COUNT(id) as total FROM customers');
+    // Total registered loyalty customers with RFID Wallets
+    const [custCountRows] = await reportPool.query(`
+      SELECT COUNT(id) as total 
+      FROM customers 
+      WHERE (customer_type = 'loyalty' OR customer_type IS NULL)
+        AND rfid_tag IS NOT NULL 
+        AND rfid_tag != ''
+    `);
     const totalCustomers = custCountRows[0].total;
 
-    // Total outstanding loyalty points
-    const [loyaltyRows] = await reportPool.query('SELECT SUM(loyalty_points) as total FROM customers');
+    // Total outstanding loyalty points (only for RFID loyalty customers)
+    const [loyaltyRows] = await reportPool.query(`
+      SELECT IFNULL(SUM(loyalty_points), 0) as total 
+      FROM customers 
+      WHERE (customer_type = 'loyalty' OR customer_type IS NULL)
+        AND rfid_tag IS NOT NULL 
+        AND rfid_tag != ''
+    `);
     const totalLoyaltyPoints = loyaltyRows[0].total || 0;
 
-    // Loyalty leaderboard (Top 10 customers with total visits & spent)
+    // Loyalty leaderboard (Top 10 loyalty customers with RFID Wallets)
     const [leaderboard] = await reportPool.query(`
-      SELECT c.id, c.name, c.phone, c.loyalty_points,
+      SELECT c.id, c.name, c.phone, c.loyalty_points, c.rfid_tag, c.wallet_balance,
              COUNT(o.id) as total_visits,
              IFNULL(SUM(o.total_amount), 0) as total_spent
       FROM customers c
       LEFT JOIN orders o ON c.id = o.customer_id AND o.status != 'Cancelled'
+      WHERE (c.customer_type = 'loyalty' OR c.customer_type IS NULL)
+        AND c.rfid_tag IS NOT NULL 
+        AND c.rfid_tag != ''
       GROUP BY c.id
-      ORDER BY c.loyalty_points DESC
+      ORDER BY c.loyalty_points DESC, total_spent DESC
       LIMIT 10
     `);
 
-    // Repeat customer rate (Customers with more than 1 order)
+    // Repeat customer rate (RFID Loyalty Customers with more than 1 order)
     const [repeatRows] = await reportPool.query(`
       SELECT 
         COUNT(CASE WHEN order_count > 1 THEN 1 END) as repeat_count,
         COUNT(id) as total_customers_with_orders
       FROM (
-        SELECT customer_id as id, COUNT(id) as order_count 
-        FROM orders 
-        WHERE customer_id IS NOT NULL AND status != 'Cancelled'
-        GROUP BY customer_id
+        SELECT c.id, COUNT(o.id) as order_count 
+        FROM customers c
+        JOIN orders o ON c.id = o.customer_id AND o.status != 'Cancelled'
+        WHERE (c.customer_type = 'loyalty' OR c.customer_type IS NULL)
+          AND c.rfid_tag IS NOT NULL 
+          AND c.rfid_tag != ''
+        GROUP BY c.id
       ) t
     `);
     
