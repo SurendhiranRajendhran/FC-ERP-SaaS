@@ -836,8 +836,7 @@ function SuperAdminDashboard({ user, onLogout }) {
       is_active: t.is_active === 1 || t.is_active === true,
       plan_name: t.plan_name || t.plan || 'Food Court',
       subscription_status: t.subscription_status || 'active',
-      duration_days: '', // empty = Keep current (auto-extends if activating an expired/trial tenant)
-      custom_days: '',
+      duration_days: '7',
       current_expires_at: t.subscription_expires_at || null
     });
     setShowEditModal(true);
@@ -892,11 +891,7 @@ function SuperAdminDashboard({ user, onLogout }) {
     setEditing(true);
     try {
       const payload = { ...editFormParams };
-      if (editFormParams.duration_days === 'custom') {
-        payload.duration_days = parseInt(editFormParams.custom_days, 10) || 365;
-      } else if (editFormParams.duration_days === 'unlimited') {
-        payload.duration_days = 0; // 0 signals NULL / unlimited in backend
-      } else if (editFormParams.duration_days) {
+      if (editFormParams.duration_days) {
         payload.duration_days = parseInt(editFormParams.duration_days, 10);
       } else {
         delete payload.duration_days;
@@ -1148,7 +1143,6 @@ function SuperAdminDashboard({ user, onLogout }) {
                       <th style={saStyles.th}>Food Court Name</th>
                       <th style={saStyles.th}>Owner Email</th>
                       <th style={saStyles.th}>Plan</th>
-                      <th style={{...saStyles.th, textAlign: 'center'}}>Expires On</th>
                       <th style={{...saStyles.th, textAlign: 'center'}}>Status</th>
                       <th style={{...saStyles.th, textAlign: 'right'}}>Registered</th>
                       <th style={{...saStyles.th, textAlign: 'center'}}>Actions</th>
@@ -1165,82 +1159,81 @@ function SuperAdminDashboard({ user, onLogout }) {
                         <td style={{...saStyles.td, fontWeight: 700, color: '#8b5cf6'}}>{t.name}</td>
                         <td style={{...saStyles.td, color: '#94a3b8'}}>{t.owner_email}</td>
                         <td style={saStyles.td}>
-                          <span style={{
-                            fontSize: '0.76rem',
-                            fontWeight: '700',
-                            padding: '3px 9px',
-                            borderRadius: '12px',
-                            background: (t.plan_name === 'Canteen Basic') ? 'rgba(59, 130, 246, 0.15)' :
-                                        (t.plan_name === 'Canteen Pro') ? 'rgba(139, 92, 246, 0.15)' :
-                                        (t.plan_name === 'Enterprise') ? 'rgba(234, 179, 8, 0.15)' :
-                                        'rgba(16, 185, 129, 0.15)',
-                            color: (t.plan_name === 'Canteen Basic') ? '#60a5fa' :
-                                   (t.plan_name === 'Canteen Pro') ? '#c084fc' :
-                                   (t.plan_name === 'Enterprise') ? '#fbbf24' :
-                                   '#34d399',
-                            border: `1px solid ${(t.plan_name === 'Canteen Basic') ? 'rgba(59, 130, 246, 0.3)' :
-                                                 (t.plan_name === 'Canteen Pro') ? 'rgba(139, 92, 246, 0.3)' :
-                                                 (t.plan_name === 'Enterprise') ? 'rgba(234, 179, 8, 0.3)' :
-                                                 'rgba(16, 185, 129, 0.3)'}`
-                          }}>
-                            {t.plan_name || t.plan || 'Food Court'}
-                            {t.subscription_status === 'trial' ? ' · Trial' : ''}
-                          </span>
-                        </td>
-                        <td style={{...saStyles.td, textAlign: 'center'}}>
-                          {(() => {
-                            if (t.id === 1) {
-                              return <span style={{ color: '#10b981', fontSize: '0.78rem', fontWeight: 600 }}>♾️ Permanent</span>;
-                            }
-                            if (!t.subscription_expires_at) {
-                              return <span style={{ color: '#10b981', fontSize: '0.78rem', fontWeight: 600 }}>♾️ Unlimited</span>;
-                            }
-                            const expDate = new Date(t.subscription_expires_at);
-                            const now = new Date();
-                            const diffDays = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
-                            const isExpired = diffDays <= 0 || t.subscription_status === 'expired';
-
-                            if (isExpired) {
-                              return (
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+                            <span style={{
+                              fontSize: '0.76rem',
+                              fontWeight: '700',
+                              padding: '3px 9px',
+                              borderRadius: '12px',
+                              background: (t.plan_name === 'Canteen Basic') ? 'rgba(59, 130, 246, 0.15)' :
+                                          (t.plan_name === 'Canteen Pro') ? 'rgba(139, 92, 246, 0.15)' :
+                                          (t.plan_name === 'Enterprise') ? 'rgba(234, 179, 8, 0.15)' :
+                                          'rgba(16, 185, 129, 0.15)',
+                              color: (t.plan_name === 'Canteen Basic') ? '#60a5fa' :
+                                     (t.plan_name === 'Canteen Pro') ? '#c084fc' :
+                                     (t.plan_name === 'Enterprise') ? '#fbbf24' :
+                                     '#34d399',
+                              border: `1px solid ${(t.plan_name === 'Canteen Basic') ? 'rgba(59, 130, 246, 0.3)' :
+                                                   (t.plan_name === 'Canteen Pro') ? 'rgba(139, 92, 246, 0.3)' :
+                                                   (t.plan_name === 'Enterprise') ? 'rgba(234, 179, 8, 0.3)' :
+                                                   'rgba(16, 185, 129, 0.3)'}`
+                            }}>
+                              {t.plan_name || t.plan || 'Food Court'}
+                              {t.subscription_status === 'trial' ? ' · Trial' : ''}
+                            </span>
+                            {(() => {
+                              if (t.id === 1 || !t.subscription_expires_at) {
+                                return (
                                   <span style={{
-                                    fontSize: '0.72rem',
+                                    fontSize: '0.68rem',
+                                    fontWeight: 600,
+                                    padding: '1px 6px',
+                                    borderRadius: '8px',
+                                    background: 'rgba(16, 185, 129, 0.08)',
+                                    color: '#10b981',
+                                    border: '1px solid rgba(16, 185, 129, 0.2)'
+                                  }}>
+                                    ♾️ Unlimited
+                                  </span>
+                                );
+                              }
+                              const expDate = new Date(t.subscription_expires_at);
+                              const now = new Date();
+                              const diffDays = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
+                              const isExpired = diffDays <= 0 || t.subscription_status === 'expired';
+
+                              if (isExpired) {
+                                return (
+                                  <span style={{
+                                    fontSize: '0.68rem',
                                     fontWeight: 700,
-                                    padding: '2px 8px',
-                                    borderRadius: '12px',
+                                    padding: '1px 6px',
+                                    borderRadius: '8px',
                                     background: 'rgba(239, 68, 68, 0.15)',
                                     color: '#ef4444',
                                     border: '1px solid rgba(239, 68, 68, 0.3)'
                                   }}>
-                                    ⚠️ Expired
+                                    ⚠️ Expired ({formatISTDate(t.subscription_expires_at, { month: 'short', day: 'numeric' })})
                                   </span>
-                                  <span style={{ fontSize: '0.68rem', color: '#ef4444' }}>
-                                    {formatISTDate(t.subscription_expires_at, { year: 'numeric', month: 'short', day: 'numeric' })}
-                                  </span>
-                                </div>
-                              );
-                            }
+                                );
+                              }
 
-                            const isWarning = diffDays <= 7;
-                            return (
-                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                              const isWarning = diffDays <= 7;
+                              return (
                                 <span style={{
-                                  fontSize: '0.72rem',
-                                  fontWeight: 700,
-                                  padding: '2px 8px',
-                                  borderRadius: '12px',
-                                  background: isWarning ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.12)',
+                                  fontSize: '0.68rem',
+                                  fontWeight: 600,
+                                  padding: '1px 6px',
+                                  borderRadius: '8px',
+                                  background: isWarning ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.1)',
                                   color: isWarning ? '#f59e0b' : '#34d399',
                                   border: `1px solid ${isWarning ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.25)'}`
                                 }}>
-                                  {formatISTDate(t.subscription_expires_at, { year: 'numeric', month: 'short', day: 'numeric' })}
+                                  ⏱️ {formatISTDate(t.subscription_expires_at, { month: 'short', day: 'numeric' })} ({diffDays}d left)
                                 </span>
-                                <span style={{ fontSize: '0.68rem', color: isWarning ? '#f59e0b' : '#94a3b8' }}>
-                                  {diffDays} {diffDays === 1 ? 'day' : 'days'} left
-                                </span>
-                              </div>
-                            );
-                          })()}
+                              );
+                            })()}
+                          </div>
                         </td>
                         <td style={{...saStyles.td, textAlign: 'center'}}>
                           {t.is_active ? (
@@ -1984,13 +1977,10 @@ function SuperAdminDashboard({ user, onLogout }) {
                     value={editFormParams.subscription_status || 'active'}
                     onChange={e => {
                       const newStatus = e.target.value;
-                      const wasExpiredOrTrial = editFormParams.subscription_status === 'trial' || 
-                        editFormParams.subscription_status === 'expired' || 
-                        (editFormParams.current_expires_at && new Date(editFormParams.current_expires_at) < new Date());
                       setEditFormParams({
                         ...editFormParams, 
                         subscription_status: newStatus,
-                        duration_days: (newStatus === 'active' && wasExpiredOrTrial && !editFormParams.duration_days) ? '365' : editFormParams.duration_days
+                        duration_days: editFormParams.duration_days || (newStatus === 'trial' ? '7' : '30')
                       });
                     }}
                   >
@@ -2024,37 +2014,17 @@ function SuperAdminDashboard({ user, onLogout }) {
                     </span>
                   </div>
 
-                  <div style={{ ...saStyles.formGroup, marginBottom: editFormParams.duration_days === 'custom' ? '8px' : 0 }}>
+                  <div style={{ ...saStyles.formGroup, marginBottom: 0 }}>
                     <label style={{ ...saStyles.formLabel, fontSize: '0.78rem' }}>Extend / Set Validity</label>
                     <select
                       style={{ ...saStyles.formInput, fontSize: '0.85rem' }}
                       value={editFormParams.duration_days}
                       onChange={e => setEditFormParams({ ...editFormParams, duration_days: e.target.value })}
                     >
-                      <option value="">Keep Current Expiry (Auto-extends +1 Year if activating)</option>
-                      <option value="7">+7 Days (1 Week Trial)</option>
-                      <option value="30">+30 Days (1 Month)</option>
-                      <option value="90">+90 Days (Quarterly)</option>
-                      <option value="365">+1 Year (365 Days)</option>
-                      <option value="unlimited">Unlimited / No Expiry Date</option>
-                      <option value="custom">Custom Days...</option>
+                      <option value="7">+ 7 Days</option>
+                      <option value="30">+ 30 Days</option>
                     </select>
                   </div>
-
-                  {editFormParams.duration_days === 'custom' && (
-                    <div style={{ ...saStyles.formGroup, marginTop: '8px', marginBottom: 0 }}>
-                      <label style={{ ...saStyles.formLabel, fontSize: '0.78rem' }}>Enter Custom Days</label>
-                      <input
-                        type="number"
-                        min="1"
-                        placeholder="e.g. 60 or 180"
-                        style={saStyles.formInput}
-                        value={editFormParams.custom_days}
-                        onChange={e => setEditFormParams({ ...editFormParams, custom_days: e.target.value })}
-                        required
-                      />
-                    </div>
-                  )}
                 </div>
                 <div style={saStyles.formGroup}>
                   <label style={{display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', ...saStyles.formLabel}}>
