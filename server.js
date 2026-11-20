@@ -713,6 +713,16 @@ async function runStartupMigrations() {
       console.log("Migration: Added tenant_id column to credit_ledger and backfilled tenant IDs.");
     }
 
+    // Ensure credit_ledger has payment_mode
+    const [clPayModeCols] = await conn.query("SHOW COLUMNS FROM credit_ledger LIKE 'payment_mode'");
+    if (clPayModeCols.length === 0) {
+      await conn.query("ALTER TABLE credit_ledger ADD COLUMN payment_mode VARCHAR(50) DEFAULT 'Cash'");
+      await conn.query("UPDATE credit_ledger SET payment_mode = 'UPI' WHERE type = 'Payment' AND notes LIKE '%UPI%'");
+      await conn.query("UPDATE credit_ledger SET payment_mode = 'Card' WHERE type = 'Payment' AND notes LIKE '%Card%'");
+      await conn.query("UPDATE credit_ledger SET payment_mode = 'Cash' WHERE type = 'Payment' AND (payment_mode IS NULL OR payment_mode = '')");
+      console.log("Migration: Added payment_mode column to credit_ledger.");
+    }
+
     // Update phone index on customers to allow same phone across different customer_type / tenant_id
     const [phoneIndex] = await conn.query("SHOW INDEX FROM customers WHERE Key_name = 'phone'");
     if (phoneIndex.length > 0) {
@@ -1657,6 +1667,79 @@ app.get('/api/dashboard', async (req, res) => {
       categoryCount = catCount;
     }
 
+    // Today's breakdown by payment category (Cash, UPI, Card, RFID Wallet, Credit, Split)
+    // Every order made and every amount got in the day tracked regardless of categories!
+    let pBreakdownQuery = `
+      SELECT o.payment_mode, COUNT(DISTINCT o.id) as orders_count, IFNULL(SUM(o.total_amount), 0) as amount
+      FROM orders o
+    `;
+    let pBreakdownParams = [startStr, endStr];
+    if (isSpecificStall) {
+      const vId = parseInt(vendor_id);
+      pBreakdownQuery += `
+        JOIN order_items oi ON o.id = oi.order_id
+        JOIN items i ON oi.item_id = i.id
+        WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled'
+          AND i.vendor_id = ?
+        GROUP BY o.payment_mode
+      `;
+      pBreakdownParams.push(vId);
+    } else if (isCentral) {
+      pBreakdownQuery += `
+        JOIN order_items oi ON o.id = oi.order_id
+        JOIN items i ON oi.item_id = i.id
+        WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled'
+          AND i.vendor_id IS NULL
+        GROUP BY o.payment_mode
+      `;
+    } else {
+      pBreakdownQuery += `
+        WHERE o.order_date BETWEEN ? AND ? AND o.status != 'Cancelled'
+        GROUP BY o.payment_mode
+      `;
+    }
+
+    const [paymentRows] = await pool.query(pBreakdownQuery, pBreakdownParams);
+    const paymentBreakdown = {
+      'Cash': { orders: 0, amount: 0 },
+      'UPI': { orders: 0, amount: 0 },
+      'Card': { orders: 0, amount: 0 },
+      'RFID Wallet': { orders: 0, amount: 0 },
+      'Credit': { orders: 0, amount: 0 },
+      'Split': { orders: 0, amount: 0 }
+    };
+    paymentRows.forEach(r => {
+      const mode = r.payment_mode || 'Cash';
+      if (!paymentBreakdown[mode]) paymentBreakdown[mode] = { orders: 0, amount: 0 };
+      paymentBreakdown[mode].orders = parseInt(r.orders_count || 0);
+      paymentBreakdown[mode].amount = parseFloat(r.amount || 0);
+    });
+
+    // Today's RFID Wallet top-ups and Credit debt repayments
+    let todayWalletTopups = 0;
+    let todayCreditSettled = 0;
+    try {
+      const [wRows] = await pool.query(
+        `SELECT IFNULL(SUM(COALESCE(transaction_amount, amount)), 0) as total 
+         FROM wallet_transactions 
+         WHERE type = 'credit' AND created_at BETWEEN ? AND ?
+           AND (description IS NULL OR description NOT LIKE 'Refund%')
+           AND (payment_mode IS NULL OR payment_mode != 'RFID Wallet')`,
+        [startStr, endStr]
+      );
+      todayWalletTopups = parseFloat(wRows[0]?.total || 0);
+
+      const [cRows] = await pool.query(
+        `SELECT IFNULL(SUM(amount), 0) as total 
+         FROM credit_ledger 
+         WHERE type = 'Payment' AND created_at BETWEEN ? AND ?`,
+        [startStr, endStr]
+      );
+      todayCreditSettled = parseFloat(cRows[0]?.total || 0);
+    } catch (e) {
+      console.error('Error fetching today inflows for dashboard:', e);
+    }
+
     res.json({
       revenue: parseFloat(salesResult[0].total_revenue),
       ordersCount: salesResult[0].total_orders,
@@ -1669,7 +1752,14 @@ app.get('/api/dashboard', async (req, res) => {
         qty: parseInt(item.total_qty),
         sales: parseFloat(item.total_sales)
       })),
-      categoryDistribution: categoryCount
+      categoryDistribution: categoryCount,
+      paymentBreakdown,
+      todayInflows: {
+        orderRevenue: parseFloat(salesResult[0].total_revenue),
+        walletTopups: todayWalletTopups,
+        creditSettled: todayCreditSettled,
+        totalDayActivity: parseFloat((parseFloat(salesResult[0].total_revenue) + todayWalletTopups + todayCreditSettled).toFixed(2))
+      }
     });
 
   } catch (error) {
@@ -7058,7 +7148,7 @@ app.get('/api/customers', async (req, res) => {
 });
 
 app.post('/api/customers', async (req, res) => {
-  const { name, phone, email, customer_type, rfid_tag } = req.body;
+  const { name, phone, email, customer_type, rfid_tag, initial_topup, topup_amount, initial_balance, payment_mode, paymentMode } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
   try {
     const cleanPhone = phone && phone.trim() ? phone.trim() : null;
@@ -7066,11 +7156,38 @@ app.post('/api/customers', async (req, res) => {
     const cleanRfid = rfid_tag && rfid_tag.trim() ? rfid_tag.trim() : null;
     const type = customer_type === 'credit' ? 'credit' : 'loyalty';
     const tenantId = req.user?.tenant_id || 1;
+
+    const topupAmt = parseFloat(initial_topup || topup_amount || initial_balance || 0);
+    let payMode = (payment_mode || paymentMode || 'Cash').trim();
+    if (payMode.toLowerCase() === 'upi') payMode = 'UPI';
+    else if (payMode.toLowerCase() === 'card') payMode = 'Card';
+    else payMode = 'Cash';
+
     const [result] = await pool.query(
-      'INSERT INTO customers (name, phone, email, rfid_tag, loyalty_points, customer_type, tenant_id) VALUES (?, ?, ?, ?, 0, ?, ?)',
-      [name.trim(), cleanPhone, cleanEmail, cleanRfid, type, tenantId]
+      'INSERT INTO customers (name, phone, email, rfid_tag, loyalty_points, customer_type, wallet_balance, tenant_id) VALUES (?, ?, ?, ?, 0, ?, ?, ?)',
+      [name.trim(), cleanPhone, cleanEmail, cleanRfid, type, topupAmt > 0 ? topupAmt : 0, tenantId]
     );
-    res.status(201).json({ id: result.insertId, name: name.trim(), phone: cleanPhone, email: cleanEmail, rfid_tag: cleanRfid, loyalty_points: 0, customer_type: type, tenant_id: tenantId });
+    const newCustId = result.insertId;
+
+    if (topupAmt > 0) {
+      await pool.query(
+        `INSERT INTO wallet_transactions (customer_id, type, payment_mode, amount, transaction_amount, meals_count, balance_after, meals_after, description) 
+         VALUES (?, 'credit', ?, ?, ?, 0, ?, 0, ?)`,
+        [newCustId, payMode, topupAmt, topupAmt, topupAmt, req.body.description || 'Initial Wallet Top-Up on Registration']
+      );
+    }
+
+    res.status(201).json({ 
+      id: newCustId, 
+      name: name.trim(), 
+      phone: cleanPhone, 
+      email: cleanEmail, 
+      rfid_tag: cleanRfid, 
+      loyalty_points: 0, 
+      customer_type: type, 
+      wallet_balance: topupAmt > 0 ? topupAmt : 0,
+      tenant_id: tenantId 
+    });
   } catch (error) {
     console.error('Error creating customer:', error);
     if (error.code === 'ER_DUP_ENTRY') {
@@ -8325,67 +8442,181 @@ app.post('/api/cash-drawer/close', async (req, res) => {
   }
 });
 
+// Helper function to calculate tender reconciliation totals
+async function calculateReconciliationSummary(db, dateVal, vendor_id, tenantId) {
+  const isVendor = vendor_id && vendor_id !== 'null' && vendor_id !== 'all';
+  const vId = isVendor ? parseInt(vendor_id) : null;
+
+  // 1. Counter POS Orders: ONLY actual amounts received through Cash, UPI, and Card in Counter POS.
+  // RFID Wallet spending amounts and Credit transactions MUST NOT be included.
+  let ordersQuery = `
+    SELECT o.payment_mode, o.total_amount as total, o.payment_details, o.order_source
+    FROM orders o
+  `;
+  const orderParams = [dateVal];
+  if (isVendor) {
+    ordersQuery += `
+      JOIN staff s ON o.billing_staff_id = s.id
+      WHERE DATE(o.order_date) = ? AND o.status != 'Cancelled' AND s.vendor_id = ?
+        AND (o.order_source = 'POS' OR o.order_source IS NULL)
+    `;
+    orderParams.push(vId);
+  } else {
+    ordersQuery += `
+      LEFT JOIN staff s ON o.billing_staff_id = s.id
+      WHERE DATE(o.order_date) = ? AND o.status != 'Cancelled'
+        AND (s.vendor_id IS NULL OR o.billing_staff_id IS NULL)
+        AND (o.order_source = 'POS' OR o.order_source IS NULL)
+    `;
+  }
+  if (tenantId) {
+    ordersQuery += ` AND (o.tenant_id = ? OR o.tenant_id IS NULL)`;
+    orderParams.push(tenantId);
+  }
+
+  const [orders] = await db.query(ordersQuery, orderParams);
+
+  const posTotals = { Cash: 0, UPI: 0, Card: 0, total: 0 };
+  orders.forEach(row => {
+    if (row.payment_mode === 'Split' && row.payment_details) {
+      try {
+        const splits = typeof row.payment_details === 'string' ? JSON.parse(row.payment_details) : row.payment_details;
+        if (Array.isArray(splits)) {
+          splits.forEach(s => {
+            const mode = s.mode;
+            const amt = parseFloat(s.amount || 0);
+            if (['Cash', 'UPI', 'Card'].includes(mode)) {
+              posTotals[mode] += amt;
+              posTotals.total += amt;
+            }
+          });
+        }
+      } catch (e) {
+        console.error('Error parsing split payments:', e);
+      }
+    } else if (['Cash', 'UPI', 'Card'].includes(row.payment_mode)) {
+      const amt = parseFloat(row.total || 0);
+      posTotals[row.payment_mode] += amt;
+      posTotals.total += amt;
+    }
+    // RFID Wallet and Credit orders are strictly ignored in tender reconciliation
+  });
+
+  // 2. RFID Wallet Top-Ups: Every RFID Wallet top-up is recorded in the Reconciliation sub-tab on its transaction date
+  let walletQuery = `
+    SELECT wt.payment_mode, 
+           COALESCE(wt.transaction_amount, wt.amount) as amount, 
+           wt.description, wt.created_at, c.name as customer_name
+    FROM wallet_transactions wt
+    LEFT JOIN customers c ON wt.customer_id = c.id
+    WHERE wt.type = 'credit' 
+      AND DATE(wt.created_at) = ?
+      AND (wt.description IS NULL OR wt.description NOT LIKE 'Refund%')
+      AND (wt.payment_mode IS NULL OR wt.payment_mode != 'RFID Wallet')
+  `;
+  const walletParams = [dateVal];
+  if (isVendor) {
+    walletQuery += ` AND wt.vendor_id = ?`;
+    walletParams.push(vId);
+  } else {
+    walletQuery += ` AND (wt.vendor_id IS NULL OR wt.vendor_id = 0)`;
+  }
+  if (tenantId) {
+    walletQuery += ` AND (c.tenant_id = ? OR c.tenant_id IS NULL)`;
+    walletParams.push(tenantId);
+  }
+
+  const [walletTopups] = await db.query(walletQuery, walletParams);
+
+  const walletTotals = { Cash: 0, UPI: 0, Card: 0, total: 0, count: walletTopups.length };
+  walletTopups.forEach(row => {
+    let mode = row.payment_mode ? row.payment_mode.trim() : 'Cash';
+    if (mode.toLowerCase() === 'upi') mode = 'UPI';
+    else if (mode.toLowerCase() === 'card') mode = 'Card';
+    else mode = 'Cash';
+
+    const amt = parseFloat(row.amount || 0);
+    walletTotals[mode] += amt;
+    walletTotals.total += amt;
+  });
+
+  // 3. Credit Customer Settlements: When a credit customer clears outstanding credit amount,
+  // the amount paid is added to the Reconciliation sub-tab only on the day payment is received.
+  let creditSettlements = [];
+  if (!isVendor) {
+    let creditQuery = `
+      SELECT cl.payment_mode, cl.amount, cl.notes, cl.settled_date, cl.created_at, c.name as customer_name
+      FROM credit_ledger cl
+      JOIN customers c ON cl.customer_id = c.id
+      WHERE cl.type = 'Payment'
+        AND (DATE(cl.settled_date) = ? OR (cl.settled_date IS NULL AND DATE(cl.created_at) = ?))
+    `;
+    const creditParams = [dateVal, dateVal];
+    if (tenantId) {
+      creditQuery += ` AND (cl.tenant_id = ? OR c.tenant_id = ?)`;
+      creditParams.push(tenantId, tenantId);
+    }
+    const [cRows] = await db.query(creditQuery, creditParams);
+    creditSettlements = cRows;
+  }
+
+  const creditTotals = { Cash: 0, UPI: 0, Card: 0, total: 0, count: creditSettlements.length };
+  creditSettlements.forEach(row => {
+    let mode = row.payment_mode ? row.payment_mode.trim() : null;
+    if (!mode && row.notes) {
+      if (/upi/i.test(row.notes)) mode = 'UPI';
+      else if (/card/i.test(row.notes)) mode = 'Card';
+    }
+    if (!mode) mode = 'Cash';
+    if (mode.toLowerCase() === 'upi') mode = 'UPI';
+    else if (mode.toLowerCase() === 'card') mode = 'Card';
+    else mode = 'Cash';
+
+    const amt = parseFloat(row.amount || 0);
+    creditTotals[mode] += amt;
+    creditTotals.total += amt;
+  });
+
+  // Consolidated System Totals (Expected Actual Tender Received)
+  const systemTotals = {
+    Cash: parseFloat((posTotals.Cash + walletTotals.Cash + creditTotals.Cash).toFixed(2)),
+    UPI: parseFloat((posTotals.UPI + walletTotals.UPI + creditTotals.UPI).toFixed(2)),
+    Card: parseFloat((posTotals.Card + walletTotals.Card + creditTotals.Card).toFixed(2))
+  };
+
+  return {
+    systemTotals,
+    breakdown: {
+      pos: {
+        Cash: parseFloat(posTotals.Cash.toFixed(2)),
+        UPI: parseFloat(posTotals.UPI.toFixed(2)),
+        Card: parseFloat(posTotals.Card.toFixed(2)),
+        total: parseFloat(posTotals.total.toFixed(2))
+      },
+      walletTopups: {
+        Cash: parseFloat(walletTotals.Cash.toFixed(2)),
+        UPI: parseFloat(walletTotals.UPI.toFixed(2)),
+        Card: parseFloat(walletTotals.Card.toFixed(2)),
+        total: parseFloat(walletTotals.total.toFixed(2)),
+        count: walletTotals.count
+      },
+      creditSettlements: {
+        Cash: parseFloat(creditTotals.Cash.toFixed(2)),
+        UPI: parseFloat(creditTotals.UPI.toFixed(2)),
+        Card: parseFloat(creditTotals.Card.toFixed(2)),
+        total: parseFloat(creditTotals.total.toFixed(2)),
+        count: creditTotals.count
+      }
+    }
+  };
+}
+
 // Reconciliation summary
 app.get('/api/reconciliation/summary', async (req, res) => {
   const { date, vendor_id } = req.query;
   const dateVal = date || new Date().toISOString().split('T')[0];
   try {
-    let orders;
-      if (vendor_id && vendor_id !== 'null') {
-        const vId = parseInt(vendor_id);
-        [orders] = await pool.query(
-          `SELECT o.payment_mode, o.total_amount as total, o.payment_details
-           FROM orders o
-           JOIN staff s ON o.billing_staff_id = s.id
-           WHERE DATE(o.order_date) = ? AND o.status != 'Cancelled' AND s.vendor_id = ?`,
-          [dateVal, vId]
-        );
-      } else {
-        [orders] = await pool.query(
-          `SELECT o.payment_mode, o.total_amount as total, o.payment_details
-           FROM orders o
-           LEFT JOIN staff s ON o.billing_staff_id = s.id
-           WHERE DATE(o.order_date) = ? AND o.status != 'Cancelled' AND (s.vendor_id IS NULL OR o.billing_staff_id IS NULL)`,
-          [dateVal]
-        );
-      }
-
-    const systemTotals = { Cash: 0, UPI: 0, Card: 0 };
-    orders.forEach(row => {
-      if (row.payment_mode === 'Split' && row.payment_details) {
-        try {
-          const splits = JSON.parse(row.payment_details);
-          splits.forEach(s => {
-            if (systemTotals[s.mode] !== undefined) {
-              systemTotals[s.mode] += parseFloat(s.amount || 0);
-            }
-          });
-        } catch (e) { console.error('Error parsing split payments:', e); }
-      } else {
-        if (systemTotals[row.payment_mode] !== undefined) {
-          systemTotals[row.payment_mode] += parseFloat(row.total);
-        }
-      }
-    });
-
-    let walletTopups = [];
-    if (!vendor_id || vendor_id === 'null') {
-      [walletTopups] = await pool.query(
-        `SELECT payment_mode, transaction_amount as amount
-         FROM wallet_transactions
-         WHERE type = 'credit' AND DATE(created_at) = ?`,
-        [dateVal]
-      );
-    }
-
-    walletTopups.forEach(row => {
-      const mode = row.payment_mode || 'Cash';
-      if (systemTotals[mode] !== undefined) {
-        systemTotals[mode] += parseFloat(row.amount || 0);
-      } else {
-        systemTotals[mode] = parseFloat(row.amount || 0);
-      }
-    });
+    const { systemTotals, breakdown } = await calculateReconciliationSummary(pool, dateVal, vendor_id, req.user?.tenant_id);
 
     let reconQuery = 'SELECT d.*, s.name as submitted_by_name FROM daily_reconciliation d LEFT JOIN staff s ON d.submitted_by = s.id WHERE d.recon_date = ?';
     let reconParams = [dateVal];
@@ -8399,6 +8630,7 @@ app.get('/api/reconciliation/summary', async (req, res) => {
     res.json({
       recon_date: dateVal,
       systemTotals,
+      breakdown,
       reconciliation: recon
     });
   } catch (error) {
@@ -8412,64 +8644,13 @@ app.post('/api/reconciliation', async (req, res) => {
   const { recon_date, physical_cash, upi_settlement, card_settlement, notes, submitted_by } = req.body;
   const dateVal = recon_date || new Date().toISOString().split('T')[0];
   try {
-    const [staff] = await pool.query('SELECT vendor_id FROM staff WHERE id = ?', [submitted_by]);
-    const vId = staff.length > 0 ? staff[0].vendor_id : null;
-
-    let orders;
-    if (vId) {
-      [orders] = await pool.query(
-        `SELECT o.payment_mode, o.total_amount as total, o.payment_details
-         FROM orders o
-         JOIN staff s ON o.billing_staff_id = s.id
-         WHERE DATE(o.order_date) = ? AND o.status != 'Cancelled' AND s.vendor_id = ?`,
-        [dateVal, vId]
-      );
-    } else {
-      [orders] = await pool.query(
-        `SELECT o.payment_mode, o.total_amount as total, o.payment_details
-         FROM orders o
-         LEFT JOIN staff s ON o.billing_staff_id = s.id
-         WHERE DATE(o.order_date) = ? AND o.status != 'Cancelled' AND (s.vendor_id IS NULL OR o.billing_staff_id IS NULL)`,
-        [dateVal]
-      );
+    let vId = null;
+    if (submitted_by) {
+      const [staff] = await pool.query('SELECT vendor_id FROM staff WHERE id = ?', [submitted_by]);
+      vId = staff.length > 0 ? staff[0].vendor_id : null;
     }
 
-    const systemTotals = { Cash: 0, UPI: 0, Card: 0 };
-    orders.forEach(row => {
-      if (row.payment_mode === 'Split' && row.payment_details) {
-        try {
-          const splits = JSON.parse(row.payment_details);
-          splits.forEach(s => {
-            if (systemTotals[s.mode] !== undefined) {
-              systemTotals[s.mode] += parseFloat(s.amount || 0);
-            }
-          });
-        } catch (e) { console.error('Error parsing split payments:', e); }
-      } else {
-        if (systemTotals[row.payment_mode] !== undefined) {
-          systemTotals[row.payment_mode] += parseFloat(row.total);
-        }
-      }
-    });
-
-    let walletTopups = [];
-    if (!vId) {
-      [walletTopups] = await pool.query(
-        `SELECT payment_mode, transaction_amount as amount
-         FROM wallet_transactions
-         WHERE type = 'credit' AND DATE(created_at) = ?`,
-        [dateVal]
-      );
-    }
-
-    walletTopups.forEach(row => {
-      const mode = row.payment_mode || 'Cash';
-      if (systemTotals[mode] !== undefined) {
-        systemTotals[mode] += parseFloat(row.amount || 0);
-      } else {
-        systemTotals[mode] = parseFloat(row.amount || 0);
-      }
-    });
+    const { systemTotals } = await calculateReconciliationSummary(pool, dateVal, vId, req.user?.tenant_id);
 
     const sysCash = systemTotals['Cash'] || 0;
     const sysUpi = systemTotals['UPI'] || 0;
@@ -8698,10 +8879,15 @@ app.post('/api/credits/settle', async (req, res) => {
     return res.status(400).json({ error: 'customer_id and valid positive amount are required.' });
   }
   const tenantId = req.user?.tenant_id || 1;
+  let payMode = (payment_mode || 'Cash').trim();
+  if (payMode.toLowerCase() === 'upi') payMode = 'UPI';
+  else if (payMode.toLowerCase() === 'card') payMode = 'Card';
+  else payMode = 'Cash';
+
   try {
     await pool.query(
-      'INSERT INTO credit_ledger (customer_id, amount, type, notes, is_settled, settled_date, tenant_id) VALUES (?, ?, "Payment", ?, 1, NOW(), ?)',
-      [customer_id, parseFloat(amount), notes || `Credit settlement payment via ${payment_mode || 'Cash'}`, tenantId]
+      'INSERT INTO credit_ledger (customer_id, amount, type, notes, is_settled, settled_date, tenant_id, payment_mode) VALUES (?, ?, "Payment", ?, 1, NOW(), ?, ?)',
+      [customer_id, parseFloat(amount), notes || `Credit settlement payment via ${payMode}`, tenantId, payMode]
     );
     res.json({ success: true, message: 'Credit settlement recorded successfully.' });
   } catch (error) {
@@ -8716,6 +8902,11 @@ app.post('/api/credits/settle-items', async (req, res) => {
   if (!customer_id || !ledger_ids || !Array.isArray(ledger_ids) || ledger_ids.length === 0) {
     return res.status(400).json({ error: 'customer_id and ledger_ids[] are required.' });
   }
+  let payMode = (payment_mode || 'Cash').trim();
+  if (payMode.toLowerCase() === 'upi') payMode = 'UPI';
+  else if (payMode.toLowerCase() === 'card') payMode = 'Card';
+  else payMode = 'Cash';
+
   try {
     // Get the total amount of the selected ledger entries
     const placeholders = ledger_ids.map(() => '?').join(',');
@@ -8735,8 +8926,8 @@ app.post('/api/credits/settle-items', async (req, res) => {
 
     // Insert a Payment entry as a record
     await pool.query(
-      'INSERT INTO credit_ledger (customer_id, amount, type, notes, is_settled, settled_date, tenant_id) VALUES (?, ?, "Payment", ?, 1, NOW(), ?)',
-      [customer_id, totalAmount, `Partial settlement of ${rows.length} item(s) via ${payment_mode || 'Cash'}`, req.user?.tenant_id || 1]
+      'INSERT INTO credit_ledger (customer_id, amount, type, notes, is_settled, settled_date, tenant_id, payment_mode) VALUES (?, ?, "Payment", ?, 1, NOW(), ?, ?)',
+      [customer_id, totalAmount, `Partial settlement of ${rows.length} item(s) via ${payMode}`, req.user?.tenant_id || 1, payMode]
     );
 
     res.json({ success: true, message: `₹${totalAmount.toFixed(2)} settled for ${rows.length} item(s).` });

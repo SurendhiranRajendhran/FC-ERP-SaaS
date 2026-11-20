@@ -27,15 +27,16 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
   
   const [rfidInput, setRfidInput] = useState('');
   const [showRegister, setShowRegister] = useState(false);
-  const [registerForm, setRegisterForm] = useState({ name: '', phone: '', email: '', rfid_tag: '' });
+  const [registerForm, setRegisterForm] = useState({ name: '', phone: '', email: '', rfid_tag: '', initial_topup: '', payment_mode: 'Cash' });
 
   const handleRegisterCustomer = async (e) => {
     e.preventDefault(); setMsg('');
     try {
       await api('/api/customers', { method: 'POST', body: JSON.stringify(registerForm) });
-      setMsg('✅ Customer Registered Successfully!');
+      const toppedUp = parseFloat(registerForm.initial_topup) > 0;
+      setMsg(toppedUp ? `✅ Customer Registered & ₹${fmt(registerForm.initial_topup)} Added to Wallet (${registerForm.payment_mode})!` : '✅ Customer Registered Successfully!');
       setShowRegister(false);
-      setRegisterForm({ name: '', phone: '', email: '', rfid_tag: '' });
+      setRegisterForm({ name: '', phone: '', email: '', rfid_tag: '', initial_topup: '', payment_mode: 'Cash' });
       load();
       if (refreshCustomers) refreshCustomers();
     } catch(err) { setMsg('❌ ' + err.message); }
@@ -261,9 +262,23 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
                 <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>RFID Card Tag (Optional)</label>
                 <input value={registerForm.rfid_tag} onChange={e=>setRegisterForm(p=>({...p, rfid_tag: e.target.value}))} placeholder="e.g. RFID0005 (or scan card)" style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box' }} />
               </div>
-              <div style={{ marginBottom: 20 }}>
+              <div style={{ marginBottom: 16 }}>
                 <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Email (Optional)</label>
                 <input type="email" value={registerForm.email} onChange={e=>setRegisterForm(p=>({...p, email: e.target.value}))} style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Initial Top-Up (₹)</label>
+                  <input type="number" min="0" step="1" placeholder="e.g. 1000" value={registerForm.initial_topup} onChange={e=>setRegisterForm(p=>({...p, initial_topup: e.target.value}))} style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box' }} />
+                </div>
+                <div style={{ width: 110 }}>
+                  <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Payment Mode</label>
+                  <select value={registerForm.payment_mode} onChange={e=>setRegisterForm(p=>({...p, payment_mode: e.target.value}))} style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box', outline: 'none' }}>
+                    <option value="Cash">Cash</option>
+                    <option value="UPI">UPI</option>
+                    <option value="Card">Card</option>
+                  </select>
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button type="submit" style={{ flex: 1, padding: 10, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>Register</button>

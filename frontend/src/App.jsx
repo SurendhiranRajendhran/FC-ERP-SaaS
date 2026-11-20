@@ -7296,6 +7296,52 @@ function App() {
                 </div>
               </div>
 
+              {/* All Orders & Inflows by Category (Tracked regardless of category) */}
+              <div className="panel-card mb-4" style={{ marginTop: '20px', marginBottom: '20px' }}>
+                <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#fff' }}>Today's Orders & Inflow Activity by Category</h3>
+                  </div>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Tracked across all categories (Orders, Wallets & Credits)
+                  </span>
+                </div>
+                <div className="panel-card-body" style={{ padding: '16px 20px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+                    {[
+                      { label: 'Cash Orders', key: 'Cash', icon: '💵', color: '#10b981' },
+                      { label: 'UPI Orders', key: 'UPI', icon: '📱', color: '#3b82f6' },
+                      { label: 'Card Orders', key: 'Card', icon: '💳', color: '#8b5cf6' },
+                      { label: 'RFID Wallet Orders', key: 'RFID Wallet', icon: '🎫', color: '#ec4899' },
+                      { label: 'Credit Orders', key: 'Credit', icon: '📋', color: '#f59e0b' },
+                      { label: 'Split Orders', key: 'Split', icon: '🔀', color: '#06b6d4' }
+                    ].map(cat => {
+                      const item = dashData.paymentBreakdown?.[cat.key] || { orders: 0, amount: 0 };
+                      return (
+                        <div key={cat.key} style={{ background: 'var(--bg-input, #1f2937)', borderRadius: '8px', padding: '12px 14px', border: '1px solid var(--border-color, #374151)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted, #9ca3af)' }}>{cat.icon} {cat.label}</span>
+                            <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: '4px', color: '#fff' }}>{item.orders} ord</span>
+                          </div>
+                          <div style={{ fontSize: '1.15rem', fontWeight: 700, color: cat.color }}>
+                            ₹{Number(item.amount || 0).toFixed(2)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {dashData.todayInflows && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--border-color, #374151)', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      <div>➕ <strong>RFID Wallet Top-Ups Today:</strong> <span style={{ color: '#10b981', fontWeight: 600 }}>₹{Number(dashData.todayInflows.walletTopups || 0).toFixed(2)}</span></div>
+                      <div>🤝 <strong>Credit Dues Cleared Today:</strong> <span style={{ color: '#3b82f6', fontWeight: 600 }}>₹{Number(dashData.todayInflows.creditSettled || 0).toFixed(2)}</span></div>
+                      <div style={{ marginLeft: 'auto' }}>💼 <strong>Total Activity & Collections:</strong> <span style={{ color: '#f9fafb', fontWeight: 700 }}>₹{Number(dashData.todayInflows.totalDayActivity || dashData.revenue).toFixed(2)}</span></div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Aggregates details grids */}
               <div className="dashboard-details-grid">
                 <div className="panel-card">
@@ -12879,7 +12925,7 @@ function App() {
                 {/* E1: Daily Reconciliation UI */}
                 {reportsSubTab === 'reconciliation' && reconData && (
                   <div className="report-section">
-                    <div className="panel-card-header" style={{ display: 'flex', alignItems: 'center', gap: '15px', background: 'var(--bg-card)', padding: '15px 20px', borderRadius: '8px', marginBottom: '20px', border: '1px solid var(--border-color)' }}>
+                    <div className="panel-card-header" style={{ display: 'flex', alignItems: 'center', gap: '15px', background: 'var(--bg-card)', padding: '15px 20px', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
                       <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px', color: '#fff' }}>
                         <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
                         Reconciliation Date:
@@ -12887,16 +12933,95 @@ function App() {
                       <input type="date" value={reconDate} onChange={e => { setReconDate(e.target.value); fetchReconciliation(e.target.value); }} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-dark)', color: 'var(--text-light)', fontSize: '1rem', fontWeight: 'bold', outline: 'none' }} />
                     </div>
 
+                    {/* Reconciliation Tender Rule Policy Banner */}
+                    <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)', borderRadius: '8px', padding: '12px 18px', marginBottom: '20px', fontSize: '0.88rem', color: '#93c5fd', lineHeight: 1.5 }}>
+                      <strong>📌 Tender Reconciliation Policy:</strong> Only actual tender received through <strong>Cash, UPI, and Card in Counter POS</strong>, <strong>RFID Wallet top-up payments</strong>, and <strong>Credit customer cleared dues</strong> on this date are considered. <em>RFID Wallet spending amounts and Credit sales do not involve new tender and are strictly excluded from reconciliation balancing.</em>
+                    </div>
+
                     <div className="stats-grid mt-4">
-                      {Object.entries(reconData.systemTotals || {}).map(([mode, amount]) => (
+                      {['Cash', 'UPI', 'Card'].map(mode => (
                         <div className="stats-card" key={mode}>
                           <div className="stats-info">
-                            <h3>{mode} (System)</h3>
-                            <span className="stats-value">₹{Number(amount).toFixed(2)}</span>
+                            <h3>{mode} (System Expected)</h3>
+                            <span className="stats-value">₹{Number(reconData.systemTotals?.[mode] || 0).toFixed(2)}</span>
                           </div>
                         </div>
                       ))}
+                      <div className="stats-card" style={{ borderLeft: '4px solid #10b981' }}>
+                        <div className="stats-info">
+                          <h3>Total System Tender</h3>
+                          <span className="stats-value" style={{ color: '#10b981' }}>
+                            ₹{(Number(reconData.systemTotals?.Cash || 0) + Number(reconData.systemTotals?.UPI || 0) + Number(reconData.systemTotals?.Card || 0)).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
                     </div>
+
+                    {/* Tender Sources Breakdown Table */}
+                    {reconData.breakdown && (
+                      <div className="panel-card mt-4">
+                        <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <h3 style={{ margin: 0, fontSize: '1rem' }}>Tender Reconciliation Sources Breakdown</h3>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Date: {reconDate}</span>
+                        </div>
+                        <div className="table-container" style={{ padding: '0' }}>
+                          <table className="data-table" style={{ width: '100%', marginBottom: 0 }}>
+                            <thead>
+                              <tr>
+                                <th style={{ textAlign: 'left' }}>Transaction Category / Source</th>
+                                <th style={{ textAlign: 'right' }}>Cash (₹)</th>
+                                <th style={{ textAlign: 'right' }}>UPI (₹)</th>
+                                <th style={{ textAlign: 'right' }}>Card (₹)</th>
+                                <th style={{ textAlign: 'right' }}>Total (₹)</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <td>
+                                  <strong>🏪 Counter POS Orders</strong>
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Direct Cash, UPI, and Card payments only</div>
+                                </td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(reconData.breakdown.pos?.Cash || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(reconData.breakdown.pos?.UPI || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(reconData.breakdown.pos?.Card || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>₹{Number(reconData.breakdown.pos?.total || 0).toFixed(2)}</td>
+                              </tr>
+                              <tr>
+                                <td>
+                                  <strong>💳 RFID Wallet Top-Ups Received</strong>
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Registration & recharge inflows ({reconData.breakdown.walletTopups?.count || 0} txn)</div>
+                                </td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(reconData.breakdown.walletTopups?.Cash || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(reconData.breakdown.walletTopups?.UPI || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(reconData.breakdown.walletTopups?.Card || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>₹{Number(reconData.breakdown.walletTopups?.total || 0).toFixed(2)}</td>
+                              </tr>
+                              <tr>
+                                <td>
+                                  <strong>🤝 Credit Customer Cleared Dues</strong>
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Debt repayment collections ({reconData.breakdown.creditSettlements?.count || 0} txn)</div>
+                                </td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(reconData.breakdown.creditSettlements?.Cash || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(reconData.breakdown.creditSettlements?.UPI || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(reconData.breakdown.creditSettlements?.Card || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>₹{Number(reconData.breakdown.creditSettlements?.total || 0).toFixed(2)}</td>
+                              </tr>
+                            </tbody>
+                            <tfoot>
+                              <tr style={{ background: 'rgba(255,255,255,0.03)', fontWeight: 700, borderTop: '2px solid var(--border-color)' }}>
+                                <td>Consolidated System Expected Tender</td>
+                                <td style={{ textAlign: 'right', color: '#10b981' }}>₹{Number(reconData.systemTotals?.Cash || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right', color: '#3b82f6' }}>₹{Number(reconData.systemTotals?.UPI || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right', color: '#8b5cf6' }}>₹{Number(reconData.systemTotals?.Card || 0).toFixed(2)}</td>
+                                <td style={{ textAlign: 'right', color: '#f59e0b', fontSize: '1rem' }}>
+                                  ₹{(Number(reconData.systemTotals?.Cash || 0) + Number(reconData.systemTotals?.UPI || 0) + Number(reconData.systemTotals?.Card || 0)).toFixed(2)}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="panel-card mt-4">
                       <div className="panel-card-header"><h3>Submit Physical Counts</h3></div>
@@ -13064,10 +13189,12 @@ function App() {
                                   <button className="btn btn-success btn-small" style={{ marginLeft: '8px' }} onClick={() => {
                                     const amt = prompt(`Settle how much for ${cust.name}? Outstanding: ₹${Number(cust.outstanding).toFixed(2)}`);
                                     if (amt && parseFloat(amt) > 0) {
+                                      const mode = prompt('Payment mode: Enter Cash, UPI, or Card', 'Cash') || 'Cash';
+                                      const cleanMode = ['UPI','Card'].find(m => m.toLowerCase() === mode.trim().toLowerCase()) || 'Cash';
                                       fetch(`${API_BASE}/credits/settle`, {
                                         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-                                        body: JSON.stringify({ customer_id: cust.id, amount: parseFloat(amt), payment_mode: 'Cash', notes: 'Manual settlement' })
-                                      }).then(() => { showToast('Settlement recorded', 'success'); fetchCreditCustomers(); }).catch(() => showToast('Settlement failed', 'error'));
+                                        body: JSON.stringify({ customer_id: cust.id, amount: parseFloat(amt), payment_mode: cleanMode, notes: `Manual settlement via ${cleanMode}` })
+                                      }).then(() => { showToast(`Settlement of ₹${parseFloat(amt).toFixed(2)} recorded via ${cleanMode}`, 'success'); fetchCreditCustomers(); }).catch(() => showToast('Settlement failed', 'error'));
                                     }
                                   }}>Settle</button>
                                 )}
@@ -13089,11 +13216,13 @@ function App() {
                           <h3>Ledger — {selectedCreditCustomer.name}</h3>
                           {selectedCreditItems.length > 0 && (
                             <button className="btn btn-success btn-small" onClick={() => {
-                              if (!window.confirm(`Settle ₹${selectedTotal.toFixed(2)} for ${selectedCreditCustomer.name}? (${selectedCreditItems.length} item(s))`)) return;
+                              const mode = prompt(`Settle ₹${selectedTotal.toFixed(2)} for ${selectedCreditCustomer.name} (${selectedCreditItems.length} items). Enter payment mode: Cash, UPI, or Card`, 'Cash');
+                              if (!mode) return;
+                              const cleanMode = ['UPI','Card'].find(m => m.toLowerCase() === mode.trim().toLowerCase()) || 'Cash';
                               fetch(`${API_BASE}/credits/settle-items`, {
                                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-                                body: JSON.stringify({ customer_id: selectedCreditCustomer.id, ledger_ids: selectedCreditItems, payment_mode: 'Cash' })
-                              }).then(r => { if (r.ok) { showToast(`₹${selectedTotal.toFixed(2)} settled successfully!`, 'success'); setSelectedCreditItems([]); fetchCreditLedger(selectedCreditCustomer.id); fetchCreditCustomers(); } else { showToast('Settlement failed', 'error'); } }).catch(() => showToast('Settlement failed', 'error'));
+                                body: JSON.stringify({ customer_id: selectedCreditCustomer.id, ledger_ids: selectedCreditItems, payment_mode: cleanMode })
+                              }).then(r => { if (r.ok) { showToast(`₹${selectedTotal.toFixed(2)} settled successfully via ${cleanMode}!`, 'success'); setSelectedCreditItems([]); fetchCreditLedger(selectedCreditCustomer.id); fetchCreditCustomers(); } else { showToast('Settlement failed', 'error'); } }).catch(() => showToast('Settlement failed', 'error'));
                             }}>💰 Pay Selected ({selectedCreditItems.length}) — ₹{selectedTotal.toFixed(2)}</button>
                           )}
                         </div>
