@@ -75,14 +75,14 @@ export default function Navbar() {
           width: 36px;
           height: 36px;
           border-radius: 10px;
-          box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
+          box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35);
           object-fit: contain;
         }
         .fc-nav-badge {
           font-size: 0.68rem;
-          background: rgba(245, 158, 11, 0.15);
-          color: #fbbf24;
-          border: 1px solid rgba(245, 158, 11, 0.35);
+          background: rgba(139, 92, 246, 0.15);
+          color: #c4b5fd;
+          border: 1px solid rgba(139, 92, 246, 0.35);
           padding: 2px 7px;
           border-radius: 9999px;
           font-weight: 700;
@@ -115,7 +115,7 @@ export default function Navbar() {
           left: 0;
           right: 0;
           height: 2px;
-          background: linear-gradient(90deg, #f59e0b, #ea580c);
+          background: linear-gradient(90deg, #8b5cf6, #6366f1);
           border-radius: 2px;
         }
         .fc-nav-actions {
@@ -141,7 +141,7 @@ export default function Navbar() {
           transform: translateY(-1px);
         }
         .fc-btn-register {
-          background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+          background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
           border: 1px solid rgba(255, 255, 255, 0.18);
           color: #ffffff;
           padding: 8px 22px;
@@ -151,12 +151,12 @@ export default function Navbar() {
           cursor: pointer;
           transition: all 0.2s;
           font-family: inherit;
-          box-shadow: 0 4px 16px rgba(245, 158, 11, 0.4);
+          box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
         }
         .fc-btn-register:hover {
-          background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+          background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
           transform: translateY(-1px);
-          box-shadow: 0 6px 20px rgba(245, 158, 11, 0.55);
+          box-shadow: 0 6px 20px rgba(139, 92, 246, 0.55);
         }
         .fc-hamburger {
           display: none;
@@ -223,7 +223,7 @@ export default function Navbar() {
             justify-content: space-between;
           }
           .fc-mobile-link:hover, .fc-mobile-link.active {
-            background: rgba(99, 102, 241, 0.15);
+            background: rgba(139, 92, 246, 0.18);
             color: #ffffff;
           }
           .fc-mobile-actions {
