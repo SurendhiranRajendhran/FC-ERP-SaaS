@@ -107,10 +107,15 @@ export default function HomePage() {
           height: auto !important;
           min-height: 100vh;
           scroll-behavior: smooth;
-          background: #030712;
+          background: #090d16;
+          color: #f8fafc;
         }
         .fc-page {
-          background-color: #030712;
+          background-color: #090d16;
+          background-image: 
+            radial-gradient(ellipse 80% 50% at 50% -10%, rgba(99, 102, 241, 0.16), transparent 70%),
+            radial-gradient(circle 800px at 90% 25%, rgba(56, 189, 248, 0.06), transparent 60%),
+            radial-gradient(circle 700px at 10% 65%, rgba(139, 92, 246, 0.05), transparent 60%);
           color: #f8fafc;
           font-family: 'Outfit', system-ui, -apple-system, sans-serif;
           min-height: 100vh;
@@ -119,14 +124,14 @@ export default function HomePage() {
         }
 
         /* Typography & Utilities */
-        h1, h2, h3, h4 { letter-spacing: -0.025em; font-weight: 800; }
+        h1, h2, h3, h4 { letter-spacing: -0.03em; font-weight: 800; }
         .text-gradient {
-          background: linear-gradient(135deg, #ffffff 10%, #818cf8 60%, #38bdf8 100%);
+          background: linear-gradient(135deg, #ffffff 20%, #a5b4fc 65%, #38bdf8 100%);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
         }
         .text-gold {
-          background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+          background: linear-gradient(135deg, #fef08a 0%, #fbbf24 50%, #f59e0b 100%);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
         }
@@ -156,25 +161,22 @@ export default function HomePage() {
         /* ================= HERO SECTION (2-COLUMN GRID) ================= */
         .fc-hero {
           position: relative;
-          padding: 130px 5% 70px;
-          background: 
-            radial-gradient(circle at 35% 10%, rgba(99, 102, 241, 0.18) 0%, rgba(3, 7, 18, 0.85) 60%, #030712 100%),
-            radial-gradient(circle at 85% 30%, rgba(56, 189, 248, 0.08) 0%, transparent 45%);
+          padding: 136px 5% 76px;
           overflow: visible;
         }
         .fc-hero-inner {
-          max-width: 1240px;
+          max-width: 1280px;
           margin: 0 auto;
           display: grid;
           grid-template-columns: 1.15fr 1fr;
-          gap: 48px;
+          gap: 52px;
           align-items: center;
         }
         @media (max-width: 980px) {
           .fc-hero-inner {
             grid-template-columns: 1fr;
             text-align: center;
-            gap: 40px;
+            gap: 44px;
           }
         }
         .fc-hero-left {
@@ -191,14 +193,15 @@ export default function HomePage() {
           display: inline-flex;
           align-items: center;
           gap: 10px;
-          padding: 6px 16px;
-          border-radius: 999px;
-          background: rgba(99, 102, 241, 0.12);
-          border: 1px solid rgba(99, 102, 241, 0.3);
-          color: #cbd5e1;
-          font-size: 0.86rem;
+          padding: 6px 18px;
+          border-radius: 9999px;
+          background: rgba(99, 102, 241, 0.10);
+          border: 1px solid rgba(99, 102, 241, 0.28);
+          color: #c7d2fe;
+          font-size: 0.85rem;
           font-weight: 600;
-          margin-bottom: 22px;
+          margin-bottom: 24px;
+          box-shadow: 0 0 20px rgba(99, 102, 241, 0.12);
         }
         .fc-hero-badge img {
           width: 20px;
@@ -209,28 +212,30 @@ export default function HomePage() {
           font-size: 0.7rem;
           background: rgba(99, 102, 241, 0.25);
           color: #a5b4fc;
-          padding: 2px 7px;
-          border-radius: 8px;
+          padding: 2px 8px;
+          border-radius: 9999px;
           font-weight: 700;
         }
         .fc-hero h1 {
-          font-size: clamp(2.1rem, 4vw, 3.5rem);
-          line-height: 1.22;
-          margin-bottom: 20px;
+          font-size: clamp(2.3rem, 4.4vw, 3.8rem);
+          line-height: 1.16;
+          margin-bottom: 22px;
           color: #f8fafc;
+          font-weight: 800;
+          letter-spacing: -0.03em;
         }
         .fc-hero p {
-          font-size: clamp(1.02rem, 1.6vw, 1.18rem);
+          font-size: clamp(1.04rem, 1.5vw, 1.18rem);
           color: #94a3b8;
-          line-height: 1.65;
-          margin-bottom: 32px;
+          line-height: 1.7;
+          margin-bottom: 34px;
           max-width: 620px;
         }
         .fc-hero-cta {
           display: flex;
           gap: 14px;
           flex-wrap: wrap;
-          margin-bottom: 32px;
+          margin-bottom: 34px;
         }
         @media (max-width: 980px) {
           .fc-hero-cta {
@@ -238,12 +243,12 @@ export default function HomePage() {
           }
         }
         .fc-btn {
-          padding: 13px 24px;
-          border-radius: 10px;
-          font-size: 0.96rem;
+          padding: 13px 26px;
+          border-radius: 9999px;
+          font-size: 0.95rem;
           font-weight: 600;
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
           text-decoration: none;
           display: inline-flex;
           align-items: center;
@@ -251,24 +256,24 @@ export default function HomePage() {
           font-family: inherit;
         }
         .fc-btn-primary {
-          background: linear-gradient(135deg, #4f46e5 0%, #2563eb 100%);
+          background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
           color: #ffffff;
-          border: 1px solid rgba(255, 255, 255, 0.15);
-          box-shadow: 0 4px 18px rgba(79, 70, 229, 0.4);
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          box-shadow: 0 8px 24px -4px rgba(99, 102, 241, 0.45);
         }
         .fc-btn-primary:hover {
-          background: linear-gradient(135deg, #4338ca 0%, #1d4ed8 100%);
+          background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
           transform: translateY(-2px);
-          box-shadow: 0 8px 24px rgba(79, 70, 229, 0.5);
+          box-shadow: 0 12px 30px -4px rgba(99, 102, 241, 0.6);
         }
         .fc-btn-outline {
           background: rgba(255, 255, 255, 0.04);
           color: #f8fafc;
           border: 1px solid rgba(255, 255, 255, 0.15);
-          backdrop-filter: blur(10px);
+          backdrop-filter: blur(12px);
         }
         .fc-btn-outline:hover {
-          background: rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.09);
           border-color: rgba(255, 255, 255, 0.3);
           transform: translateY(-2px);
         }
@@ -279,16 +284,17 @@ export default function HomePage() {
         }
         .fc-btn-ghost-nav:hover {
           color: #ffffff;
-          background: rgba(255, 255, 255, 0.05);
+          background: rgba(255, 255, 255, 0.06);
+          border-color: rgba(255, 255, 255, 0.2);
           transform: translateY(-2px);
         }
 
-        /* Hero Trust Chips (Only Speed and Isolation as requested) */
+        /* Hero Trust Chips */
         .fc-hero-chips {
           display: flex;
           gap: 12px;
           flex-wrap: wrap;
-          font-size: 0.82rem;
+          font-size: 0.84rem;
           color: #cbd5e1;
         }
         @media (max-width: 980px) {
@@ -299,58 +305,158 @@ export default function HomePage() {
         .fc-hero-chip {
           display: inline-flex;
           align-items: center;
-          gap: 7px;
-          background: rgba(15, 23, 42, 0.85);
+          gap: 8px;
+          background: rgba(17, 24, 39, 0.85);
           border: 1px solid rgba(255, 255, 255, 0.1);
-          padding: 5px 12px;
-          border-radius: 999px;
+          padding: 6px 14px;
+          border-radius: 9999px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
         }
         .fc-chip-dot {
-          width: 7px;
-          height: 7px;
+          width: 8px;
+          height: 8px;
           background: #10b981;
           border-radius: 50%;
+          box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
         }
 
-        /* Hero Right Visual: Clean, Elegant Showcase Image Card without Overlapping Labels */
+        /* Hero Right Visual: Elegant Dashboard Mockup Device Frame */
         .fc-hero-visual {
           width: 100%;
         }
-        .fc-hero-img-showcase {
-          width: 100%;
-          border-radius: 24px;
-          overflow: hidden;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 35px rgba(99, 102, 241, 0.15);
+        .fc-hero-device-frame {
           position: relative;
+          background: #111827;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 22px;
+          overflow: hidden;
+          box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.85), 0 0 50px -10px rgba(99, 102, 241, 0.25);
           transition: transform 0.3s ease, border-color 0.3s ease;
         }
-        .fc-hero-img-showcase:hover {
+        .fc-hero-device-frame:hover {
           transform: translateY(-4px);
           border-color: rgba(99, 102, 241, 0.35);
         }
+        .fc-hero-device-topbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 18px;
+          background: rgba(15, 23, 42, 0.95);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          font-size: 0.78rem;
+          color: #94a3b8;
+        }
+        .fc-device-dots {
+          display: flex;
+          gap: 6px;
+          align-items: center;
+        }
+        .fc-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+        }
+        .fc-dot-red { background: #ef4444; }
+        .fc-dot-yellow { background: #f59e0b; }
+        .fc-dot-green { background: #10b981; }
+        .fc-device-title {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-weight: 500;
+          color: #cbd5e1;
+        }
+        .fc-device-live-badge {
+          font-size: 0.68rem;
+          font-weight: 700;
+          color: #10b981;
+          background: rgba(16, 185, 129, 0.12);
+          padding: 2px 8px;
+          border-radius: 10px;
+          border: 1px solid rgba(16, 185, 129, 0.25);
+        }
+        .fc-hero-img-showcase {
+          position: relative;
+          overflow: hidden;
+        }
         .fc-hero-img-showcase img {
           width: 100%;
-          height: 440px;
+          height: 420px;
           object-fit: cover;
           display: block;
-          filter: contrast(1.05) brightness(0.92);
+          filter: contrast(1.05) brightness(0.9);
+          transition: transform 0.4s ease;
+        }
+        .fc-hero-device-frame:hover .fc-hero-img-showcase img {
+          transform: scale(1.02);
+        }
+        .fc-floating-pill {
+          position: absolute;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          background: rgba(15, 23, 42, 0.9);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          backdrop-filter: blur(14px);
+          padding: 8px 14px;
+          border-radius: 12px;
+          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+          font-size: 0.82rem;
+          color: #f8fafc;
+          pointer-events: none;
+          z-index: 2;
+        }
+        .fc-floating-pill strong {
+          display: block;
+          font-size: 0.82rem;
+          font-weight: 700;
+          color: #f8fafc;
+        }
+        .fc-floating-pill small {
+          display: block;
+          font-size: 0.72rem;
+          color: #94a3b8;
+        }
+        .fc-float-icon {
+          font-size: 1.1rem;
+        }
+        .fc-float-top-right {
+          top: 16px;
+          right: 16px;
+          border-color: rgba(99, 102, 241, 0.35);
+        }
+        .fc-float-bottom-left {
+          bottom: 16px;
+          left: 16px;
+          border-color: rgba(16, 185, 129, 0.35);
+        }
+        .fc-float-bottom-right {
+          bottom: 16px;
+          right: 16px;
+          border-color: rgba(245, 158, 11, 0.35);
         }
         @media (max-width: 980px) {
           .fc-hero-img-showcase img {
             height: 320px;
+          }
+          .fc-float-bottom-right {
+            display: none;
           }
         }
         @media (max-width: 560px) {
           .fc-hero-img-showcase img {
             height: 240px;
           }
+          .fc-floating-pill {
+            display: none;
+          }
         }
 
         /* Scroll Down Bouncing Affordance */
         .fc-scroll-indicator-wrap {
           text-align: center;
-          margin-top: 40px;
+          margin-top: 48px;
         }
         .fc-scroll-indicator {
           background: transparent;
@@ -380,17 +486,19 @@ export default function HomePage() {
 
         /* ================= OPERATING SCALE BAR ================= */
         .fc-stats-bar {
-          background: rgba(15, 23, 42, 0.6);
-          border-top: 1px solid rgba(255, 255, 255, 0.06);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-          padding: 36px 5%;
+          background: rgba(17, 24, 39, 0.65);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          padding: 40px 5%;
         }
         .fc-stats-inner {
-          max-width: 1200px;
+          max-width: 1240px;
           margin: 0 auto;
           display: grid;
           grid-template-columns: repeat(4, 1fr);
-          gap: 24px;
+          gap: 28px;
         }
         @media (max-width: 768px) {
           .fc-stats-inner {
@@ -408,14 +516,17 @@ export default function HomePage() {
           text-align: center;
         }
         .fc-stat-num {
-          font-size: clamp(2rem, 3.2vw, 2.8rem);
+          font-size: clamp(2.2rem, 3.5vw, 3rem);
           font-weight: 800;
-          color: #f8fafc;
+          background: linear-gradient(135deg, #ffffff 40%, #c7d2fe 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
           margin-bottom: 6px;
+          letter-spacing: -0.03em;
         }
         .fc-stat-label {
           color: #94a3b8;
-          font-size: 0.86rem;
+          font-size: 0.84rem;
           text-transform: uppercase;
           letter-spacing: 0.06em;
           font-weight: 600;
@@ -423,47 +534,54 @@ export default function HomePage() {
 
         /* ================= SECTIONS ================= */
         .fc-section {
-          padding: 100px 5%;
-          max-width: 1240px;
+          padding: 104px 5%;
+          max-width: 1280px;
           margin: 0 auto;
         }
         .fc-section-head {
           text-align: center;
-          margin-bottom: 56px;
+          margin-bottom: 60px;
         }
         .fc-section-tag {
           color: #818cf8;
+          background: rgba(99, 102, 241, 0.12);
+          border: 1px solid rgba(99, 102, 241, 0.25);
+          padding: 4px 14px;
+          border-radius: 9999px;
           font-weight: 700;
-          font-size: 0.85rem;
+          font-size: 0.78rem;
           text-transform: uppercase;
           letter-spacing: 0.08em;
-          margin-bottom: 12px;
+          margin-bottom: 16px;
           display: inline-block;
         }
         .fc-section-title {
-          font-size: clamp(1.9rem, 3.5vw, 2.8rem);
+          font-size: clamp(2rem, 3.6vw, 2.9rem);
+          font-weight: 800;
+          letter-spacing: -0.03em;
           margin-bottom: 16px;
+          color: #f8fafc;
         }
         .fc-section-desc {
           font-size: 1.1rem;
           color: #94a3b8;
           max-width: 680px;
           margin: 0 auto;
-          line-height: 1.6;
+          line-height: 1.65;
         }
 
         /* Overview Panoramic Showcase Banner */
         .fc-overview-banner {
           position: relative;
-          border-radius: 20px;
+          border-radius: 22px;
           overflow: hidden;
-          margin-bottom: 40px;
+          margin-bottom: 44px;
           border: 1px solid rgba(255, 255, 255, 0.1);
-          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+          box-shadow: 0 20px 45px rgba(0, 0, 0, 0.6);
         }
         .fc-overview-banner img {
           width: 100%;
-          height: 240px;
+          height: 250px;
           object-fit: cover;
           display: block;
           filter: brightness(0.65);
@@ -477,10 +595,10 @@ export default function HomePage() {
           flex-direction: column;
           padding: 24px;
           text-align: center;
-          background: radial-gradient(circle, rgba(3, 7, 18, 0.4) 0%, rgba(3, 7, 18, 0.8) 100%);
+          background: radial-gradient(circle, rgba(9, 13, 22, 0.4) 0%, rgba(9, 13, 22, 0.85) 100%);
         }
         .fc-overview-banner-overlay h3 {
-          font-size: clamp(1.3rem, 2.5vw, 1.8rem);
+          font-size: clamp(1.3rem, 2.5vw, 1.85rem);
           margin-bottom: 8px;
           color: #f8fafc;
         }
@@ -494,7 +612,7 @@ export default function HomePage() {
         .fc-flow-grid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
-          gap: 20px;
+          gap: 22px;
           margin-bottom: 40px;
         }
         @media (max-width: 960px) {
@@ -508,46 +626,56 @@ export default function HomePage() {
           }
         }
         .fc-flow-card {
-          background: rgba(15, 23, 42, 0.6);
+          background: rgba(17, 24, 39, 0.65);
           border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 16px;
-          padding: 28px 24px;
+          border-radius: 18px;
+          padding: 30px 24px;
           position: relative;
-          transition: transform 0.2s, border-color 0.2s;
+          transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
         }
         .fc-flow-card:hover {
           transform: translateY(-4px);
           border-color: rgba(99, 102, 241, 0.4);
+          box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 102, 241, 0.15);
+        }
+        .fc-flow-card-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 20px;
         }
         .fc-flow-step {
-          width: 32px;
-          height: 32px;
-          border-radius: 8px;
-          background: rgba(99, 102, 241, 0.15);
-          color: #818cf8;
+          width: 36px;
+          height: 36px;
+          border-radius: 10px;
+          background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(79, 70, 229, 0.15));
+          border: 1px solid rgba(99, 102, 241, 0.35);
+          color: #a5b4fc;
           font-weight: 800;
-          font-size: 0.9rem;
+          font-size: 0.88rem;
           display: flex;
           align-items: center;
           justify-content: center;
-          margin-bottom: 16px;
+        }
+        .fc-flow-icon {
+          font-size: 1.4rem;
         }
         .fc-flow-card h3 {
-          font-size: 1.2rem;
+          font-size: 1.22rem;
           margin-bottom: 10px;
           color: #f8fafc;
         }
         .fc-flow-card p {
           color: #94a3b8;
           font-size: 0.92rem;
-          line-height: 1.55;
+          line-height: 1.6;
         }
 
         /* ================= BENTO GRID WITH IMAGES ================= */
         .fc-bento {
           display: grid;
           grid-template-columns: repeat(12, 1fr);
-          gap: 24px;
+          gap: 26px;
         }
         .fc-bento-col-8 { grid-column: span 8; }
         .fc-bento-col-4 { grid-column: span 4; }
@@ -558,26 +686,27 @@ export default function HomePage() {
           }
         }
         .fc-card {
-          background: rgba(15, 23, 42, 0.65);
+          background: rgba(17, 24, 39, 0.65);
           border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 20px;
-          padding: 32px;
-          transition: transform 0.2s, border-color 0.2s, background 0.2s;
+          border-radius: 22px;
+          padding: 34px;
+          transition: transform 0.25s ease, border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
           display: flex;
           flex-direction: column;
           overflow: hidden;
         }
         .fc-card:hover {
           border-color: rgba(99, 102, 241, 0.35);
-          background: rgba(15, 23, 42, 0.85);
-          transform: translateY(-3px);
+          background: rgba(17, 24, 39, 0.88);
+          transform: translateY(-4px);
+          box-shadow: 0 20px 45px -15px rgba(0, 0, 0, 0.7), 0 0 25px rgba(99, 102, 241, 0.12);
         }
         .fc-card-media {
           width: 100%;
-          height: 160px;
-          border-radius: 12px;
+          height: 170px;
+          border-radius: 14px;
           overflow: hidden;
-          margin-bottom: 20px;
+          margin-bottom: 22px;
           border: 1px solid rgba(255, 255, 255, 0.08);
         }
         .fc-card-media img {
@@ -585,7 +714,7 @@ export default function HomePage() {
           height: 100%;
           object-fit: cover;
           display: block;
-          transition: transform 0.3s ease;
+          transition: transform 0.4s ease;
         }
         .fc-card:hover .fc-card-media img {
           transform: scale(1.04);
@@ -593,17 +722,17 @@ export default function HomePage() {
         .fc-card-icon-head {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 14px;
           margin-bottom: 14px;
         }
         .fc-card-icon {
-          width: 44px;
-          height: 44px;
-          border-radius: 10px;
+          width: 48px;
+          height: 48px;
+          border-radius: 12px;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 1.3rem;
+          font-size: 1.35rem;
           flex-shrink: 0;
         }
         .fc-card h3 {
@@ -620,22 +749,23 @@ export default function HomePage() {
           gap: 8px;
           flex-wrap: wrap;
           margin-top: auto;
-          padding-top: 18px;
+          padding-top: 20px;
         }
         .fc-tag {
-          font-size: 0.75rem;
-          padding: 3px 9px;
-          border-radius: 6px;
+          font-size: 0.76rem;
+          font-weight: 500;
+          padding: 4px 11px;
+          border-radius: 9999px;
           background: rgba(255, 255, 255, 0.05);
           color: #cbd5e1;
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.09);
         }
 
         /* ================= PRICING SECTION ================= */
         .fc-pricing-grid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
-          gap: 24px;
+          gap: 26px;
           align-items: stretch;
         }
         @media (max-width: 1100px) {
@@ -649,40 +779,42 @@ export default function HomePage() {
           }
         }
         .fc-pricing-card {
-          background: rgba(15, 23, 42, 0.7);
+          background: rgba(17, 24, 39, 0.65);
           border: 1px solid rgba(255, 255, 255, 0.09);
-          border-radius: 20px;
-          padding: 32px 26px;
+          border-radius: 22px;
+          padding: 34px 28px;
           display: flex;
           flex-direction: column;
           position: relative;
-          transition: all 0.3s;
+          transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .fc-pricing-card:hover {
           transform: translateY(-6px);
-          border-color: rgba(99, 102, 241, 0.4);
+          border-color: rgba(99, 102, 241, 0.45);
+          box-shadow: 0 20px 45px -12px rgba(0, 0, 0, 0.6);
         }
         .fc-pricing-featured {
-          background: linear-gradient(180deg, rgba(30, 27, 75, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+          background: linear-gradient(180deg, rgba(30, 27, 75, 0.85) 0%, rgba(17, 24, 39, 0.95) 100%);
           border: 2px solid #6366f1;
-          box-shadow: 0 15px 35px -5px rgba(79, 70, 229, 0.3);
+          box-shadow: 0 20px 50px -10px rgba(99, 102, 241, 0.35);
         }
         .fc-pricing-popular-badge {
           position: absolute;
-          top: -12px;
+          top: -13px;
           left: 50%;
           transform: translateX(-50%);
-          background: linear-gradient(135deg, #4f46e5, #06b6d4);
+          background: linear-gradient(135deg, #6366f1 0%, #38bdf8 100%);
           color: #ffffff;
-          font-size: 0.75rem;
-          font-weight: 700;
+          font-size: 0.74rem;
+          font-weight: 800;
           text-transform: uppercase;
-          letter-spacing: 0.05em;
-          padding: 4px 14px;
-          border-radius: 20px;
+          letter-spacing: 0.06em;
+          padding: 5px 16px;
+          border-radius: 9999px;
+          box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
         }
         .fc-pricing-tier-name {
-          font-size: 1.3rem;
+          font-size: 1.35rem;
           font-weight: 800;
           margin-bottom: 6px;
           color: #f8fafc;
@@ -694,10 +826,11 @@ export default function HomePage() {
           margin-bottom: 18px;
         }
         .fc-pricing-amount {
-          font-size: 2.3rem;
+          font-size: 2.45rem;
           font-weight: 800;
           color: #f8fafc;
           margin-bottom: 4px;
+          letter-spacing: -0.03em;
         }
         .fc-pricing-period {
           font-size: 0.85rem;
@@ -707,7 +840,7 @@ export default function HomePage() {
         .fc-pricing-desc {
           font-size: 0.88rem;
           color: #94a3b8;
-          line-height: 1.5;
+          line-height: 1.55;
           margin-bottom: 24px;
           min-height: 48px;
         }
@@ -725,37 +858,49 @@ export default function HomePage() {
         .fc-pricing-list li {
           display: flex;
           align-items: flex-start;
-          gap: 9px;
-          line-height: 1.4;
+          gap: 10px;
+          line-height: 1.45;
         }
         .fc-check-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          background: rgba(16, 185, 129, 0.15);
           color: #10b981;
           font-weight: 800;
-          font-size: 0.95rem;
+          font-size: 0.75rem;
+          flex-shrink: 0;
+          margin-top: 2px;
         }
         .fc-pricing-btn {
           width: 100%;
-          padding: 12px;
-          border-radius: 10px;
+          padding: 13px;
+          border-radius: 9999px;
           font-size: 0.92rem;
           font-weight: 700;
           cursor: pointer;
-          border: none;
+          border: 1px solid rgba(255, 255, 255, 0.12);
           text-align: center;
           text-decoration: none;
           display: block;
-          transition: all 0.2s;
+          transition: all 0.25s;
           font-family: inherit;
+        }
+        .fc-pricing-btn:hover {
+          transform: translateY(-2px);
         }
 
         /* ================= PLAN ENTITLEMENTS MATRIX ================= */
         .fc-matrix-container {
-          margin-top: 70px;
-          background: rgba(15, 23, 42, 0.65);
+          margin-top: 74px;
+          background: rgba(17, 24, 39, 0.65);
           border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 20px;
-          padding: 36px 30px;
-          box-shadow: 0 20px 45px rgba(0, 0, 0, 0.4);
+          border-radius: 22px;
+          padding: 38px 32px;
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
         }
         @media (max-width: 768px) {
           .fc-matrix-container {
@@ -764,10 +909,10 @@ export default function HomePage() {
         }
         .fc-matrix-header {
           text-align: center;
-          margin-bottom: 28px;
+          margin-bottom: 30px;
         }
         .fc-matrix-header h3 {
-          font-size: 1.6rem;
+          font-size: 1.65rem;
           color: #f8fafc;
           margin-bottom: 8px;
         }
@@ -786,7 +931,7 @@ export default function HomePage() {
           font-size: 0.88rem;
         }
         .fc-matrix-table th {
-          padding: 16px 12px;
+          padding: 18px 14px;
           text-align: center;
           border-bottom: 1px solid rgba(255, 255, 255, 0.1);
           font-weight: 700;
@@ -818,7 +963,7 @@ export default function HomePage() {
           letter-spacing: 0.5px;
         }
         .fc-matrix-cat-row td {
-          padding: 14px 12px 8px;
+          padding: 16px 14px 10px;
           font-weight: 800;
           font-size: 0.82rem;
           text-transform: uppercase;
@@ -828,7 +973,7 @@ export default function HomePage() {
           border-top: 1px solid rgba(255, 255, 255, 0.06);
         }
         .fc-matrix-table td {
-          padding: 12px;
+          padding: 14px;
           text-align: center;
           border-bottom: 1px solid rgba(255, 255, 255, 0.04);
           color: #cbd5e1;
@@ -839,7 +984,7 @@ export default function HomePage() {
           font-weight: 500;
         }
         .fc-matrix-highlight {
-          background: rgba(99, 102, 241, 0.05);
+          background: rgba(99, 102, 241, 0.06);
         }
         .fc-matrix-yes {
           color: #10b981;
@@ -852,8 +997,8 @@ export default function HomePage() {
         }
         .fc-matrix-action-btn {
           display: inline-block;
-          padding: 8px 16px;
-          border-radius: 8px;
+          padding: 9px 18px;
+          border-radius: 9999px;
           font-size: 0.82rem;
           font-weight: 700;
           text-decoration: none;
@@ -866,57 +1011,59 @@ export default function HomePage() {
           background: rgba(255, 255, 255, 0.12);
         }
         .fc-matrix-btn-primary {
-          background: linear-gradient(135deg, #4f46e5 0%, #2563eb 100%);
-          border: 1px solid rgba(255, 255, 255, 0.15);
+          background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+          border: 1px solid rgba(255, 255, 255, 0.18);
         }
         .fc-matrix-btn-primary:hover {
-          background: linear-gradient(135deg, #4338ca 0%, #1d4ed8 100%);
+          background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
         }
 
         /* PWA Showcase with Image */
         .fc-pwa-box {
-          background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
+          background: linear-gradient(135deg, rgba(24, 33, 54, 0.75) 0%, rgba(15, 23, 42, 0.95) 100%);
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 24px;
-          padding: 44px;
+          padding: 48px;
           display: grid;
           grid-template-columns: 1.2fr 1fr;
-          gap: 40px;
+          gap: 48px;
           align-items: center;
+          box-shadow: 0 20px 50px -15px rgba(0, 0, 0, 0.6);
         }
         @media (max-width: 860px) {
           .fc-pwa-box {
             grid-template-columns: 1fr;
-            padding: 30px 20px;
+            padding: 32px 22px;
           }
         }
         .fc-pwa-feature-item {
           display: flex;
-          gap: 14px;
-          margin-bottom: 16px;
+          gap: 16px;
+          margin-bottom: 20px;
         }
         .fc-pwa-icon {
-          width: 40px;
-          height: 40px;
-          border-radius: 10px;
+          width: 44px;
+          height: 44px;
+          border-radius: 12px;
           background: rgba(99, 102, 241, 0.15);
+          border: 1px solid rgba(99, 102, 241, 0.3);
           color: #818cf8;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 1.2rem;
+          font-size: 1.3rem;
           flex-shrink: 0;
         }
         .fc-pwa-card-wrap {
-          border-radius: 16px;
+          border-radius: 18px;
           overflow: hidden;
           border: 1px solid rgba(255, 255, 255, 0.12);
-          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+          box-shadow: 0 20px 45px rgba(0, 0, 0, 0.6);
           position: relative;
         }
         .fc-pwa-card-wrap img {
           width: 100%;
-          height: 260px;
+          height: 270px;
           object-fit: cover;
           display: block;
           filter: brightness(0.85);
@@ -926,32 +1073,33 @@ export default function HomePage() {
           bottom: 0;
           left: 0;
           right: 0;
-          padding: 16px;
-          background: linear-gradient(180deg, transparent 0%, rgba(3, 7, 18, 0.95) 100%);
+          padding: 18px;
+          background: linear-gradient(180deg, transparent 0%, rgba(9, 13, 22, 0.95) 100%);
           text-align: center;
         }
 
         /* FAQ Accordion */
         .fc-faq-list {
-          max-width: 860px;
+          max-width: 880px;
           margin: 0 auto;
           display: flex;
           flex-direction: column;
           gap: 14px;
         }
         .fc-faq-item {
-          background: rgba(15, 23, 42, 0.6);
+          background: rgba(17, 24, 39, 0.65);
           border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 14px;
+          border-radius: 16px;
           overflow: hidden;
-          transition: border-color 0.2s;
+          transition: all 0.25s ease;
         }
         .fc-faq-item:hover {
-          border-color: rgba(99, 102, 241, 0.3);
+          border-color: rgba(99, 102, 241, 0.35);
+          background: rgba(17, 24, 39, 0.85);
         }
         .fc-faq-btn {
           width: 100%;
-          padding: 20px 24px;
+          padding: 22px 26px;
           background: transparent;
           border: none;
           color: #f8fafc;
@@ -974,17 +1122,17 @@ export default function HomePage() {
           transform: rotate(180deg);
         }
         .fc-faq-ans {
-          padding: 0 24px 22px;
+          padding: 0 26px 24px;
           font-size: 0.95rem;
           color: #94a3b8;
-          line-height: 1.65;
+          line-height: 1.68;
         }
 
         /* Contact Section */
         .fc-contact-grid {
           display: grid;
-          grid-template-columns: 1fr 1.2fr;
-          gap: 40px;
+          grid-template-columns: 1fr 1.25fr;
+          gap: 44px;
         }
         @media (max-width: 880px) {
           .fc-contact-grid {
@@ -997,33 +1145,40 @@ export default function HomePage() {
           gap: 20px;
         }
         .fc-contact-card {
-          background: rgba(15, 23, 42, 0.6);
+          background: rgba(17, 24, 39, 0.65);
           border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 14px;
-          padding: 22px;
+          border-radius: 16px;
+          padding: 24px;
           display: flex;
-          gap: 16px;
+          gap: 18px;
+          transition: all 0.25s;
+        }
+        .fc-contact-card:hover {
+          border-color: rgba(99, 102, 241, 0.3);
+          transform: translateY(-2px);
         }
         .fc-contact-icon {
-          width: 44px;
-          height: 44px;
-          border-radius: 10px;
+          width: 46px;
+          height: 46px;
+          border-radius: 12px;
           background: rgba(99, 102, 241, 0.15);
+          border: 1px solid rgba(99, 102, 241, 0.25);
           color: #818cf8;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 1.2rem;
+          font-size: 1.3rem;
           flex-shrink: 0;
         }
         .fc-contact-form {
-          background: rgba(15, 23, 42, 0.6);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 20px;
-          padding: 36px;
+          background: rgba(17, 24, 39, 0.7);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 22px;
+          padding: 38px;
+          box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.5);
         }
         .fc-form-group {
-          margin-bottom: 20px;
+          margin-bottom: 22px;
         }
         .fc-form-label {
           display: block;
@@ -1034,18 +1189,19 @@ export default function HomePage() {
         }
         .fc-form-input, .fc-form-textarea {
           width: 100%;
-          padding: 12px 14px;
+          padding: 13px 16px;
           border-radius: 10px;
           border: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(3, 7, 18, 0.7);
+          background: rgba(11, 15, 25, 0.8);
           color: #f8fafc;
           font-family: inherit;
           font-size: 0.95rem;
           outline: none;
-          transition: border-color 0.2s;
+          transition: border-color 0.2s, box-shadow 0.2s;
         }
         .fc-form-input:focus, .fc-form-textarea:focus {
           border-color: #6366f1;
+          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
         }
         .fc-form-textarea {
           min-height: 110px;
@@ -1109,14 +1265,52 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Right Column: Clean, High-Resolution Showcase Image without Overlapping Labels */}
+          {/* Right Column: Terminal Device Frame with Live Status & Metrics */}
           <div className="fc-hero-visual">
-            <div className="fc-hero-img-showcase">
-              <img
-                src="https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1200&q=80"
-                alt="Modern Food Court &amp; Canteen Operations"
-                loading="eager"
-              />
+            <div className="fc-hero-device-frame">
+              <div className="fc-hero-device-topbar">
+                <div className="fc-device-dots">
+                  <span className="fc-dot fc-dot-red"></span>
+                  <span className="fc-dot fc-dot-yellow"></span>
+                  <span className="fc-dot fc-dot-green"></span>
+                </div>
+                <div className="fc-device-title">
+                  <span>fc-erp.terminal · active</span>
+                </div>
+                <div className="fc-device-live-badge">● LIVE</div>
+              </div>
+
+              <div className="fc-hero-img-showcase">
+                <img
+                  src="https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1200&q=80"
+                  alt="Modern Food Court &amp; Canteen Operations"
+                  loading="eager"
+                />
+
+                <div className="fc-floating-pill fc-float-top-right">
+                  <span className="fc-float-icon">⚡</span>
+                  <div>
+                    <strong>1.2s Checkout</strong>
+                    <small>High-Throughput POS</small>
+                  </div>
+                </div>
+
+                <div className="fc-floating-pill fc-float-bottom-left">
+                  <span className="fc-float-icon">🛡️</span>
+                  <div>
+                    <strong>Isolated Ledgers</strong>
+                    <small>Multi-Vendor Payouts</small>
+                  </div>
+                </div>
+
+                <div className="fc-floating-pill fc-float-bottom-right">
+                  <span className="fc-float-icon">🍳</span>
+                  <div>
+                    <strong>Live Kitchen KDS</strong>
+                    <small>Instant Stall Routing</small>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1182,22 +1376,34 @@ export default function HomePage() {
 
         <div className="fc-flow-grid">
           <div className="fc-flow-card">
-            <div className="fc-flow-step">1</div>
+            <div className="fc-flow-card-header">
+              <div className="fc-flow-step">01</div>
+              <span className="fc-flow-icon">🖥️</span>
+            </div>
             <h3>Unified Intake</h3>
             <p>Customers order via central cashier POS, table QR code, or self-service kiosks with instant payment support (Cash, UPI, Cards, RFID).</p>
           </div>
           <div className="fc-flow-card">
-            <div className="fc-flow-step">2</div>
+            <div className="fc-flow-card-header">
+              <div className="fc-flow-step">02</div>
+              <span className="fc-flow-icon">🍳</span>
+            </div>
             <h3>Smart KDS Dispatch</h3>
             <p>Orders split dynamically. Kitchen display screens (KDS) receive only their stall's items with live color-coded preparation timers.</p>
           </div>
           <div className="fc-flow-card">
-            <div className="fc-flow-step">3</div>
+            <div className="fc-flow-card-header">
+              <div className="fc-flow-step">03</div>
+              <span className="fc-flow-icon">⚖️</span>
+            </div>
             <h3>Automated Split</h3>
             <p>Platform commissions, food court maintenance, and vendor payouts calculate automatically in real-time without end-of-day spreadsheets.</p>
           </div>
           <div className="fc-flow-card">
-            <div className="fc-flow-step">4</div>
+            <div className="fc-flow-card-header">
+              <div className="fc-flow-step">04</div>
+              <span className="fc-flow-icon">📈</span>
+            </div>
             <h3>Audit &amp; Intelligence</h3>
             <p>Daily sales, stock deductions, and staff shift summaries are automatically compiled and delivered to management via WhatsApp and MIS portals.</p>
           </div>

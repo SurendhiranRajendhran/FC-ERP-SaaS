@@ -53,10 +53,11 @@ export default function Navbar() {
           justify-content: space-between;
           align-items: center;
           padding: 0 5%;
-          background: ${scrolled ? 'rgba(3, 7, 18, 0.88)' : 'rgba(3, 7, 18, 0.65)'};
+          background: ${scrolled ? 'rgba(9, 13, 22, 0.92)' : 'rgba(9, 13, 22, 0.75)'};
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
           border-bottom: 1px solid rgba(255, 255, 255, ${scrolled ? '0.08' : '0.04'});
+          box-shadow: ${scrolled ? '0 10px 30px rgba(0, 0, 0, 0.5)' : 'none'};
           transition: all 0.3s ease;
           font-family: 'Outfit', system-ui, -apple-system, sans-serif;
         }
@@ -73,8 +74,8 @@ export default function Navbar() {
         .fc-nav-logo-img {
           width: 36px;
           height: 36px;
-          border-radius: 9px;
-          box-shadow: 0 4px 14px rgba(245, 158, 11, 0.25);
+          border-radius: 10px;
+          box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
           object-fit: contain;
         }
         .fc-nav-badge {
@@ -83,7 +84,7 @@ export default function Navbar() {
           color: #818cf8;
           border: 1px solid rgba(99, 102, 241, 0.3);
           padding: 2px 7px;
-          border-radius: 12px;
+          border-radius: 9999px;
           font-weight: 700;
           letter-spacing: 0.5px;
         }
@@ -114,7 +115,7 @@ export default function Navbar() {
           left: 0;
           right: 0;
           height: 2px;
-          background: linear-gradient(90deg, #4f46e5, #38bdf8);
+          background: linear-gradient(90deg, #6366f1, #38bdf8);
           border-radius: 2px;
         }
         .fc-nav-actions {
@@ -123,11 +124,11 @@ export default function Navbar() {
           align-items: center;
         }
         .fc-btn-signin {
-          background: transparent;
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.14);
           color: #f8fafc;
-          padding: 9px 18px;
-          border-radius: 9px;
+          padding: 8px 20px;
+          border-radius: 9999px;
           font-size: 0.9rem;
           font-weight: 600;
           cursor: pointer;
@@ -135,26 +136,27 @@ export default function Navbar() {
           font-family: inherit;
         }
         .fc-btn-signin:hover {
-          background: rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.1);
           border-color: rgba(255, 255, 255, 0.25);
+          transform: translateY(-1px);
         }
         .fc-btn-register {
-          background: linear-gradient(135deg, #4f46e5 0%, #2563eb 100%);
-          border: 1px solid rgba(255, 255, 255, 0.15);
+          background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+          border: 1px solid rgba(255, 255, 255, 0.18);
           color: #ffffff;
-          padding: 9px 20px;
-          border-radius: 9px;
+          padding: 8px 22px;
+          border-radius: 9999px;
           font-size: 0.9rem;
           font-weight: 600;
           cursor: pointer;
           transition: all 0.2s;
           font-family: inherit;
-          box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+          box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
         }
         .fc-btn-register:hover {
-          background: linear-gradient(135deg, #4338ca 0%, #1d4ed8 100%);
+          background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
           transform: translateY(-1px);
-          box-shadow: 0 6px 18px rgba(79, 70, 229, 0.45);
+          box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
         }
         .fc-hamburger {
           display: none;
@@ -185,7 +187,7 @@ export default function Navbar() {
             top: 76px;
             left: 0;
             right: 0;
-            background: rgba(3, 7, 18, 0.96);
+            background: rgba(9, 13, 22, 0.96);
             backdrop-filter: blur(25px);
             -webkit-backdrop-filter: blur(25px);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
