@@ -3284,6 +3284,11 @@ function App() {
     paymentMode: 'Cash',
     isSubmitting: false
   });
+  const [creditHistoryModal, setCreditHistoryModal] = useState({
+    show: false,
+    customer: null,
+    loading: false
+  });
   const [combos, setCombos] = useState([]);
   const [comboModal, setComboModal] = useState({ show: false, comboId: null, comboName: '', childItems: [] });
   const [suppliers, setSuppliers] = useState([]);
@@ -4288,6 +4293,18 @@ function App() {
     });
   };
 
+  const handleOpenCreditLedgerModal = async (cust) => {
+    if (!cust) return;
+    setCreditHistoryModal({ show: true, customer: cust, loading: true });
+    try {
+      await fetchCreditLedger(cust.id);
+    } catch (err) {
+      showToast('Failed to load credit ledger', 'error');
+    } finally {
+      setCreditHistoryModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
   const handleConfirmSettle = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (!settleModal.customer) return;
@@ -4317,6 +4334,9 @@ function App() {
       const custId = settleModal.customer.id;
       setSettleModal({ show: false, customer: null, amount: '', paymentMode: 'Cash', notes: '', isSubmitting: false });
       await fetchCreditCustomers();
+      if (creditHistoryModal.show && creditHistoryModal.customer?.id === custId) {
+        await fetchCreditLedger(custId);
+      }
       if (selectedCreditCustomer?.id === custId) {
         await fetchCreditLedger(custId);
       }
@@ -7377,7 +7397,29 @@ function App() {
                         {settleModal.customer.organization && <span style={{ marginLeft: '8px', background: 'rgba(255,255,255,0.08)', padding: '1px 6px', borderRadius: '4px', color: '#93c5fd' }}>🏢 {settleModal.customer.organization}</span>}
                       </div>
                     </div>
-                    <span className="badge badge-danger" style={{ fontSize: '11px', padding: '3px 8px' }}>Credit Customer</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-small"
+                        style={{
+                          background: 'rgba(59, 130, 246, 0.18)',
+                          border: '1px solid #3b82f6',
+                          color: '#60a5fa',
+                          fontWeight: 700,
+                          padding: '5px 12px',
+                          borderRadius: '6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          cursor: 'pointer',
+                          fontSize: '12px'
+                        }}
+                        onClick={() => handleOpenCreditLedgerModal(settleModal.customer)}
+                      >
+                        📜 Ledger
+                      </button>
+                      <span className="badge badge-danger" style={{ fontSize: '11px', padding: '3px 8px' }}>Credit Customer</span>
+                    </div>
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', marginTop: '10px', borderTop: '1px dashed rgba(255,255,255,0.15)' }}>
@@ -7620,6 +7662,130 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Credit History & Ledger Modal */}
+      {creditHistoryModal.show && creditHistoryModal.customer && (() => {
+        const cust = creditHistoryModal.customer;
+        const totalCredit = creditLedger.filter(e => e.type === 'Credit').reduce((s, e) => s + Number(e.amount || 0), 0);
+        const totalPaid = creditLedger.filter(e => e.type === 'Payment').reduce((s, e) => s + Number(e.amount || 0), 0);
+        const currentOut = Math.max(0, totalCredit - totalPaid);
+
+        return (
+          <div className="modal-overlay active" style={{ zIndex: 1300 }} onClick={e => { if (e.target === e.currentTarget) setCreditHistoryModal({ show: false, customer: null, loading: false }); }}>
+            <div className="modal-card" style={{ maxWidth: '820px', width: '95%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+              <div className="modal-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>📜</span> Credit History & Ledger — {cust.name}
+                  </h2>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    📞 {cust.phone || 'No phone'}
+                    {cust.organization && <span style={{ marginLeft: '10px', background: 'rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: '4px', color: '#93c5fd' }}>🏢 {cust.organization}</span>}
+                  </div>
+                </div>
+                <button className="close-btn" onClick={() => setCreditHistoryModal({ show: false, customer: null, loading: false })}>×</button>
+              </div>
+
+              {/* Outstanding Summary Ribbon */}
+              <div style={{ background: 'var(--bg-input, #111827)', padding: '12px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexWrap: 'wrap', gap: '20px', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Total Credit Given</div>
+                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#f87171' }}>₹{totalCredit.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Total Dues Cleared</div>
+                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#34d399' }}>₹{totalPaid.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Credit Limit</div>
+                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#93c5fd' }}>
+                      {parseFloat(cust.credit_limit || 0) > 0 ? `₹${parseFloat(cust.credit_limit).toFixed(2)}` : 'Unlimited'}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#fca5a5', fontWeight: 600 }}>Current Outstanding Balance</div>
+                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#ef4444' }}>₹{currentOut.toFixed(2)}</div>
+                </div>
+              </div>
+
+              {/* Ledger Entries Table */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', minHeight: '220px' }}>
+                {creditHistoryModal.loading ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading credit transactions...</div>
+                ) : creditLedger.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No credit transactions or payments recorded yet for this customer.</div>
+                ) : (
+                  <table className="data-table" style={{ width: '100%', fontSize: '13px' }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-card, #1f2937)' }}>
+                      <tr>
+                        <th>Date & Time</th>
+                        <th>Type</th>
+                        <th>Amount</th>
+                        <th>Order #</th>
+                        <th>Tender Mode</th>
+                        <th>Status</th>
+                        <th>Notes / Memo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {creditLedger.map((entry, idx) => (
+                        <tr key={entry.id || idx}>
+                          <td style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>{entry.created_at}</td>
+                          <td>
+                            <span className={`badge ${entry.type === 'Credit' ? 'badge-danger' : 'badge-success'}`}>
+                              {entry.type === 'Credit' ? '📈 Credit Purchase' : '💰 Repayment'}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 700, color: entry.type === 'Credit' ? '#f87171' : '#34d399', whiteSpace: 'nowrap' }}>
+                            {entry.type === 'Credit' ? `+₹${Number(entry.amount).toFixed(2)}` : `-₹${Number(entry.amount).toFixed(2)}`}
+                          </td>
+                          <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                            {entry.order_id ? `#${entry.order_id}` : '—'}
+                          </td>
+                          <td>
+                            {entry.type === 'Payment' ? (
+                              <span style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                                {entry.payment_mode || 'Cash'}
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Credit Sale</span>
+                            )}
+                          </td>
+                          <td>
+                            {entry.type === 'Payment' ? (
+                              <span className="badge badge-success">Cleared</span>
+                            ) : entry.is_settled ? (
+                              <span className="badge badge-success">Settled</span>
+                            ) : (
+                              <span className="badge badge-warning" style={{ background: '#f59e0b22', color: '#f59e0b' }}>Outstanding</span>
+                            )}
+                          </td>
+                          <td style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '200px' }}>
+                            {entry.notes || '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '10px', background: 'var(--bg-input, #111827)' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setCreditHistoryModal({ show: false, customer: null, loading: false })}
+                >
+                  Close Ledger
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ==========================================
 
@@ -13565,20 +13731,12 @@ function App() {
                               <td>{parseFloat(cust.credit_limit || 0) > 0 ? `₹${parseFloat(cust.credit_limit).toFixed(2)}` : <span className="badge badge-secondary">Unlimited</span>}</td>
                               <td><span className={`badge ${Number(cust.outstanding) > 0 ? 'badge-danger' : 'badge-success'}`}>₹{Number(cust.outstanding).toFixed(2)}</span></td>
                               <td>
-                                {selectedCreditCustomer?.id === cust.id ? (
-                                  <button className="btn btn-secondary btn-small" onClick={() => setSelectedCreditCustomer(null)}>Close Ledger</button>
-                                ) : (
-                                  <button className="btn btn-primary btn-small" onClick={() => { setSelectedCreditCustomer(cust); setSelectedCreditItems([]); fetchCreditLedger(cust.id); }}>View Ledger</button>
-                                )}
-                                {Number(cust.outstanding) > 0 && (
-                                  <button 
-                                    className="btn btn-success btn-small" 
-                                    style={{ marginLeft: '8px' }} 
-                                    onClick={() => handleOpenSettleModal(cust)}
-                                  >
-                                    💰 Settle Dues
-                                  </button>
-                                )}
+                                <button 
+                                  className="btn btn-success btn-small" 
+                                  onClick={() => handleOpenSettleModal(cust)}
+                                >
+                                  💰 Settle Dues
+                                </button>
                               </td>
                             </tr>
                           )) : (
@@ -13587,78 +13745,6 @@ function App() {
                         </tbody>
                       </table>
                     </div>
-
-                    {selectedCreditCustomer && (() => {
-                      const unsettledCredits = creditLedger.filter(e => e.type === 'Credit' && !e.is_settled);
-                      const selectedTotal = unsettledCredits.filter(e => selectedCreditItems.includes(e.id)).reduce((s, e) => s + Number(e.amount), 0);
-                      return (
-                      <div className="panel-card mt-4">
-                        <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <h3>Ledger — {selectedCreditCustomer.name}</h3>
-                          {selectedCreditItems.length > 0 && (
-                            <button 
-                              className="btn btn-success btn-small" 
-                              onClick={() => handleOpenSettleItemsModal(selectedCreditCustomer, selectedCreditItems, selectedTotal)}
-                            >
-                              💰 Pay Selected ({selectedCreditItems.length}) — ₹{selectedTotal.toFixed(2)}
-                            </button>
-                          )}
-                        </div>
-                        <div className="table-container" style={{ maxHeight: '350px', overflowY: 'auto' }}>
-                          <table className="data-table">
-                            <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-                              <tr>
-                                <th style={{ width: '40px' }}>
-                                  {unsettledCredits.length > 0 && (
-                                    <input type="checkbox"
-                                      checked={unsettledCredits.length > 0 && unsettledCredits.every(e => selectedCreditItems.includes(e.id))}
-                                      onChange={e => {
-                                        if (e.target.checked) setSelectedCreditItems(unsettledCredits.map(c => c.id));
-                                        else setSelectedCreditItems([]);
-                                      }}
-                                    />
-                                  )}
-                                </th>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Amount</th>
-                                <th>Order</th>
-                                <th>Status</th>
-                                <th>Notes</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {creditLedger.map((entry, idx) => {
-                                const isUnsettledCredit = entry.type === 'Credit' && !entry.is_settled;
-                                const isChecked = selectedCreditItems.includes(entry.id);
-                                return (
-                                <tr key={idx} style={{ background: isChecked ? 'rgba(16,185,129,0.08)' : 'transparent' }}>
-                                  <td>
-                                    {isUnsettledCredit ? (
-                                      <input type="checkbox" checked={isChecked} onChange={e => {
-                                        if (e.target.checked) setSelectedCreditItems(prev => [...prev, entry.id]);
-                                        else setSelectedCreditItems(prev => prev.filter(id => id !== entry.id));
-                                      }} />
-                                    ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                                  </td>
-                                  <td style={{ fontSize: '0.85rem' }}>{entry.created_at}</td>
-                                  <td><span className={`badge ${entry.type === 'Credit' ? 'badge-danger' : 'badge-success'}`}>{entry.type}</span></td>
-                                  <td>₹{Number(entry.amount).toFixed(2)}</td>
-                                  <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{entry.order_id ? `#${entry.order_id}` : '—'}</td>
-                                  <td>
-                                    {entry.type === 'Payment' ? <span className="badge badge-success">Paid</span>
-                                      : entry.is_settled ? <span className="badge badge-success">Settled</span>
-                                      : <span className="badge badge-warning" style={{ background: '#f59e0b22', color: '#f59e0b' }}>Pending</span>}
-                                  </td>
-                                  <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{entry.notes || '-'}</td>
-                                </tr>
-                              );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    );})()}
                   </div>
                 )}
               </div>
