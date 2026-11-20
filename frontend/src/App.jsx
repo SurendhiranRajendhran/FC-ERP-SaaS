@@ -3262,27 +3262,6 @@ function App() {
   const [reconData, setReconData] = useState(null);
   const [reconDate, setReconDate] = useState(() => getISTTodayString());
   const [reconStaffId, setReconStaffId] = useState('');
-
-  // Auto-sync / auto-select authorized staff for daily reconciliation submission
-  useEffect(() => {
-    if (reconData?.authorizedStaff && reconData.authorizedStaff.length > 0) {
-      const staffList = reconData.authorizedStaff;
-      const alreadyValid = staffList.some(s => String(s.id) === String(reconStaffId));
-      if (!alreadyValid) {
-        // If current logged-in user is in authorizedStaff, select them by default
-        const matchUser = staffList.find(s => String(s.id) === String(user?.id));
-        if (matchUser) {
-          setReconStaffId(String(matchUser.id));
-        } else if (staffList.length === 1) {
-          setReconStaffId(String(staffList[0].id));
-        } else {
-          setReconStaffId(String(staffList[0].id));
-        }
-      }
-    } else {
-      setReconStaffId('');
-    }
-  }, [reconData, user]);
   const [creditCustomers, setCreditCustomers] = useState([]);
   const [creditLedger, setCreditLedger] = useState([]);
   const [selectedCreditCustomer, setSelectedCreditCustomer] = useState(null);
@@ -3522,6 +3501,27 @@ function App() {
       }
     }
   }, [activeTab, reportsSubTab, reportDateRange]);
+
+  // Auto-sync / auto-select authorized staff for daily reconciliation submission
+  useEffect(() => {
+    if (reconData?.authorizedStaff && reconData.authorizedStaff.length > 0) {
+      const staffList = reconData.authorizedStaff;
+      const alreadyValid = staffList.some(s => String(s.id) === String(reconStaffId));
+      if (!alreadyValid) {
+        // If current logged-in user is in authorizedStaff, select them by default
+        const matchUser = staffList.find(s => String(s.id) === String(user?.id));
+        if (matchUser) {
+          setReconStaffId(String(matchUser.id));
+        } else if (staffList.length === 1) {
+          setReconStaffId(String(staffList[0].id));
+        } else {
+          setReconStaffId(String(staffList[0].id));
+        }
+      }
+    } else {
+      setReconStaffId('');
+    }
+  }, [reconData, user]);
 
   const handleOverheadSubmit = async (e) => {
     e.preventDefault();
