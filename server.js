@@ -735,41 +735,60 @@ async function runStartupMigrations() {
       console.log("Migration: Added composite unique index idx_tenant_type_phone on customers(tenant_id, customer_type, phone).");
     }
 
-    // Smart Migration for Existing Customers with Credit History
-    const [existingCreditCusts] = await conn.query("SELECT id FROM customers WHERE customer_type = 'credit' LIMIT 1");
-    if (existingCreditCusts.length === 0) {
-      const [creditCustIds] = await conn.query("SELECT DISTINCT customer_id FROM credit_ledger WHERE customer_id IS NOT NULL");
-      for (const row of creditCustIds) {
-        const oldId = row.customer_id;
-        const [custRows] = await conn.query("SELECT * FROM customers WHERE id = ?", [oldId]);
-        if (custRows.length === 0) continue;
-        const cust = custRows[0];
+    // Smart Migration for Customers with Credit History who are not yet marked as 'credit'
+    const [misclassifiedCreditCusts] = await conn.query(`
+      SELECT DISTINCT c.* 
+      FROM customers c 
+      JOIN credit_ledger cl ON c.id = cl.customer_id 
+      WHERE c.customer_type != 'credit'
+    `);
+    for (const cust of misclassifiedCreditCusts) {
+      const oldId = cust.id;
+      // Check if customer has RFID / wallet activity
+      const hasRfid = cust.rfid_tag && cust.rfid_tag.trim() !== '';
+      const hasWalletBal = parseFloat(cust.wallet_balance || 0) > 0;
+      const [wtRows] = await conn.query("SELECT id FROM wallet_transactions WHERE customer_id = ? LIMIT 1", [oldId]);
+      const hasWalletTx = wtRows.length > 0;
 
-        // Check if customer has RFID / wallet activity
-        const hasRfid = cust.rfid_tag && cust.rfid_tag.trim() !== '';
-        const hasWalletBal = parseFloat(cust.wallet_balance || 0) > 0;
-        const [wtRows] = await conn.query("SELECT id FROM wallet_transactions WHERE customer_id = ? LIMIT 1", [oldId]);
-        const hasWalletTx = wtRows.length > 0;
-
-        if (hasRfid || hasWalletBal || hasWalletTx) {
-          // Keep old record as 'loyalty', create separate dedicated 'credit' record
-          const [ins] = await conn.query(
-            "INSERT INTO customers (name, phone, email, customer_type, tenant_id) VALUES (?, ?, ?, 'credit', ?)",
-            [cust.name, cust.phone, cust.email, cust.tenant_id || 1]
-          );
-          const newCreditId = ins.insertId;
-          // Re-link credit_ledger entries to this new dedicated credit customer
-          await conn.query("UPDATE credit_ledger SET customer_id = ? WHERE customer_id = ?", [newCreditId, oldId]);
-          // Re-link orders where payment_mode = 'Credit'
-          await conn.query("UPDATE orders SET customer_id = ? WHERE customer_id = ? AND payment_mode = 'Credit'", [newCreditId, oldId]);
-          console.log(`Migration: Created separate Credit Customer ID ${newCreditId} for Loyalty Customer ${oldId} (${cust.name}) and migrated credit history.`);
+      if (hasRfid || hasWalletBal || hasWalletTx) {
+        // Customer has wallet activity: check if separate credit customer already exists for this phone
+        const [existingCredit] = await conn.query(
+          "SELECT id FROM customers WHERE customer_type = 'credit' AND phone = ? AND tenant_id = ?",
+          [cust.phone, cust.tenant_id || 1]
+        );
+        let creditId;
+        if (existingCredit.length > 0) {
+          creditId = existingCredit[0].id;
         } else {
-          // Customer only ever did credit — directly classify as credit customer
-          await conn.query("UPDATE customers SET customer_type = 'credit' WHERE id = ?", [oldId]);
-          console.log(`Migration: Classified Customer ${oldId} (${cust.name}) as Credit Customer.`);
+          const [ins] = await conn.query(
+            "INSERT INTO customers (name, phone, email, organization, credit_limit, customer_type, tenant_id) VALUES (?, ?, ?, ?, ?, 'credit', ?)",
+            [cust.name, cust.phone, cust.email, cust.organization, cust.credit_limit || 0, cust.tenant_id || 1]
+          );
+          creditId = ins.insertId;
         }
+        await conn.query("UPDATE credit_ledger SET customer_id = ? WHERE customer_id = ?", [creditId, oldId]);
+        await conn.query("UPDATE orders SET customer_id = ? WHERE customer_id = ? AND payment_mode = 'Credit'", [creditId, oldId]);
+        console.log(`Migration: Re-linked credit history for customer ${oldId} (${cust.name}) to dedicated Credit Customer ${creditId}.`);
+      } else {
+        // Customer only ever did credit — directly classify as credit customer
+        await conn.query("UPDATE customers SET customer_type = 'credit' WHERE id = ?", [oldId]);
+        console.log(`Migration: Classified Customer ${oldId} (${cust.name}) as Credit Customer.`);
       }
     }
+
+    // Classify any remaining customers with organization or credit_limit > 0 and no wallet activity as credit
+    await conn.query(`
+      UPDATE customers 
+      SET customer_type = 'credit' 
+      WHERE customer_type != 'credit' 
+        AND (organization IS NOT NULL AND organization != '')
+        AND (rfid_tag IS NULL OR rfid_tag = '')
+        AND (wallet_balance IS NULL OR wallet_balance = 0)
+        AND id NOT IN (SELECT DISTINCT customer_id FROM wallet_transactions WHERE customer_id IS NOT NULL)
+    `);
+
+    // Ensure any NULL customer_type is defaulted to loyalty
+    await conn.query("UPDATE customers SET customer_type = 'loyalty' WHERE customer_type IS NULL");
 
     conn.release();
   } catch (err) {
@@ -7127,18 +7146,21 @@ app.put('/api/qr/settings', async (req, res) => {
 app.get('/api/customers', async (req, res) => {
   try {
     const type = req.query.type || 'loyalty';
+    const tenantId = req.user?.tenant_id;
     let query;
-    let params;
+    let params = [];
     if (type === 'all') {
-      query = 'SELECT * FROM customers ORDER BY name';
-      params = [];
+      query = 'SELECT * FROM customers WHERE 1=1';
     } else if (type === 'credit') {
-      query = "SELECT * FROM customers WHERE customer_type = 'credit' ORDER BY name";
-      params = [];
+      query = "SELECT * FROM customers WHERE customer_type = 'credit'";
     } else {
-      query = "SELECT * FROM customers WHERE (customer_type = 'loyalty' OR customer_type IS NULL) ORDER BY name";
-      params = [];
+      query = "SELECT * FROM customers WHERE customer_type = 'loyalty'";
     }
+    if (tenantId) {
+      query += ' AND tenant_id = ?';
+      params.push(tenantId);
+    }
+    query += ' ORDER BY name';
     const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (error) {
@@ -7992,7 +8014,7 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
     const [custCountRows] = await reportPool.query(`
       SELECT COUNT(id) as total 
       FROM customers 
-      WHERE (customer_type = 'loyalty' OR customer_type IS NULL)
+      WHERE customer_type = 'loyalty'
     `);
     const totalCustomers = custCountRows[0].total;
 
@@ -8000,7 +8022,7 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
     const [loyaltyRows] = await reportPool.query(`
       SELECT IFNULL(SUM(loyalty_points), 0) as total 
       FROM customers 
-      WHERE (customer_type = 'loyalty' OR customer_type IS NULL)
+      WHERE customer_type = 'loyalty'
     `);
     const totalLoyaltyPoints = loyaltyRows[0].total || 0;
 
@@ -8011,7 +8033,7 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
              IFNULL(SUM(o.total_amount), 0) as total_spent
       FROM customers c
       LEFT JOIN orders o ON c.id = o.customer_id AND o.status != 'Cancelled'
-      WHERE (c.customer_type = 'loyalty' OR c.customer_type IS NULL)
+      WHERE c.customer_type = 'loyalty'
       GROUP BY c.id
       ORDER BY c.loyalty_points DESC, total_spent DESC
     `);
@@ -8025,7 +8047,7 @@ app.get('/api/reports/customer-analytics', async (req, res) => {
         SELECT c.id, COUNT(o.id) as order_count 
         FROM customers c
         JOIN orders o ON c.id = o.customer_id AND o.status != 'Cancelled'
-        WHERE (c.customer_type = 'loyalty' OR c.customer_type IS NULL)
+        WHERE c.customer_type = 'loyalty'
         GROUP BY c.id
       ) t
     `);
@@ -8795,7 +8817,7 @@ app.get('/api/credits/customers', async (req, res) => {
   try {
     const tenantId = req.user?.tenant_id;
     let query = `
-      SELECT c.id, c.name, c.phone, c.email, c.organization, c.credit_limit, c.tenant_id,
+      SELECT c.id, c.name, c.phone, c.email, c.organization, c.credit_limit, c.customer_type, c.tenant_id,
              IFNULL(SUM(CASE WHEN cl.type = 'Credit' THEN cl.amount ELSE 0 END), 0) - 
              IFNULL(SUM(CASE WHEN cl.type = 'Payment' THEN cl.amount ELSE 0 END), 0) as outstanding
       FROM customers c
@@ -8885,11 +8907,34 @@ app.post('/api/credits/settle', async (req, res) => {
   else payMode = 'Cash';
 
   try {
+    const [custRows] = await pool.query('SELECT id, name, customer_type FROM customers WHERE id = ?', [customer_id]);
+    if (custRows.length === 0) return res.status(404).json({ error: 'Credit customer not found.' });
+    if (custRows[0].customer_type !== 'credit') {
+      return res.status(400).json({ error: 'Only dedicated Credit Customer accounts can receive credit settlements.' });
+    }
+
+    const settleAmt = parseFloat(amount);
     await pool.query(
       'INSERT INTO credit_ledger (customer_id, amount, type, notes, is_settled, settled_date, tenant_id, payment_mode) VALUES (?, ?, "Payment", ?, 1, NOW(), ?, ?)',
-      [customer_id, parseFloat(amount), notes || `Credit settlement payment via ${payMode}`, tenantId, payMode]
+      [customer_id, settleAmt, notes || `Credit settlement payment via ${payMode}`, tenantId, payMode]
     );
-    res.json({ success: true, message: 'Credit settlement recorded successfully.' });
+
+    // Fetch updated outstanding balance
+    const [[outRow]] = await pool.query(
+      `SELECT IFNULL(SUM(CASE WHEN type = 'Credit' THEN amount ELSE 0 END), 0) - 
+              IFNULL(SUM(CASE WHEN type = 'Payment' THEN amount ELSE 0 END), 0) as outstanding
+       FROM credit_ledger WHERE customer_id = ?`,
+      [customer_id]
+    );
+
+    res.json({ 
+      success: true, 
+      message: 'Credit settlement recorded successfully.',
+      customer_id,
+      amount: settleAmt,
+      payment_mode: payMode,
+      remaining_outstanding: parseFloat(outRow?.outstanding || 0)
+    });
   } catch (error) {
     console.error('Error settling credit:', error);
     res.status(500).json({ error: 'Failed to settle credit' });
@@ -9507,8 +9552,12 @@ app.get('/api/notifications/loyalty', async (req, res) => {
   try {
     const { page = 1, limit = 50, search } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    let where = "(customer_type = 'loyalty' OR customer_type IS NULL)";
+    let where = "customer_type = 'loyalty'";
     const params = [];
+    if (req.user?.tenant_id) {
+      where += ' AND tenant_id = ?';
+      params.push(req.user.tenant_id);
+    }
     if (search) { where += ' AND (name LIKE ? OR phone LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
     const [customers] = await pool.query(
       `SELECT id,name,phone,email,loyalty_points,total_spent,total_visits,last_visit,whatsapp_opt_in,sms_opt_in,created_at,
@@ -9720,10 +9769,42 @@ app.get('/api/notifications/overview', async (req, res) => {
 // RFID & PREPAID WALLET MODULE
 // ==========================================
 
+// 0. Fetch Wallet Customers (Dedicated for Cards & Wallets module - strictly excludes credit accounts)
+app.get('/api/wallet/customers', authenticateToken, async (req, res) => {
+  try {
+    const { search, limit = 100 } = req.query;
+    const tenantId = req.user?.tenant_id;
+    let where = "customer_type = 'loyalty'";
+    const params = [];
+    if (tenantId) {
+      where += ' AND tenant_id = ?';
+      params.push(tenantId);
+    }
+    if (search && search.trim()) {
+      where += ' AND (name LIKE ? OR phone LIKE ? OR rfid_tag LIKE ?)';
+      const term = `%${search.trim()}%`;
+      params.push(term, term, term);
+    }
+    const [customers] = await pool.query(
+      `SELECT id, name, phone, email, rfid_tag, wallet_balance, loyalty_points,
+              is_mess_subscriber, mess_meals_left, mess_valid_until, created_at, customer_type
+       FROM customers 
+       WHERE ${where} 
+       ORDER BY name ASC 
+       LIMIT ?`,
+      [...params, parseInt(limit) || 100]
+    );
+    res.json({ customers, total: customers.length });
+  } catch (error) {
+    console.error('Error fetching wallet customers:', error);
+    res.status(500).json({ error: 'Failed to fetch wallet customers' });
+  }
+});
+
 // 1. Fetch Customer by RFID Tag
 app.get('/api/wallet/rfid/:tag', authenticateToken, async (req, res) => {
   try {
-    const [customers] = await pool.query('SELECT * FROM customers WHERE rfid_tag = ?', [req.params.tag]);
+    const [customers] = await pool.query('SELECT * FROM customers WHERE rfid_tag = ? AND customer_type = "loyalty"', [req.params.tag]);
     if (customers.length === 0) return res.status(404).json({ error: 'RFID Tag not found or unregistered' });
     res.json(customers[0]);
   } catch (error) {
@@ -9756,6 +9837,9 @@ app.post('/api/wallet/topup', authenticateToken, async (req, res) => {
     const [customers] = await connection.query('SELECT * FROM customers WHERE id = ? FOR UPDATE', [customer_id]);
     if (customers.length === 0) throw new Error('Customer not found');
     const customer = customers[0];
+    if (customer.customer_type === 'credit') {
+      throw new Error('Credit Customer accounts cannot be used as prepaid wallets. Top-ups are only allowed for RFID & Prepaid Wallet accounts.');
+    }
     
     const newBalance = parseFloat(customer.wallet_balance || 0) + amt;
     
@@ -9802,6 +9886,12 @@ app.put('/api/wallet/assign-rfid', authenticateToken, async (req, res) => {
   }
   const { customer_id, rfid_tag } = req.body;
   try {
+    const [customers] = await pool.query('SELECT * FROM customers WHERE id = ?', [customer_id]);
+    if (customers.length === 0) return res.status(404).json({ error: 'Customer not found' });
+    if (customers[0].customer_type === 'credit') {
+      return res.status(400).json({ error: 'Cannot assign RFID card to a Credit Customer account.' });
+    }
+
     await pool.query('UPDATE customers SET rfid_tag = ? WHERE id = ?', [rfid_tag, customer_id]);
     res.json({ message: 'RFID assigned successfully' });
   } catch (error) {

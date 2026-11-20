@@ -3268,6 +3268,22 @@ function App() {
   const [showCreditCustomerModal, setShowCreditCustomerModal] = useState(false);
   const [isSubmittingCreditCustomer, setIsSubmittingCreditCustomer] = useState(false);
   const [creditCustForm, setCreditCustForm] = useState({ name: '', phone: '', email: '', organization: '', credit_limit: '' });
+  const [settleModal, setSettleModal] = useState({
+    show: false,
+    customer: null,
+    amount: '',
+    paymentMode: 'Cash',
+    notes: '',
+    isSubmitting: false
+  });
+  const [settleItemsModal, setSettleItemsModal] = useState({
+    show: false,
+    customer: null,
+    ledgerIds: [],
+    totalAmount: 0,
+    paymentMode: 'Cash',
+    isSubmitting: false
+  });
   const [combos, setCombos] = useState([]);
   const [comboModal, setComboModal] = useState({ show: false, comboId: null, comboName: '', childItems: [] });
   const [suppliers, setSuppliers] = useState([]);
@@ -4257,6 +4273,98 @@ function App() {
       showToast(err.message, 'error');
     } finally {
       setIsSubmittingCreditCustomer(false);
+    }
+  };
+
+  const handleOpenSettleModal = (cust) => {
+    const dues = parseFloat(cust.outstanding || 0);
+    setSettleModal({
+      show: true,
+      customer: cust,
+      amount: dues > 0 ? dues.toFixed(2) : '',
+      paymentMode: 'Cash',
+      notes: '',
+      isSubmitting: false
+    });
+  };
+
+  const handleConfirmSettle = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!settleModal.customer) return;
+    const amt = parseFloat(settleModal.amount);
+    if (isNaN(amt) || amt <= 0) {
+      showToast('Please enter a valid positive settlement amount.', 'error');
+      return;
+    }
+    setSettleModal(prev => ({ ...prev, isSubmitting: true }));
+    try {
+      const res = await fetch(`${API_BASE}/credits/settle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          customer_id: settleModal.customer.id,
+          amount: amt,
+          payment_mode: settleModal.paymentMode,
+          notes: settleModal.notes.trim() || `Manual settlement via ${settleModal.paymentMode}`
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Settlement failed');
+      showToast(`✅ Settlement of ₹${amt.toFixed(2)} recorded via ${settleModal.paymentMode} for ${settleModal.customer.name}!`, 'success');
+      const custId = settleModal.customer.id;
+      setSettleModal({ show: false, customer: null, amount: '', paymentMode: 'Cash', notes: '', isSubmitting: false });
+      await fetchCreditCustomers();
+      if (selectedCreditCustomer?.id === custId) {
+        await fetchCreditLedger(custId);
+      }
+    } catch (err) {
+      showToast(err.message || 'Settlement failed', 'error');
+      setSettleModal(prev => ({ ...prev, isSubmitting: false }));
+    }
+  };
+
+  const handleOpenSettleItemsModal = (cust, ledgerIds, totalAmount) => {
+    setSettleItemsModal({
+      show: true,
+      customer: cust,
+      ledgerIds: [...ledgerIds],
+      totalAmount,
+      paymentMode: 'Cash',
+      isSubmitting: false
+    });
+  };
+
+  const handleConfirmSettleItems = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!settleItemsModal.customer || settleItemsModal.ledgerIds.length === 0) return;
+    setSettleItemsModal(prev => ({ ...prev, isSubmitting: true }));
+    try {
+      const res = await fetch(`${API_BASE}/credits/settle-items`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          customer_id: settleItemsModal.customer.id,
+          ledger_ids: settleItemsModal.ledgerIds,
+          payment_mode: settleItemsModal.paymentMode
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Settlement failed');
+      showToast(`✅ ₹${settleItemsModal.totalAmount.toFixed(2)} settled successfully via ${settleItemsModal.paymentMode}!`, 'success');
+      const custId = settleItemsModal.customer.id;
+      setSettleItemsModal({ show: false, customer: null, ledgerIds: [], totalAmount: 0, paymentMode: 'Cash', isSubmitting: false });
+      setSelectedCreditItems([]);
+      await fetchCreditCustomers();
+      await fetchCreditLedger(custId);
+    } catch (err) {
+      showToast(err.message || 'Settlement failed', 'error');
+      setSettleItemsModal(prev => ({ ...prev, isSubmitting: false }));
     }
   };
 
@@ -7231,6 +7339,283 @@ function App() {
               <button type="submit" className="btn btn-primary btn-block" disabled={isSubmittingCreditCustomer}>
                 {isSubmittingCreditCustomer ? 'Registering...' : 'Register Credit Customer'}
               </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Settle Credit Outstanding Modal */}
+      {settleModal.show && settleModal.customer && (() => {
+        const totalDue = parseFloat(settleModal.customer.outstanding || 0);
+        const settleAmt = parseFloat(settleModal.amount || 0);
+        const remainingAfter = totalDue - (isNaN(settleAmt) ? 0 : settleAmt);
+        const isExceeding = !isNaN(settleAmt) && settleAmt > totalDue;
+
+        return (
+          <div className="modal-overlay active" style={{ zIndex: 1200 }} onClick={e => { if (e.target === e.currentTarget && !settleModal.isSubmitting) setSettleModal(p => ({ ...p, show: false })); }}>
+            <div className="modal-card" style={{ maxWidth: '480px' }}>
+              <div className="modal-header">
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>💰</span> Settle Credit Outstanding
+                  </h2>
+                  <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Record debt clearance payment for credit customer house account
+                  </p>
+                </div>
+                <button className="close-btn" onClick={() => !settleModal.isSubmitting && setSettleModal(p => ({ ...p, show: false }))}>×</button>
+              </div>
+
+              <form onSubmit={handleConfirmSettle} className="modal-body" style={{ padding: '20px' }}>
+                {/* Outstanding Due Highlight Box */}
+                <div style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.12), rgba(245,158,11,0.08))', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                    <div>
+                      <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff' }}>{settleModal.customer.name}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        📞 {settleModal.customer.phone || 'No phone'}
+                        {settleModal.customer.organization && <span style={{ marginLeft: '8px', background: 'rgba(255,255,255,0.08)', padding: '1px 6px', borderRadius: '4px', color: '#93c5fd' }}>🏢 {settleModal.customer.organization}</span>}
+                      </div>
+                    </div>
+                    <span className="badge badge-danger" style={{ fontSize: '11px', padding: '3px 8px' }}>Credit Customer</span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', marginTop: '10px', borderTop: '1px dashed rgba(255,255,255,0.15)' }}>
+                    <div>
+                      <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#fca5a5', fontWeight: 600, display: 'block' }}>
+                        Credit Outstanding Amount
+                      </span>
+                      <small style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Amount owed to the canteen</small>
+                    </div>
+                    <div style={{ fontSize: '24px', fontWeight: 800, color: '#ef4444' }}>
+                      ₹{totalDue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Presets */}
+                <div style={{ marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Quick Settlement</label>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-small"
+                      style={{ flex: 1, background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.35)', fontWeight: 600, padding: '6px 10px', fontSize: '12px' }}
+                      onClick={() => setSettleModal(p => ({ ...p, amount: totalDue.toFixed(2) }))}
+                    >
+                      ⚡ Full Clearance (₹{totalDue.toFixed(2)})
+                    </button>
+                    {totalDue > 100 && (
+                      <button
+                        type="button"
+                        className="btn btn-small"
+                        style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '6px 12px', fontSize: '12px' }}
+                        onClick={() => setSettleModal(p => ({ ...p, amount: (Math.round((totalDue / 2) * 100) / 100).toFixed(2) }))}
+                      >
+                        50% (₹{(totalDue / 2).toFixed(2)})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Amount to Settle */}
+                <div className="form-group" style={{ marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <label style={{ fontSize: '12px', color: 'var(--text-main)', fontWeight: 600, margin: 0 }}>
+                      Settlement Amount (₹) <span style={{ color: 'var(--accent-danger)' }}>*</span>
+                    </label>
+                    {!isNaN(settleAmt) && settleAmt > 0 && (
+                      <span style={{ fontSize: '11px', color: remainingAfter <= 0 ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
+                        {remainingAfter <= 0 ? '✨ Dues Fully Cleared (₹0.00)' : `Remaining Due: ₹${remainingAfter.toFixed(2)}`}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontWeight: 700, fontSize: '15px' }}>₹</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      className="form-control"
+                      style={{ paddingLeft: '28px', fontSize: '16px', fontWeight: 700, height: '40px' }}
+                      placeholder="Enter amount customer is paying"
+                      value={settleModal.amount}
+                      onChange={e => setSettleModal(p => ({ ...p, amount: e.target.value }))}
+                      required
+                      autoFocus
+                    />
+                  </div>
+                  {isExceeding && (
+                    <div style={{ color: '#ef4444', fontSize: '11px', marginTop: '4px' }}>
+                      ⚠️ Settlement amount exceeds total outstanding dues of ₹{totalDue.toFixed(2)}.
+                    </div>
+                  )}
+                </div>
+
+                {/* Payment Mode Selection */}
+                <div className="form-group" style={{ marginBottom: '14px' }}>
+                  <label style={{ fontSize: '12px', color: 'var(--text-main)', fontWeight: 600, marginBottom: '6px', display: 'block' }}>
+                    Payment Tender Mode <span style={{ color: 'var(--accent-danger)' }}>*</span>
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                    {[
+                      { mode: 'Cash', icon: '💵', label: 'Cash' },
+                      { mode: 'UPI', icon: '📱', label: 'UPI' },
+                      { mode: 'Card', icon: '💳', label: 'Card' }
+                    ].map(({ mode, icon, label }) => {
+                      const active = settleModal.paymentMode === mode;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setSettleModal(p => ({ ...p, paymentMode: mode }))}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            border: active ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
+                            background: active ? 'rgba(59, 130, 246, 0.18)' : 'rgba(255,255,255,0.03)',
+                            color: active ? '#93c5fd' : 'var(--text-main)',
+                            fontWeight: active ? 700 : 500,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            fontSize: '13px',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>{icon}</span> {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <small style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', marginTop: '5px' }}>
+                    📌 This ₹{isNaN(settleAmt) ? '0.00' : settleAmt.toFixed(2)} will be credited to today's MIS Tender Reconciliation under <strong>{settleModal.paymentMode}</strong>.
+                  </small>
+                </div>
+
+                {/* Notes Input */}
+                <div className="form-group" style={{ marginBottom: '18px' }}>
+                  <label style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>
+                    Settlement Notes / Reference (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g. Cleared by Manager / GPay Ref #12345"
+                    value={settleModal.notes}
+                    onChange={e => setSettleModal(p => ({ ...p, notes: e.target.value }))}
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ flex: 1 }}
+                    onClick={() => setSettleModal(p => ({ ...p, show: false }))}
+                    disabled={settleModal.isSubmitting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-success"
+                    style={{ flex: 2, fontWeight: 700 }}
+                    disabled={settleModal.isSubmitting || !settleAmt || settleAmt <= 0}
+                  >
+                    {settleModal.isSubmitting ? 'Recording Settlement...' : `Confirm Settle ₹${(settleAmt || 0).toFixed(2)} (${settleModal.paymentMode})`}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Settle Selected Ledger Items Modal */}
+      {settleItemsModal.show && settleItemsModal.customer && (
+        <div className="modal-overlay active" style={{ zIndex: 1200 }} onClick={e => { if (e.target === e.currentTarget && !settleItemsModal.isSubmitting) setSettleItemsModal(p => ({ ...p, show: false })); }}>
+          <div className="modal-card" style={{ maxWidth: '440px' }}>
+            <div className="modal-header">
+              <div>
+                <h2 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>💰</span> Pay Selected Ledger Invoices
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Settle {settleItemsModal.ledgerIds.length} selected credit item(s) for {settleItemsModal.customer.name}
+                </p>
+              </div>
+              <button className="close-btn" onClick={() => !settleItemsModal.isSubmitting && setSettleItemsModal(p => ({ ...p, show: false }))}>×</button>
+            </div>
+
+            <form onSubmit={handleConfirmSettleItems} className="modal-body" style={{ padding: '20px' }}>
+              <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '10px', padding: '16px', marginBottom: '16px', textAlign: 'center' }}>
+                <span style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#6ee7b7', fontWeight: 600, display: 'block' }}>
+                  Total of Selected Items ({settleItemsModal.ledgerIds.length})
+                </span>
+                <div style={{ fontSize: '26px', fontWeight: 800, color: '#10b981', marginTop: '4px' }}>
+                  ₹{Number(settleItemsModal.totalAmount || 0).toFixed(2)}
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '18px' }}>
+                <label style={{ fontSize: '12px', color: 'var(--text-main)', fontWeight: 600, marginBottom: '6px', display: 'block' }}>
+                  Payment Mode <span style={{ color: 'var(--accent-danger)' }}>*</span>
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                  {['Cash', 'UPI', 'Card'].map(m => {
+                    const active = settleItemsModal.paymentMode === m;
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setSettleItemsModal(p => ({ ...p, paymentMode: m }))}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          border: active ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
+                          background: active ? 'rgba(16, 185, 129, 0.18)' : 'rgba(255,255,255,0.03)',
+                          color: active ? '#6ee7b7' : 'var(--text-main)',
+                          fontWeight: active ? 700 : 500,
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                          fontSize: '13px'
+                        }}
+                      >
+                        {m === 'Cash' ? '💵 Cash' : m === 'UPI' ? '📱 UPI' : '💳 Card'}
+                      </button>
+                    );
+                  })}
+                </div>
+                <small style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', marginTop: '6px' }}>
+                  📌 This payment will be credited to today's Reconciliation under <strong>{settleItemsModal.paymentMode}</strong>.
+                </small>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => setSettleItemsModal(p => ({ ...p, show: false }))}
+                  disabled={settleItemsModal.isSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-success"
+                  style={{ flex: 2, fontWeight: 700 }}
+                  disabled={settleItemsModal.isSubmitting}
+                >
+                  {settleItemsModal.isSubmitting ? 'Settling...' : `Confirm Settle ₹${Number(settleItemsModal.totalAmount || 0).toFixed(2)} (${settleItemsModal.paymentMode})`}
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -13186,17 +13571,13 @@ function App() {
                                   <button className="btn btn-primary btn-small" onClick={() => { setSelectedCreditCustomer(cust); setSelectedCreditItems([]); fetchCreditLedger(cust.id); }}>View Ledger</button>
                                 )}
                                 {Number(cust.outstanding) > 0 && (
-                                  <button className="btn btn-success btn-small" style={{ marginLeft: '8px' }} onClick={() => {
-                                    const amt = prompt(`Settle how much for ${cust.name}? Outstanding: ₹${Number(cust.outstanding).toFixed(2)}`);
-                                    if (amt && parseFloat(amt) > 0) {
-                                      const mode = prompt('Payment mode: Enter Cash, UPI, or Card', 'Cash') || 'Cash';
-                                      const cleanMode = ['UPI','Card'].find(m => m.toLowerCase() === mode.trim().toLowerCase()) || 'Cash';
-                                      fetch(`${API_BASE}/credits/settle`, {
-                                        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-                                        body: JSON.stringify({ customer_id: cust.id, amount: parseFloat(amt), payment_mode: cleanMode, notes: `Manual settlement via ${cleanMode}` })
-                                      }).then(() => { showToast(`Settlement of ₹${parseFloat(amt).toFixed(2)} recorded via ${cleanMode}`, 'success'); fetchCreditCustomers(); }).catch(() => showToast('Settlement failed', 'error'));
-                                    }
-                                  }}>Settle</button>
+                                  <button 
+                                    className="btn btn-success btn-small" 
+                                    style={{ marginLeft: '8px' }} 
+                                    onClick={() => handleOpenSettleModal(cust)}
+                                  >
+                                    💰 Settle Dues
+                                  </button>
                                 )}
                               </td>
                             </tr>
@@ -13215,15 +13596,12 @@ function App() {
                         <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <h3>Ledger — {selectedCreditCustomer.name}</h3>
                           {selectedCreditItems.length > 0 && (
-                            <button className="btn btn-success btn-small" onClick={() => {
-                              const mode = prompt(`Settle ₹${selectedTotal.toFixed(2)} for ${selectedCreditCustomer.name} (${selectedCreditItems.length} items). Enter payment mode: Cash, UPI, or Card`, 'Cash');
-                              if (!mode) return;
-                              const cleanMode = ['UPI','Card'].find(m => m.toLowerCase() === mode.trim().toLowerCase()) || 'Cash';
-                              fetch(`${API_BASE}/credits/settle-items`, {
-                                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-                                body: JSON.stringify({ customer_id: selectedCreditCustomer.id, ledger_ids: selectedCreditItems, payment_mode: cleanMode })
-                              }).then(r => { if (r.ok) { showToast(`₹${selectedTotal.toFixed(2)} settled successfully via ${cleanMode}!`, 'success'); setSelectedCreditItems([]); fetchCreditLedger(selectedCreditCustomer.id); fetchCreditCustomers(); } else { showToast('Settlement failed', 'error'); } }).catch(() => showToast('Settlement failed', 'error'));
-                            }}>💰 Pay Selected ({selectedCreditItems.length}) — ₹{selectedTotal.toFixed(2)}</button>
+                            <button 
+                              className="btn btn-success btn-small" 
+                              onClick={() => handleOpenSettleItemsModal(selectedCreditCustomer, selectedCreditItems, selectedTotal)}
+                            >
+                              💰 Pay Selected ({selectedCreditItems.length}) — ₹{selectedTotal.toFixed(2)}
+                            </button>
                           )}
                         </div>
                         <div className="table-container" style={{ maxHeight: '350px', overflowY: 'auto' }}>

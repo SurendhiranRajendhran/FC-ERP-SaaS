@@ -27,16 +27,16 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
   
   const [rfidInput, setRfidInput] = useState('');
   const [showRegister, setShowRegister] = useState(false);
-  const [registerForm, setRegisterForm] = useState({ name: '', phone: '', email: '', rfid_tag: '', initial_topup: '', payment_mode: 'Cash' });
+  const [registerForm, setRegisterForm] = useState({ name: '', phone: '', email: '', rfid_tag: '', initial_topup: '', payment_mode: 'Cash', customer_type: 'loyalty' });
 
   const handleRegisterCustomer = async (e) => {
     e.preventDefault(); setMsg('');
     try {
-      await api('/api/customers', { method: 'POST', body: JSON.stringify(registerForm) });
+      await api('/api/customers', { method: 'POST', body: JSON.stringify({ ...registerForm, customer_type: 'loyalty' }) });
       const toppedUp = parseFloat(registerForm.initial_topup) > 0;
       setMsg(toppedUp ? `✅ Customer Registered & ₹${fmt(registerForm.initial_topup)} Added to Wallet (${registerForm.payment_mode})!` : '✅ Customer Registered Successfully!');
       setShowRegister(false);
-      setRegisterForm({ name: '', phone: '', email: '', rfid_tag: '', initial_topup: '', payment_mode: 'Cash' });
+      setRegisterForm({ name: '', phone: '', email: '', rfid_tag: '', initial_topup: '', payment_mode: 'Cash', customer_type: 'loyalty' });
       load();
       if (refreshCustomers) refreshCustomers();
     } catch(err) { setMsg('❌ ' + err.message); }
@@ -48,8 +48,8 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // Reusing the loyalty endpoint for customer list since it returns customers with pagination/search
-      const r = await api(`/api/notifications/loyalty?search=${encodeURIComponent(search)}&limit=100`);
+      // Dedicated wallet customer endpoint strictly filtering out credit accounts
+      const r = await api(`/api/wallet/customers?search=${encodeURIComponent(search)}&limit=100`);
       setCustomers(r.customers || []);
     } catch(e) { console.error(e); }
     setLoading(false);
