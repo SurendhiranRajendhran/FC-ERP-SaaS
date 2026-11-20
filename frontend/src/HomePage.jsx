@@ -126,7 +126,7 @@ export default function HomePage() {
         /* Typography & Utilities */
         h1, h2, h3, h4 { letter-spacing: -0.03em; font-weight: 800; }
         .text-gradient {
-          background: linear-gradient(135deg, #ffffff 20%, #a5b4fc 65%, #38bdf8 100%);
+          background: linear-gradient(135deg, #fef08a 0%, #fbbf24 35%, #f97316 75%, #ea580c 100%);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
         }
@@ -136,7 +136,7 @@ export default function HomePage() {
           -webkit-text-fill-color: transparent;
         }
 
-        /* Dynamic Typing Line & Cursor (Strict single line, no wrapping) */
+        /* Dynamic Typing Line & Cursor */
         .fc-typing-line {
           display: inline-block;
           white-space: nowrap !important;
@@ -147,7 +147,7 @@ export default function HomePage() {
         }
         .fc-cursor {
           display: inline-block;
-          color: #818cf8;
+          color: #f59e0b;
           font-weight: 300;
           animation: fcCursorBlink 0.9s infinite;
           margin-left: 2px;
@@ -158,67 +158,50 @@ export default function HomePage() {
           50% { opacity: 0; }
         }
 
-        /* ================= HERO SECTION (2-COLUMN GRID) ================= */
+        /* ================= HERO SECTION (CENTERED COMMAND COCKPIT) ================= */
         .fc-hero {
           position: relative;
-          padding: 136px 5% 76px;
+          padding: 130px 5% 68px;
           overflow: visible;
-        }
-        .fc-hero-inner {
-          max-width: 1280px;
-          margin: 0 auto;
-          display: grid;
-          grid-template-columns: 1.15fr 1fr;
-          gap: 52px;
-          align-items: center;
-        }
-        @media (max-width: 980px) {
-          .fc-hero-inner {
-            grid-template-columns: 1fr;
-            text-align: center;
-            gap: 44px;
-          }
-        }
-        .fc-hero-left {
           display: flex;
           flex-direction: column;
-          align-items: flex-start;
+          align-items: center;
+          text-align: center;
+          background: radial-gradient(circle at 50% 12%, rgba(245, 158, 11, 0.09) 0%, transparent 55%), radial-gradient(circle at 20% 75%, rgba(234, 88, 12, 0.05) 0%, transparent 50%), #090d16;
         }
-        @media (max-width: 980px) {
-          .fc-hero-left {
-            align-items: center;
-          }
+        .fc-hero-center {
+          max-width: 960px;
+          margin: 0 auto 44px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
         }
         .fc-hero-badge {
           display: inline-flex;
           align-items: center;
           gap: 10px;
-          padding: 6px 18px;
+          padding: 7px 18px;
           border-radius: 9999px;
-          background: rgba(99, 102, 241, 0.10);
-          border: 1px solid rgba(99, 102, 241, 0.28);
-          color: #c7d2fe;
-          font-size: 0.85rem;
+          background: rgba(245, 158, 11, 0.12);
+          border: 1px solid rgba(245, 158, 11, 0.35);
+          color: #fde68a;
+          font-size: 0.86rem;
           font-weight: 600;
           margin-bottom: 24px;
-          box-shadow: 0 0 20px rgba(99, 102, 241, 0.12);
-        }
-        .fc-hero-badge img {
-          width: 20px;
-          height: 20px;
-          border-radius: 5px;
+          box-shadow: 0 0 24px rgba(245, 158, 11, 0.15);
         }
         .fc-hero-badge-tag {
           font-size: 0.7rem;
-          background: rgba(99, 102, 241, 0.25);
-          color: #a5b4fc;
+          background: rgba(245, 158, 11, 0.25);
+          color: #fbbf24;
           padding: 2px 8px;
           border-radius: 9999px;
           font-weight: 700;
         }
         .fc-hero h1 {
-          font-size: clamp(2.3rem, 4.4vw, 3.8rem);
-          line-height: 1.16;
+          font-size: clamp(2.35rem, 4.6vw, 4.0rem);
+          line-height: 1.15;
           margin-bottom: 22px;
           color: #f8fafc;
           font-weight: 800;
@@ -229,18 +212,16 @@ export default function HomePage() {
           color: #94a3b8;
           line-height: 1.7;
           margin-bottom: 34px;
-          max-width: 620px;
+          max-width: 760px;
+          margin-left: auto;
+          margin-right: auto;
         }
         .fc-hero-cta {
           display: flex;
           gap: 14px;
+          justify-content: center;
           flex-wrap: wrap;
-          margin-bottom: 34px;
-        }
-        @media (max-width: 980px) {
-          .fc-hero-cta {
-            justify-content: center;
-          }
+          margin-bottom: 32px;
         }
         .fc-btn {
           padding: 13px 26px;
@@ -256,15 +237,15 @@ export default function HomePage() {
           font-family: inherit;
         }
         .fc-btn-primary {
-          background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+          background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
           color: #ffffff;
-          border: 1px solid rgba(255, 255, 255, 0.18);
-          box-shadow: 0 8px 24px -4px rgba(99, 102, 241, 0.45);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          box-shadow: 0 8px 24px -4px rgba(245, 158, 11, 0.45);
         }
         .fc-btn-primary:hover {
-          background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+          background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
           transform: translateY(-2px);
-          box-shadow: 0 12px 30px -4px rgba(99, 102, 241, 0.6);
+          box-shadow: 0 12px 30px -4px rgba(245, 158, 11, 0.6);
         }
         .fc-btn-outline {
           background: rgba(255, 255, 255, 0.04);
@@ -279,28 +260,24 @@ export default function HomePage() {
         }
         .fc-btn-ghost-nav {
           background: transparent;
-          color: #94a3b8;
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          color: #cbd5e1;
+          border: 1px solid rgba(255, 255, 255, 0.12);
         }
         .fc-btn-ghost-nav:hover {
           color: #ffffff;
-          background: rgba(255, 255, 255, 0.06);
-          border-color: rgba(255, 255, 255, 0.2);
+          background: rgba(255, 255, 255, 0.08);
+          border-color: rgba(255, 255, 255, 0.25);
           transform: translateY(-2px);
         }
 
-        /* Hero Trust Chips */
+        /* Hero Trust Chips Bar */
         .fc-hero-chips {
           display: flex;
           gap: 12px;
+          justify-content: center;
           flex-wrap: wrap;
           font-size: 0.84rem;
           color: #cbd5e1;
-        }
-        @media (max-width: 980px) {
-          .fc-hero-chips {
-            justify-content: center;
-          }
         }
         .fc-hero-chip {
           display: inline-flex;
@@ -319,136 +296,338 @@ export default function HomePage() {
           border-radius: 50%;
           box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
         }
-
-        /* Hero Right Visual: Elegant Dashboard Mockup Device Frame */
-        .fc-hero-visual {
-          width: 100%;
+        .fc-chip-dot.amber {
+          background: #f59e0b;
+          box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
         }
-        .fc-hero-device-frame {
+        .fc-chip-dot.purple {
+          background: #a855f7;
+          box-shadow: 0 0 8px rgba(168, 85, 247, 0.6);
+        }
+        .fc-chip-dot.blue {
+          background: #0ea5e9;
+          box-shadow: 0 0 8px rgba(14, 165, 233, 0.6);
+        }
+
+        /* ================= FOOD COURT COMMAND CONSOLE (SIMULATION DECK) ================= */
+        .fc-console-deck {
+          width: 100%;
+          max-width: 1240px;
+          margin: 0 auto;
           position: relative;
-          background: #111827;
+          background: #0d131f;
           border: 1px solid rgba(255, 255, 255, 0.12);
           border-radius: 22px;
           overflow: hidden;
-          box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.85), 0 0 50px -10px rgba(99, 102, 241, 0.25);
+          box-shadow: 0 25px 70px -15px rgba(0, 0, 0, 0.85), 0 0 50px -10px rgba(245, 158, 11, 0.18);
+          text-align: left;
           transition: transform 0.3s ease, border-color 0.3s ease;
         }
-        .fc-hero-device-frame:hover {
-          transform: translateY(-4px);
-          border-color: rgba(99, 102, 241, 0.35);
+        .fc-console-deck:hover {
+          transform: translateY(-3px);
+          border-color: rgba(245, 158, 11, 0.35);
         }
-        .fc-hero-device-topbar {
+        .fc-console-topbar {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 12px 18px;
-          background: rgba(15, 23, 42, 0.95);
+          padding: 14px 20px;
+          background: rgba(10, 16, 28, 0.98);
           border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-          font-size: 0.78rem;
+          font-size: 0.8rem;
           color: #94a3b8;
+          flex-wrap: wrap;
+          gap: 12px;
         }
-        .fc-device-dots {
+        .fc-console-dots {
           display: flex;
           gap: 6px;
           align-items: center;
         }
-        .fc-dot {
+        .fc-console-dot {
           width: 10px;
           height: 10px;
           border-radius: 50%;
         }
-        .fc-dot-red { background: #ef4444; }
-        .fc-dot-yellow { background: #f59e0b; }
-        .fc-dot-green { background: #10b981; }
-        .fc-device-title {
+        .fc-cdot-red { background: #ef4444; }
+        .fc-cdot-yellow { background: #f59e0b; }
+        .fc-cdot-green { background: #10b981; }
+        .fc-console-title {
+          font-family: 'JetBrains Mono', monospace;
+          color: #cbd5e1;
+          font-weight: 500;
+          font-size: 0.78rem;
+        }
+        .fc-console-live-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 3px 10px;
+          border-radius: 9999px;
+          background: rgba(16, 185, 129, 0.12);
+          border: 1px solid rgba(16, 185, 129, 0.3);
+          color: #34d399;
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+        }
+        .fc-console-live-indicator {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #10b981;
+          box-shadow: 0 0 8px #10b981;
+          animation: fcIndicatorPulse 1.8s infinite;
+        }
+        @keyframes fcIndicatorPulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.4; transform: scale(0.85); }
+        }
+        .fc-console-stats-pill {
+          font-size: 0.75rem;
+          color: #94a3b8;
+          background: rgba(255, 255, 255, 0.04);
+          padding: 3px 10px;
+          border-radius: 6px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Console 3-Column Grid */
+        .fc-console-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 1px;
+          background: rgba(255, 255, 255, 0.06);
+        }
+        @media (max-width: 960px) {
+          .fc-console-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+        .fc-console-col {
+          background: #0f172a;
+          padding: 22px;
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+        .fc-col-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+          padding-bottom: 12px;
+        }
+        .fc-col-title {
+          font-size: 0.92rem;
+          font-weight: 700;
+          color: #f8fafc;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .fc-col-tag {
+          font-size: 0.68rem;
+          padding: 2px 7px;
+          border-radius: 6px;
+          background: rgba(255, 255, 255, 0.06);
+          color: #94a3b8;
+          font-weight: 600;
+        }
+
+        /* Column 1: POS Ticket Items */
+        .fc-pos-invoice-card {
+          background: rgba(15, 23, 42, 0.7);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 12px;
+          padding: 14px;
+        }
+        .fc-pos-inv-meta {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.76rem;
+          color: #94a3b8;
+          margin-bottom: 10px;
+          font-family: 'JetBrains Mono', monospace;
+        }
+        .fc-pos-item-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 7px 0;
+          font-size: 0.82rem;
+          border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+        }
+        .fc-pos-item-name {
+          color: #e2e8f0;
           display: flex;
           align-items: center;
           gap: 6px;
-          font-weight: 500;
+        }
+        .fc-pos-stall-badge {
+          font-size: 0.66rem;
+          padding: 1px 5px;
+          border-radius: 4px;
+          background: rgba(245, 158, 11, 0.14);
+          color: #fbbf24;
+          font-weight: 600;
+        }
+        .fc-pos-item-price {
+          color: #f8fafc;
+          font-weight: 600;
+        }
+        .fc-pos-total-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding-top: 10px;
+          font-size: 0.88rem;
+          font-weight: 700;
+          color: #f8fafc;
+        }
+        .fc-pos-tender-badge {
+          font-size: 0.72rem;
+          padding: 3px 8px;
+          border-radius: 6px;
+          background: rgba(16, 185, 129, 0.15);
+          color: #34d399;
+          font-weight: 600;
+        }
+        .fc-pos-status-bar {
+          font-size: 0.74rem;
+          color: #10b981;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding-top: 4px;
+        }
+
+        /* Column 2: Kitchen KDS Cards */
+        .fc-kds-card {
+          background: rgba(15, 23, 42, 0.7);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 10px;
+          padding: 11px 13px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .fc-kds-card.prep {
+          border-left: 3px solid #f59e0b;
+        }
+        .fc-kds-card.ready {
+          border-left: 3px solid #10b981;
+        }
+        .fc-kds-card.queued {
+          border-left: 3px solid #6366f1;
+        }
+        .fc-kds-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.78rem;
+        }
+        .fc-kds-stall {
+          font-weight: 700;
+          color: #f8fafc;
+        }
+        .fc-kds-timer {
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 0.72rem;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-weight: 600;
+        }
+        .fc-kds-timer.prep {
+          background: rgba(245, 158, 11, 0.15);
+          color: #fbbf24;
+        }
+        .fc-kds-timer.ready {
+          background: rgba(16, 185, 129, 0.15);
+          color: #34d399;
+        }
+        .fc-kds-timer.queued {
+          background: rgba(99, 102, 241, 0.15);
+          color: #a5b4fc;
+        }
+        .fc-kds-items {
+          font-size: 0.76rem;
           color: #cbd5e1;
         }
-        .fc-device-live-badge {
-          font-size: 0.68rem;
+
+        /* Column 3: Split Payout Ledgers */
+        .fc-payout-card {
+          background: rgba(15, 23, 42, 0.7);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 12px;
+          padding: 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .fc-payout-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.8rem;
+          padding-bottom: 8px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .fc-payout-vendor {
+          font-weight: 600;
+          color: #e2e8f0;
+        }
+        .fc-payout-math {
+          text-align: right;
+        }
+        .fc-payout-net {
+          color: #34d399;
           font-weight: 700;
+          font-size: 0.85rem;
+        }
+        .fc-payout-fee {
+          font-size: 0.68rem;
+          color: #94a3b8;
+        }
+        .fc-payout-footer {
+          margin-top: 4px;
+          padding-top: 8px;
+          font-size: 0.74rem;
           color: #10b981;
-          background: rgba(16, 185, 129, 0.12);
-          padding: 2px 8px;
-          border-radius: 10px;
-          border: 1px solid rgba(16, 185, 129, 0.25);
+          display: flex;
+          align-items: center;
+          gap: 6px;
         }
-        .fc-hero-img-showcase {
-          position: relative;
-          overflow: hidden;
-        }
-        .fc-hero-img-showcase img {
-          width: 100%;
-          height: 420px;
-          object-fit: cover;
-          display: block;
-          filter: contrast(1.05) brightness(0.9);
-          transition: transform 0.4s ease;
-        }
-        .fc-hero-device-frame:hover .fc-hero-img-showcase img {
-          transform: scale(1.02);
-        }
-        .fc-floating-pill {
+
+        /* Floating Pills for Console */
+        .fc-console-pill {
           position: absolute;
           display: flex;
           align-items: center;
-          gap: 10px;
-          background: rgba(15, 23, 42, 0.9);
-          border: 1px solid rgba(255, 255, 255, 0.15);
+          gap: 8px;
+          background: rgba(10, 16, 28, 0.94);
+          border: 1px solid rgba(255, 255, 255, 0.16);
           backdrop-filter: blur(14px);
-          padding: 8px 14px;
-          border-radius: 12px;
-          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
-          font-size: 0.82rem;
+          padding: 7px 14px;
+          border-radius: 9999px;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+          font-size: 0.78rem;
           color: #f8fafc;
           pointer-events: none;
           z-index: 2;
         }
-        .fc-floating-pill strong {
-          display: block;
-          font-size: 0.82rem;
-          font-weight: 700;
-          color: #f8fafc;
+        .fc-cpill-top-right {
+          top: -12px;
+          right: 24px;
+          border-color: rgba(245, 158, 11, 0.45);
         }
-        .fc-floating-pill small {
-          display: block;
-          font-size: 0.72rem;
-          color: #94a3b8;
+        .fc-cpill-bottom-left {
+          bottom: -12px;
+          left: 24px;
+          border-color: rgba(16, 185, 129, 0.45);
         }
-        .fc-float-icon {
-          font-size: 1.1rem;
-        }
-        .fc-float-top-right {
-          top: 16px;
-          right: 16px;
-          border-color: rgba(99, 102, 241, 0.35);
-        }
-        .fc-float-bottom-left {
-          bottom: 16px;
-          left: 16px;
-          border-color: rgba(16, 185, 129, 0.35);
-        }
-        .fc-float-bottom-right {
-          bottom: 16px;
-          right: 16px;
-          border-color: rgba(245, 158, 11, 0.35);
-        }
-        @media (max-width: 980px) {
-          .fc-hero-img-showcase img {
-            height: 320px;
-          }
-          .fc-float-bottom-right {
-            display: none;
-          }
-        }
-        @media (max-width: 560px) {
-          .fc-hero-img-showcase img {
-            height: 240px;
-          }
-          .fc-floating-pill {
+        @media (max-width: 768px) {
+          .fc-console-pill {
             display: none;
           }
         }
@@ -543,9 +722,9 @@ export default function HomePage() {
           margin-bottom: 60px;
         }
         .fc-section-tag {
-          color: #818cf8;
-          background: rgba(99, 102, 241, 0.12);
-          border: 1px solid rgba(99, 102, 241, 0.25);
+          color: #fbbf24;
+          background: rgba(245, 158, 11, 0.12);
+          border: 1px solid rgba(245, 158, 11, 0.3);
           padding: 4px 14px;
           border-radius: 9999px;
           font-weight: 700;
@@ -635,8 +814,8 @@ export default function HomePage() {
         }
         .fc-flow-card:hover {
           transform: translateY(-4px);
-          border-color: rgba(99, 102, 241, 0.4);
-          box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 102, 241, 0.15);
+          border-color: rgba(245, 158, 11, 0.4);
+          box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.5), 0 0 20px rgba(245, 158, 11, 0.15);
         }
         .fc-flow-card-header {
           display: flex;
@@ -648,9 +827,9 @@ export default function HomePage() {
           width: 36px;
           height: 36px;
           border-radius: 10px;
-          background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(79, 70, 229, 0.15));
-          border: 1px solid rgba(99, 102, 241, 0.35);
-          color: #a5b4fc;
+          background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(234, 88, 12, 0.15));
+          border: 1px solid rgba(245, 158, 11, 0.35);
+          color: #fde68a;
           font-weight: 800;
           font-size: 0.88rem;
           display: flex;
@@ -794,16 +973,16 @@ export default function HomePage() {
           box-shadow: 0 20px 45px -12px rgba(0, 0, 0, 0.6);
         }
         .fc-pricing-featured {
-          background: linear-gradient(180deg, rgba(30, 27, 75, 0.85) 0%, rgba(17, 24, 39, 0.95) 100%);
-          border: 2px solid #6366f1;
-          box-shadow: 0 20px 50px -10px rgba(99, 102, 241, 0.35);
+          background: linear-gradient(180deg, rgba(69, 26, 3, 0.45) 0%, rgba(17, 24, 39, 0.95) 100%);
+          border: 2px solid #f59e0b;
+          box-shadow: 0 20px 50px -10px rgba(245, 158, 11, 0.35);
         }
         .fc-pricing-popular-badge {
           position: absolute;
           top: -13px;
           left: 50%;
           transform: translateX(-50%);
-          background: linear-gradient(135deg, #6366f1 0%, #38bdf8 100%);
+          background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
           color: #ffffff;
           font-size: 0.74rem;
           font-weight: 800;
@@ -811,7 +990,7 @@ export default function HomePage() {
           letter-spacing: 0.06em;
           padding: 5px 16px;
           border-radius: 9999px;
-          box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+          box-shadow: 0 4px 14px rgba(245, 158, 11, 0.45);
         }
         .fc-pricing-tier-name {
           font-size: 1.35rem;
@@ -1212,104 +1391,249 @@ export default function HomePage() {
       {/* Modern Sticky Nav */}
       <Navbar />
 
-      {/* ================= HERO SECTION ================= */}
+      {/* ================= HERO SECTION (CENTERED COMMAND COCKPIT) ================= */}
       <section id="home" className="fc-hero">
-        <div className="fc-hero-inner">
-          {/* Left Column: Copy & Dynamic Typing Headline */}
-          <div className="fc-hero-left">
-            <div className="fc-hero-badge">
-              <img src="/favicon.svg" alt="FC-ERP" />
-              <span>Multi-Vendor Food Court &amp; Institutional Canteen OS</span>
-              <span className="fc-hero-badge-tag">v1.1.4</span>
-            </div>
+        <div className="fc-hero-center">
+          <div className="fc-hero-badge">
+            <span style={{ fontSize: '1rem' }}>🍽️</span>
+            <span>Multi-Vendor Food Court &amp; Institutional Canteen OS</span>
+            <span className="fc-hero-badge-tag">v1.1.4</span>
+          </div>
 
-            <h1>
-              Smart Food Court &amp; Canteen Operations, <br />
-              <span className="fc-typing-line">
-                <span className="text-gradient fc-typing-text">{typedText}</span>
-                <span className="fc-cursor">|</span>
+          <h1>
+            Smart Food Court &amp; Canteen Operations, <br />
+            <span className="fc-typing-line">
+              <span className="text-gradient fc-typing-text">{typedText}</span>
+              <span className="fc-cursor">|</span>
+            </span>
+          </h1>
+
+          <p>
+            A high-performance cloud ERP engineered for multi-stall food courts, campus dining halls, and institutional canteens. Accelerate counter checkout, route orders to kitchen screens instantly, and automate vendor payouts in real-time.
+          </p>
+
+          <div className="fc-hero-cta">
+            <a href="/signup" className="fc-btn fc-btn-primary">
+              <span>Register Your Food Court</span>
+              <span>→</span>
+            </a>
+            <a href="/signin" className="fc-btn fc-btn-ghost-nav">
+              <span>Sign In to Terminal</span>
+            </a>
+            <button
+              type="button"
+              className="fc-btn fc-btn-outline"
+              onClick={() => scrollTo('overview')}
+            >
+              <span>Explore Architecture ↓</span>
+            </button>
+          </div>
+
+          {/* Centered Operational Value Chips */}
+          <div className="fc-hero-chips">
+            <div className="fc-hero-chip">
+              <span className="fc-chip-dot"></span>
+              <span>⚡ 1.2s Ticket Speed</span>
+            </div>
+            <div className="fc-hero-chip">
+              <span className="fc-chip-dot amber"></span>
+              <span>🛡️ Multi-Vendor Revenue Isolation</span>
+            </div>
+            <div className="fc-hero-chip">
+              <span className="fc-chip-dot purple"></span>
+              <span>🍳 Live Kitchen KDS</span>
+            </div>
+            <div className="fc-hero-chip">
+              <span className="fc-chip-dot blue"></span>
+              <span>💳 RFID Dining Cards &amp; QR</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Centered Food Court Command Console Simulation Deck */}
+        <div className="fc-console-deck">
+          {/* Floating Pill Badges */}
+          <div className="fc-console-pill fc-cpill-top-right">
+            <span>⚡</span>
+            <span>1.2s Counter Speed</span>
+          </div>
+          <div className="fc-console-pill fc-cpill-bottom-left">
+            <span>🛡️</span>
+            <span>100% Isolated Vendor Ledgers</span>
+          </div>
+
+          {/* Console Window Topbar */}
+          <div className="fc-console-topbar">
+            <div className="fc-console-dots">
+              <span className="fc-console-dot fc-cdot-red"></span>
+              <span className="fc-console-dot fc-cdot-yellow"></span>
+              <span className="fc-console-dot fc-cdot-green"></span>
+              <span className="fc-console-title" style={{ marginLeft: '8px' }}>
+                fc-erp.terminal · central-station-01 · active-mesh
               </span>
-            </h1>
-
-            <p>
-              A high-performance cloud ERP engineered for multi-stall food courts, campus dining halls, and institutional canteens. Accelerate counter checkout, route orders to kitchen screens instantly, and automate vendor payouts in real-time.
-            </p>
-
-            <div className="fc-hero-cta">
-              <a href="/signup" className="fc-btn fc-btn-primary">
-                <span>Register Your Food Court</span>
-                <span>→</span>
-              </a>
-              <button
-                type="button"
-                className="fc-btn fc-btn-outline"
-                onClick={() => scrollTo('overview')}
-              >
-                <span>Explore Platform</span>
-              </button>
-              <a href="/signin" className="fc-btn fc-btn-ghost-nav">
-                <span>Sign In to Terminal</span>
-              </a>
             </div>
-
-            {/* Chips: Speed and Revenue Isolation only */}
-            <div className="fc-hero-chips">
-              <div className="fc-hero-chip">
-                <span className="fc-chip-dot"></span>
-                <span>⚡ 1.2s Ticket Speed</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div className="fc-console-live-badge">
+                <span className="fc-console-live-indicator"></span>
+                <span>LIVE ORDER MESH</span>
               </div>
-              <div className="fc-hero-chip">
-                <span className="fc-chip-dot"></span>
-                <span>🛡️ Multi-Vendor Revenue Isolation</span>
+              <div className="fc-console-stats-pill">
+                18 Active Orders · ₹84,520 Gross · 0.8s SLA
               </div>
             </div>
           </div>
 
-          {/* Right Column: Terminal Device Frame with Live Status & Metrics */}
-          <div className="fc-hero-visual">
-            <div className="fc-hero-device-frame">
-              <div className="fc-hero-device-topbar">
-                <div className="fc-device-dots">
-                  <span className="fc-dot fc-dot-red"></span>
-                  <span className="fc-dot fc-dot-yellow"></span>
-                  <span className="fc-dot fc-dot-green"></span>
+          {/* Console 3-Column Operational Grid */}
+          <div className="fc-console-grid">
+            {/* Column 1: Central POS Invoicing */}
+            <div className="fc-console-col">
+              <div className="fc-col-header">
+                <div className="fc-col-title">
+                  <span>🖥️</span>
+                  <span>Central POS Counter #1</span>
                 </div>
-                <div className="fc-device-title">
-                  <span>fc-erp.terminal · active</span>
-                </div>
-                <div className="fc-device-live-badge">● LIVE</div>
+                <span className="fc-col-tag">Split Billing</span>
               </div>
 
-              <div className="fc-hero-img-showcase">
-                <img
-                  src="https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1200&q=80"
-                  alt="Modern Food Court &amp; Canteen Operations"
-                  loading="eager"
-                />
+              <div className="fc-pos-invoice-card">
+                <div className="fc-pos-inv-meta">
+                  <span>INV #FC-9042</span>
+                  <span>TABLE 14 / COUNTER</span>
+                </div>
+                <div className="fc-pos-item-row">
+                  <div className="fc-pos-item-name">
+                    <span className="fc-pos-stall-badge">Tandoor Grill</span>
+                    <span>Butter Chicken Platter</span>
+                  </div>
+                  <span className="fc-pos-item-price">₹360</span>
+                </div>
+                <div className="fc-pos-item-row">
+                  <div className="fc-pos-item-name">
+                    <span className="fc-pos-stall-badge">Beverage Barn</span>
+                    <span>2x Mango Lassi</span>
+                  </div>
+                  <span className="fc-pos-item-price">₹140</span>
+                </div>
+                <div className="fc-pos-item-row">
+                  <div className="fc-pos-item-name">
+                    <span className="fc-pos-stall-badge">South Flavors</span>
+                    <span>1x Masala Dosa</span>
+                  </div>
+                  <span className="fc-pos-item-price">₹80</span>
+                </div>
+                <div className="fc-pos-total-row">
+                  <span>Unified Bill Total</span>
+                  <span>₹580.00</span>
+                </div>
+              </div>
 
-                <div className="fc-floating-pill fc-float-top-right">
-                  <span className="fc-float-icon">⚡</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="fc-pos-tender-badge">Paid: UPI / QR Scan</span>
+                <span style={{ fontSize: '0.74rem', color: '#94a3b8' }}>14:28:10 IST</span>
+              </div>
+
+              <div className="fc-pos-status-bar">
+                <span>✓</span>
+                <span>3 Split KOTs Auto-Dispatched to Stalls</span>
+              </div>
+            </div>
+
+            {/* Column 2: Live Kitchen KDS Routing */}
+            <div className="fc-console-col">
+              <div className="fc-col-header">
+                <div className="fc-col-title">
+                  <span>🍳</span>
+                  <span>Live Kitchen KDS Mesh</span>
+                </div>
+                <span className="fc-col-tag">Real-Time</span>
+              </div>
+
+              {/* KDS Ticket 1 */}
+              <div className="fc-kds-card prep">
+                <div className="fc-kds-head">
+                  <span className="fc-kds-stall">Stall #1 · Tandoor Grill</span>
+                  <span className="fc-kds-timer prep">03:25 ⏱️ PREPARING</span>
+                </div>
+                <div className="fc-kds-items">
+                  KOT #1041 · 1x Butter Chicken Platter (Medium Spice)
+                </div>
+              </div>
+
+              {/* KDS Ticket 2 */}
+              <div className="fc-kds-card ready">
+                <div className="fc-kds-head">
+                  <span className="fc-kds-stall">Stall #2 · Beverage Barn</span>
+                  <span className="fc-kds-timer ready">READY FOR PICKUP 🔔</span>
+                </div>
+                <div className="fc-kds-items">
+                  KOT #1042 · 2x Mango Lassi (Chilled Glass)
+                </div>
+              </div>
+
+              {/* KDS Ticket 3 */}
+              <div className="fc-kds-card queued">
+                <div className="fc-kds-head">
+                  <span className="fc-kds-stall">Stall #3 · South Flavors</span>
+                  <span className="fc-kds-timer queued">00:50 ⏱️ QUEUED</span>
+                </div>
+                <div className="fc-kds-items">
+                  KOT #1043 · 1x Crispy Masala Dosa
+                </div>
+              </div>
+
+              <div style={{ fontSize: '0.74rem', color: '#38bdf8', paddingTop: '4px' }}>
+                ⚡ Average Stall Prep SLA: 4m 10s · Expo Sync Active
+              </div>
+            </div>
+
+            {/* Column 3: Automated Multi-Vendor Payout */}
+            <div className="fc-console-col">
+              <div className="fc-col-header">
+                <div className="fc-col-title">
+                  <span>⚖️</span>
+                  <span>Automated Revenue Split</span>
+                </div>
+                <span className="fc-col-tag">Instant Payout</span>
+              </div>
+
+              <div className="fc-payout-card">
+                <div className="fc-payout-row">
                   <div>
-                    <strong>1.2s Checkout</strong>
-                    <small>High-Throughput POS</small>
+                    <div className="fc-payout-vendor">Tandoor Grill</div>
+                    <div className="fc-payout-fee">Gross: ₹360 · Comm (12%): ₹43.20</div>
+                  </div>
+                  <div className="fc-payout-math">
+                    <div className="fc-payout-net">₹316.80</div>
+                    <div className="fc-payout-fee">Net Payout</div>
                   </div>
                 </div>
 
-                <div className="fc-floating-pill fc-float-bottom-left">
-                  <span className="fc-float-icon">🛡️</span>
+                <div className="fc-payout-row">
                   <div>
-                    <strong>Isolated Ledgers</strong>
-                    <small>Multi-Vendor Payouts</small>
+                    <div className="fc-payout-vendor">Beverage Barn</div>
+                    <div className="fc-payout-fee">Gross: ₹140 · Comm (15%): ₹21.00</div>
+                  </div>
+                  <div className="fc-payout-math">
+                    <div className="fc-payout-net">₹119.00</div>
+                    <div className="fc-payout-fee">Net Payout</div>
                   </div>
                 </div>
 
-                <div className="fc-floating-pill fc-float-bottom-right">
-                  <span className="fc-float-icon">🍳</span>
+                <div className="fc-payout-row" style={{ borderBottom: 'none' }}>
                   <div>
-                    <strong>Live Kitchen KDS</strong>
-                    <small>Instant Stall Routing</small>
+                    <div className="fc-payout-vendor">South Flavors</div>
+                    <div className="fc-payout-fee">Gross: ₹80 · Comm (10%): ₹8.00</div>
+                  </div>
+                  <div className="fc-payout-math">
+                    <div className="fc-payout-net">₹72.00</div>
+                    <div className="fc-payout-fee">Net Payout</div>
                   </div>
                 </div>
+              </div>
+
+              <div className="fc-payout-footer">
+                <span>✓</span>
+                <span>Reconciled: ₹580.00 · Zero Ledger Discrepancy</span>
               </div>
             </div>
           </div>
@@ -1615,7 +1939,7 @@ export default function HomePage() {
           <div className="fc-pricing-card fc-pricing-featured">
             <div className="fc-pricing-popular-badge">Most Popular</div>
             <div className="fc-pricing-tier-name">Canteen Pro</div>
-            <div className="fc-pricing-tier-badge" style={{ color: '#a5b4fc' }}>Corporate &amp; Hospitals</div>
+            <div className="fc-pricing-tier-badge" style={{ color: '#fbbf24' }}>Corporate &amp; Hospitals</div>
             <div className="fc-pricing-amount text-gradient">₹20,000</div>
             <div className="fc-pricing-period">per year / kitchen</div>
             <div className="fc-pricing-desc">
@@ -1706,9 +2030,9 @@ export default function HomePage() {
                     <div className="fc-th-plan">Canteen Basic</div>
                     <div className="fc-th-price">₹12,000/yr</div>
                   </th>
-                  <th style={{ width: '16%', background: 'rgba(99, 102, 241, 0.12)' }}>
-                    <div className="fc-th-badge">POPULAR</div>
-                    <div className="fc-th-plan" style={{ color: '#a5b4fc' }}>Canteen Pro</div>
+                  <th style={{ width: '16%', background: 'rgba(245, 158, 11, 0.10)' }}>
+                    <div className="fc-th-badge" style={{ background: '#f59e0b', color: '#090d16', fontWeight: 800 }}>POPULAR</div>
+                    <div className="fc-th-plan" style={{ color: '#fbbf24' }}>Canteen Pro</div>
                     <div className="fc-th-price">₹20,000/yr</div>
                   </th>
                   <th style={{ width: '16%' }}>

@@ -9,8 +9,8 @@ export default function Navbar() {
     const handleScroll = () => {
       setScrolled(window.scrollY > 20);
 
-      // Section spy
-      const sections = ['home', 'overview', 'features', 'pricing', 'pwa', 'faq', 'contact'];
+      // Section spy (Only nav items: overview, pricing, faq, contact)
+      const sections = ['home', 'overview', 'pricing', 'faq', 'contact'];
       for (const section of sections) {
         const el = document.getElementById(section);
         if (el) {
@@ -75,14 +75,14 @@ export default function Navbar() {
           width: 36px;
           height: 36px;
           border-radius: 10px;
-          box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
+          box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
           object-fit: contain;
         }
         .fc-nav-badge {
           font-size: 0.68rem;
-          background: rgba(99, 102, 241, 0.15);
-          color: #818cf8;
-          border: 1px solid rgba(99, 102, 241, 0.3);
+          background: rgba(245, 158, 11, 0.15);
+          color: #fbbf24;
+          border: 1px solid rgba(245, 158, 11, 0.35);
           padding: 2px 7px;
           border-radius: 9999px;
           font-weight: 700;
@@ -115,7 +115,7 @@ export default function Navbar() {
           left: 0;
           right: 0;
           height: 2px;
-          background: linear-gradient(90deg, #6366f1, #38bdf8);
+          background: linear-gradient(90deg, #f59e0b, #ea580c);
           border-radius: 2px;
         }
         .fc-nav-actions {
@@ -141,7 +141,7 @@ export default function Navbar() {
           transform: translateY(-1px);
         }
         .fc-btn-register {
-          background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+          background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
           border: 1px solid rgba(255, 255, 255, 0.18);
           color: #ffffff;
           padding: 8px 22px;
@@ -151,12 +151,12 @@ export default function Navbar() {
           cursor: pointer;
           transition: all 0.2s;
           font-family: inherit;
-          box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+          box-shadow: 0 4px 16px rgba(245, 158, 11, 0.4);
         }
         .fc-btn-register:hover {
-          background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+          background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
           transform: translateY(-1px);
-          box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+          box-shadow: 0 6px 20px rgba(245, 158, 11, 0.55);
         }
         .fc-hamburger {
           display: none;
@@ -249,7 +249,7 @@ export default function Navbar() {
           <span className="fc-nav-badge">v1.1.4</span>
         </a>
 
-        {/* Desktop Links */}
+        {/* Desktop Links (Overview, Pricing Plans, FAQ, Contact) */}
         <div className="fc-nav-links">
           <button
             type="button"
@@ -260,24 +260,10 @@ export default function Navbar() {
           </button>
           <button
             type="button"
-            className={`fc-nav-link ${activeSection === 'features' ? 'active' : ''}`}
-            onClick={() => handleNavClick('features')}
-          >
-            Features
-          </button>
-          <button
-            type="button"
             className={`fc-nav-link ${activeSection === 'pricing' ? 'active' : ''}`}
             onClick={() => handleNavClick('pricing')}
           >
             Pricing Plans
-          </button>
-          <button
-            type="button"
-            className={`fc-nav-link ${activeSection === 'pwa' ? 'active' : ''}`}
-            onClick={() => handleNavClick('pwa')}
-          >
-            Mobile PWA
           </button>
           <button
             type="button"
@@ -322,7 +308,7 @@ export default function Navbar() {
         </div>
       </nav>
 
-      {/* Mobile Menu Drawer */}
+      {/* Mobile Menu Drawer (Overview, Pricing Plans, FAQ, Contact) */}
       {mobileOpen && (
         <div className="fc-mobile-drawer">
           <button
@@ -335,26 +321,10 @@ export default function Navbar() {
           </button>
           <button
             type="button"
-            className={`fc-mobile-link ${activeSection === 'features' ? 'active' : ''}`}
-            onClick={() => handleNavClick('features')}
-          >
-            <span>Core Features</span>
-            <span>→</span>
-          </button>
-          <button
-            type="button"
             className={`fc-mobile-link ${activeSection === 'pricing' ? 'active' : ''}`}
             onClick={() => handleNavClick('pricing')}
           >
             <span>Pricing &amp; Plans</span>
-            <span>→</span>
-          </button>
-          <button
-            type="button"
-            className={`fc-mobile-link ${activeSection === 'pwa' ? 'active' : ''}`}
-            onClick={() => handleNavClick('pwa')}
-          >
-            <span>Mobile PWA &amp; POS</span>
             <span>→</span>
           </button>
           <button
