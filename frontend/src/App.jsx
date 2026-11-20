@@ -3261,6 +3261,28 @@ function App() {
   const [reportDateRange, setReportDateRange] = useState({ startDate: '', endDate: '' });
   const [reconData, setReconData] = useState(null);
   const [reconDate, setReconDate] = useState(() => getISTTodayString());
+  const [reconStaffId, setReconStaffId] = useState('');
+
+  // Auto-sync / auto-select authorized staff for daily reconciliation submission
+  useEffect(() => {
+    if (reconData?.authorizedStaff && reconData.authorizedStaff.length > 0) {
+      const staffList = reconData.authorizedStaff;
+      const alreadyValid = staffList.some(s => String(s.id) === String(reconStaffId));
+      if (!alreadyValid) {
+        // If current logged-in user is in authorizedStaff, select them by default
+        const matchUser = staffList.find(s => String(s.id) === String(user?.id));
+        if (matchUser) {
+          setReconStaffId(String(matchUser.id));
+        } else if (staffList.length === 1) {
+          setReconStaffId(String(staffList[0].id));
+        } else {
+          setReconStaffId(String(staffList[0].id));
+        }
+      }
+    } else {
+      setReconStaffId('');
+    }
+  }, [reconData, user]);
   const [creditCustomers, setCreditCustomers] = useState([]);
   const [creditLedger, setCreditLedger] = useState([]);
   const [selectedCreditCustomer, setSelectedCreditCustomer] = useState(null);
@@ -4219,7 +4241,10 @@ function App() {
     try {
       const d = date || reconDate;
       const vParam = (selectedVendorId && selectedVendorId !== 'all' && selectedVendorId !== 'null') ? `&vendor_id=${selectedVendorId}` : '';
-      const res = await fetch(`${API_BASE}/reconciliation/summary?date=${d}${vParam}`);
+      const authToken = token || localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/reconciliation/summary?date=${d}${vParam}`, {
+        headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
+      });
       if (res.ok) setReconData(await res.json());
     } catch (err) {
       console.error('Failed to fetch reconciliation:', err);
@@ -13598,23 +13623,41 @@ function App() {
                           </div>
                           <div className="form-group" style={{ flex: 1, minWidth: '150px' }}>
                             <label>Submitted By (Staff)</label>
-                            <select id="recon-staff" defaultValue="" required style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-light)', fontSize: '0.95rem' }}>
-                              <option value="" disabled>-- Select Staff --</option>
-                              {staff.filter(s => s.is_active === 1 && !s.vendor_id && ['Owner','Admin','Manager','Billing Staff','Cashier'].includes(s.role)).map(s => (
-                                <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
-                              ))}
+                            <select
+                              id="recon-staff"
+                              value={reconStaffId}
+                              onChange={e => setReconStaffId(e.target.value)}
+                              required
+                              style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-light)', fontSize: '0.95rem' }}
+                            >
+                              <option value="" disabled>-- Select Authorized Staff --</option>
+                              {(reconData?.authorizedStaff || []).map(s => {
+                                let roleLabel = s.role;
+                                if (s.role === 'Owner') roleLabel = 'Canteen Owner';
+                                else if (s.role === 'Manager') roleLabel = s.vendor_name ? `Stall Manager - ${s.vendor_name}${s.stall_number ? ` [${s.stall_number}]` : ''}` : 'Manager';
+                                else if (s.role === 'Admin') roleLabel = 'Central Admin';
+                                return (
+                                  <option key={s.id} value={s.id}>{s.name} ({roleLabel})</option>
+                                );
+                              })}
                             </select>
                           </div>
                         </div>
 
                         <div className="form-actions mt-4">
                           <button className="btn btn-primary" onClick={() => {
-                            const staffId = document.getElementById('recon-staff').value;
+                            const staffId = reconStaffId || document.getElementById('recon-staff')?.value;
                             if (!staffId) { showToast('Please select the staff member submitting this count.', 'error'); return; }
+                            const authToken = token || localStorage.getItem('token');
                             fetch(`${API_BASE}/reconciliation`, {
-                              method: 'POST', headers: { 'Content-Type': 'application/json' },
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {})
+                              },
                               body: JSON.stringify({
                                 recon_date: reconDate,
+                                vendor_id: (selectedVendorId && selectedVendorId !== 'all' && selectedVendorId !== 'null') ? selectedVendorId : null,
                                 physical_cash: document.getElementById('recon-physical-cash').value,
                                 upi_settlement: document.getElementById('recon-upi').value,
                                 card_settlement: document.getElementById('recon-card').value,
@@ -13622,13 +13665,16 @@ function App() {
                                 submitted_by: staffId
                               })
                             }).then(r => r.json()).then(data => {
+                              if (!data.success && data.error) {
+                                showToast(data.error, 'error');
+                                return;
+                              }
                               showToast(`Reconciliation saved. Discrepancy: ₹${Number(data.discrepancy).toFixed(2)}`, data.discrepancy === 0 ? 'success' : 'error');
                               fetchReconciliation(reconDate);
                               document.getElementById('recon-physical-cash').value = '';
                               document.getElementById('recon-upi').value = '';
                               document.getElementById('recon-card').value = '';
                               document.getElementById('recon-notes').value = '';
-                              document.getElementById('recon-staff').value = '';
                             }).catch(() => showToast('Failed to save reconciliation', 'error'));
                           }}>Save Reconciliation</button>
                         </div>
@@ -13652,6 +13698,11 @@ function App() {
                                 {idx === 0 && <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.75rem', background: 'var(--accent-primary)', color: '#fff', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>OFFICIAL RECORD</span>}
                                 <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
                                   <strong>{formatISTTime(rec.created_at)}</strong> • Submitted by: <strong style={{color:'var(--text-light)'}}>{rec.submitted_by_name || 'Unknown User'}</strong>
+                                  {rec.submitted_by_role && (
+                                    <span style={{ marginLeft: '6px', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.08)', color: 'var(--text-light)' }}>
+                                      {rec.submitted_by_role === 'Owner' ? 'Canteen Owner' : rec.submitted_by_role === 'Manager' ? (rec.vendor_name ? `Stall Manager (${rec.vendor_name})` : 'Manager') : rec.submitted_by_role}
+                                    </span>
+                                  )}
                                 </div>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem', marginBottom: '10px' }}>
                                   <thead>

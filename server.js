@@ -8638,22 +8638,89 @@ app.get('/api/reconciliation/summary', async (req, res) => {
   const { date, vendor_id } = req.query;
   const dateVal = date || new Date().toISOString().split('T')[0];
   try {
-    const { systemTotals, breakdown } = await calculateReconciliationSummary(pool, dateVal, vendor_id, req.user?.tenant_id);
+    const tenantId = req.user?.tenant_id || 1;
+    const { systemTotals, breakdown } = await calculateReconciliationSummary(pool, dateVal, vendor_id, tenantId);
 
-    let reconQuery = 'SELECT d.*, s.name as submitted_by_name FROM daily_reconciliation d LEFT JOIN staff s ON d.submitted_by = s.id WHERE d.recon_date = ?';
+    let reconQuery = `
+      SELECT d.*, s.name as submitted_by_name, s.role as submitted_by_role, v.name as vendor_name, v.stall_number
+      FROM daily_reconciliation d
+      LEFT JOIN staff s ON d.submitted_by = s.id
+      LEFT JOIN vendors v ON s.vendor_id = v.id
+      WHERE d.recon_date = ?
+    `;
     let reconParams = [dateVal];
-    if (vendor_id && vendor_id !== 'null') {
+    if (vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
       reconQuery += ' AND s.vendor_id = ?';
       reconParams.push(parseInt(vendor_id));
     }
+    if (tenantId) {
+      reconQuery += ' AND (d.tenant_id = ? OR d.tenant_id IS NULL)';
+      reconParams.push(tenantId);
+    }
     reconQuery += ' ORDER BY d.created_at DESC';
     const [recon] = await pool.query(reconQuery, reconParams);
+
+    // Resolve authorized staff who have access to the MIS Reports module
+    let authorizedStaff = [];
+    let planName = req.user?.tenant_plan || req.tenantPlan;
+    if (!planName) {
+      const planInfo = await resolveTenantPlan(tenantId);
+      planName = planInfo?.plan_name || 'Food Court';
+    }
+    const isSingleVendor = ['Canteen Basic', 'Canteen Pro'].includes(planName);
+
+    if (isSingleVendor) {
+      // Single-vendor (Canteen Basic / Pro): MIS Reports is restricted strictly to the Canteen Owner
+      const [owners] = await pool.query(`
+        SELECT s.id, s.name, s.role, s.email, NULL as vendor_id, NULL as vendor_name, NULL as stall_number
+        FROM staff s
+        WHERE (s.tenant_id = ? OR (? = 1 AND s.tenant_id IS NULL))
+          AND s.role = 'Owner'
+          AND s.is_active = 1
+        ORDER BY s.name ASC
+      `, [tenantId, tenantId]);
+      authorizedStaff = owners;
+    } else {
+      // Multi-vendor (Food Court / Enterprise): MIS Reports is accessible only to Central Admin & Stall Managers
+      if (req.user?.vendor_id) {
+        // Logged-in user is a Stall Manager (only sees their own stall management)
+        const [stallMgr] = await pool.query(`
+          SELECT s.id, s.name, s.role, s.email, s.vendor_id, v.name as vendor_name, v.stall_number
+          FROM staff s
+          LEFT JOIN vendors v ON s.vendor_id = v.id
+          WHERE s.id = ? AND s.is_active = 1
+        `, [req.user.id]);
+        authorizedStaff = stallMgr;
+      } else {
+        // Central Admin / Owner: see Central Admin and Stall Managers
+        let mgrQuery = `
+          SELECT s.id, s.name, s.role, s.email, s.vendor_id, v.name as vendor_name, v.stall_number
+          FROM staff s
+          LEFT JOIN vendors v ON s.vendor_id = v.id
+          WHERE (s.tenant_id = ? OR (? = 1 AND s.tenant_id IS NULL))
+            AND s.is_active = 1
+            AND (
+              (s.vendor_id IS NULL AND s.role IN ('Owner', 'Admin'))
+              OR (s.vendor_id IS NOT NULL AND s.role = 'Manager')
+            )
+        `;
+        const mgrParams = [tenantId, tenantId];
+        if (vendor_id && vendor_id !== 'all' && vendor_id !== 'null') {
+          mgrQuery += ' AND (s.vendor_id = ? OR s.vendor_id IS NULL)';
+          mgrParams.push(parseInt(vendor_id));
+        }
+        mgrQuery += ' ORDER BY (s.role = "Owner") DESC, (s.role = "Admin") DESC, s.name ASC';
+        const [mgrs] = await pool.query(mgrQuery, mgrParams);
+        authorizedStaff = mgrs;
+      }
+    }
 
     res.json({
       recon_date: dateVal,
       systemTotals,
       breakdown,
-      reconciliation: recon
+      reconciliation: recon,
+      authorizedStaff
     });
   } catch (error) {
     console.error('Error fetching reconciliation summary:', error);
@@ -8663,16 +8730,51 @@ app.get('/api/reconciliation/summary', async (req, res) => {
 
 // Post daily reconciliation
 app.post('/api/reconciliation', async (req, res) => {
-  const { recon_date, physical_cash, upi_settlement, card_settlement, notes, submitted_by } = req.body;
+  const { recon_date, physical_cash, upi_settlement, card_settlement, notes, submitted_by, vendor_id } = req.body;
   const dateVal = recon_date || new Date().toISOString().split('T')[0];
   try {
-    let vId = null;
-    if (submitted_by) {
-      const [staff] = await pool.query('SELECT vendor_id FROM staff WHERE id = ?', [submitted_by]);
-      vId = staff.length > 0 ? staff[0].vendor_id : null;
+    const tenantId = req.user?.tenant_id || 1;
+    let submitterId = submitted_by ? parseInt(submitted_by) : (req.user?.id || null);
+
+    if (!submitterId) {
+      return res.status(400).json({ error: 'Please select an authorized staff member submitting this reconciliation.' });
     }
 
-    const { systemTotals } = await calculateReconciliationSummary(pool, dateVal, vId, req.user?.tenant_id);
+    // Verify staff exists and is active
+    const [staffRows] = await pool.query(
+      'SELECT id, name, role, vendor_id, tenant_id FROM staff WHERE id = ? AND is_active = 1',
+      [submitterId]
+    );
+    if (staffRows.length === 0) {
+      return res.status(400).json({ error: 'The selected staff member was not found or is inactive.' });
+    }
+    const staffMember = staffRows[0];
+
+    // Role-based validation
+    let planName = req.user?.tenant_plan || req.tenantPlan;
+    if (!planName) {
+      const planInfo = await resolveTenantPlan(tenantId);
+      planName = planInfo?.plan_name || 'Food Court';
+    }
+    const isSingleVendor = ['Canteen Basic', 'Canteen Pro'].includes(planName);
+
+    if (isSingleVendor) {
+      if (staffMember.role !== 'Owner') {
+        return res.status(403).json({ error: 'Only the Canteen Owner can submit daily reconciliation for this plan.' });
+      }
+    } else {
+      if (!['Owner', 'Admin', 'Manager', 'Super Admin'].includes(staffMember.role)) {
+        return res.status(403).json({ error: 'Only Central Admin or Stall Managers can submit daily reconciliation.' });
+      }
+      // Stall Manager permission check: cannot submit as another stall's manager
+      if (req.user?.vendor_id && staffMember.vendor_id !== req.user.vendor_id) {
+        return res.status(403).json({ error: 'You are only authorized to submit reconciliation for your own stall.' });
+      }
+    }
+
+    let vId = vendor_id && vendor_id !== 'all' && vendor_id !== 'null' ? parseInt(vendor_id) : (staffMember.vendor_id || null);
+
+    const { systemTotals } = await calculateReconciliationSummary(pool, dateVal, vId, tenantId);
 
     const sysCash = systemTotals['Cash'] || 0;
     const sysUpi = systemTotals['UPI'] || 0;
@@ -8687,9 +8789,9 @@ app.post('/api/reconciliation', async (req, res) => {
 
     await pool.query(
       `INSERT INTO daily_reconciliation 
-         (recon_date, system_cash, system_upi, system_card, system_meal_card, physical_cash, upi_settlement, card_settlement, discrepancy, notes, submitted_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [dateVal, sysCash, sysUpi, sysCard, sysMealCard, physCash, upiSet, cardSet, discrepancy, notes || null, submitted_by || null]
+         (recon_date, system_cash, system_upi, system_card, system_meal_card, physical_cash, upi_settlement, card_settlement, discrepancy, notes, submitted_by, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [dateVal, sysCash, sysUpi, sysCard, sysMealCard, physCash, upiSet, cardSet, discrepancy, notes || null, submitterId, tenantId]
     );
 
     res.json({ success: true, message: `Reconciliation saved for ${dateVal}`, discrepancy });
