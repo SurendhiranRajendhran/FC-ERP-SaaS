@@ -8202,119 +8202,255 @@ function App() {
         const totalCredit = creditLedger.filter(e => e.type === 'Credit').reduce((s, e) => s + Number(e.amount || 0), 0);
         const totalPaid = creditLedger.filter(e => e.type === 'Payment').reduce((s, e) => s + Number(e.amount || 0), 0);
         const currentOut = Math.max(0, totalCredit - totalPaid);
+        const creditCount = creditLedger.filter(e => e.type === 'Credit').length;
+        const paymentCount = creditLedger.filter(e => e.type === 'Payment').length;
 
         return (
           <div className="modal-overlay active" style={{ zIndex: 1300 }} onClick={e => { if (e.target === e.currentTarget) setCreditHistoryModal({ show: false, customer: null, loading: false }); }}>
-            <div className="modal-card" style={{ maxWidth: '820px', width: '95%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-              <div className="modal-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}>
-                <div>
-                  <h2 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>📜</span> Credit History & Ledger — {cust.name}
-                  </h2>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    📞 {cust.phone || 'No phone'}
-                    {cust.organization && <span style={{ marginLeft: '10px', background: 'rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: '4px', color: '#93c5fd' }}>🏢 {cust.organization}</span>}
-                  </div>
-                </div>
-                <button className="close-btn" onClick={() => setCreditHistoryModal({ show: false, customer: null, loading: false })}>×</button>
-              </div>
-
-              {/* Outstanding Summary Ribbon */}
-              <div style={{ background: 'var(--bg-input, #111827)', padding: '12px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexWrap: 'wrap', gap: '20px', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Total Credit Given</div>
-                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#f87171' }}>₹{totalCredit.toFixed(2)}</div>
+            <div className="modal-card" style={{ maxWidth: '980px', width: '95%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 24px 50px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(138, 75, 241, 0.25)' }}>
+              
+              {/* Header */}
+              <div className="modal-header" style={{ padding: '18px 24px', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: 'rgba(138, 75, 241, 0.18)', border: '1px solid rgba(138, 75, 241, 0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0 }}>
+                    📜
                   </div>
                   <div>
-                    <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Total Dues Cleared</div>
-                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#34d399' }}>₹{totalPaid.toFixed(2)}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Credit Limit</div>
-                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#93c5fd' }}>
-                      {parseFloat(cust.credit_limit || 0) > 0 ? `₹${parseFloat(cust.credit_limit).toFixed(2)}` : 'Unlimited'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-light)' }}>
+                        Credit History & Ledger
+                      </h2>
+                      <span className="badge badge-primary" style={{ fontSize: '0.82rem', padding: '3px 10px', borderRadius: '20px' }}>
+                        {cust.name}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginTop: '5px', fontSize: '0.82rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+                      <span>📞 {cust.phone || 'No phone'}</span>
+                      {cust.organization && (
+                        <span style={{ background: 'rgba(59, 130, 246, 0.12)', border: '1px solid rgba(59, 130, 246, 0.25)', padding: '2px 8px', borderRadius: '4px', color: '#93c5fd', fontSize: '0.78rem' }}>
+                          🏢 {cust.organization}
+                        </span>
+                      )}
+                      {cust.email && <span>✉️ {cust.email}</span>}
                     </div>
                   </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#fca5a5', fontWeight: 600 }}>Current Outstanding Balance</div>
-                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#ef4444' }}>₹{currentOut.toFixed(2)}</div>
+                <button
+                  className="close-btn"
+                  style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '18px' }}
+                  onClick={() => setCreditHistoryModal({ show: false, customer: null, loading: false })}
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Outstanding Summary Cards (Total Credit Given removed) */}
+              <div style={{ background: 'var(--bg-app)', padding: '16px 24px', borderBottom: '1px solid var(--border-light)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                  
+                  {/* Card 1: Current Outstanding Balance (Hero) */}
+                  <div style={{
+                    padding: '14px 18px',
+                    borderRadius: '12px',
+                    background: currentOut > 0 ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+                    border: currentOut > 0 ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(16, 185, 129, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.74rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: currentOut > 0 ? '#fca5a5' : '#86efac' }}>
+                        Current Outstanding Balance
+                      </div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: 800, color: currentOut > 0 ? '#ef4444' : '#10b981', marginTop: '2px' }}>
+                        ₹{currentOut.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      padding: '4px 10px',
+                      borderRadius: '20px',
+                      background: currentOut > 0 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                      color: currentOut > 0 ? '#f87171' : '#34d399'
+                    }}>
+                      {currentOut > 0 ? '⚠️ Unsettled' : '✅ Cleared'}
+                    </span>
+                  </div>
+
+                  {/* Card 2: Total Dues Cleared */}
+                  <div style={{
+                    padding: '14px 18px',
+                    borderRadius: '12px',
+                    background: 'rgba(16, 185, 129, 0.05)',
+                    border: '1px solid rgba(16, 185, 129, 0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.74rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#a7f3d0' }}>
+                        Total Dues Cleared
+                      </div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: 800, color: '#34d399', marginTop: '2px' }}>
+                        ₹{totalPaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>
+                      💰
+                    </div>
+                  </div>
+
+                  {/* Card 3: Credit Limit */}
+                  <div style={{
+                    padding: '14px 18px',
+                    borderRadius: '12px',
+                    background: 'rgba(138, 75, 241, 0.05)',
+                    border: '1px solid rgba(138, 75, 241, 0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.74rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#c4b5fd' }}>
+                        Credit Limit
+                      </div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: 800, color: '#a78bfa', marginTop: '2px' }}>
+                        {parseFloat(cust.credit_limit || 0) > 0 ? `₹${parseFloat(cust.credit_limit).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Unlimited'}
+                      </div>
+                    </div>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(138, 75, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>
+                      🛡️
+                    </div>
+                  </div>
+
                 </div>
               </div>
 
-              {/* Ledger Entries Table */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', minHeight: '220px' }}>
+              {/* Ledger Entries Table Area */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', minHeight: '260px' }}>
                 {creditHistoryModal.loading ? (
-                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading credit transactions...</div>
+                  <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+                    <div className="spinner" style={{ margin: '0 auto 12px auto' }}></div>
+                    <div>Loading credit transactions...</div>
+                  </div>
                 ) : creditLedger.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No credit transactions or payments recorded yet for this customer.</div>
+                  <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                    <div style={{ fontSize: '40px', marginBottom: '10px' }}>📜</div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: '4px' }}>No Credit Transactions Found</div>
+                    <div style={{ fontSize: '0.85rem' }}>No credit purchases or repayment records have been logged for this customer yet.</div>
+                  </div>
                 ) : (
-                  <table className="data-table" style={{ width: '100%', fontSize: '13px' }}>
-                    <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-card, #1f2937)' }}>
-                      <tr>
-                        <th>Date & Time</th>
-                        <th>Type</th>
-                        <th>Amount</th>
-                        <th>Order #</th>
-                        <th>Tender Mode</th>
-                        <th>Status</th>
-                        <th>Notes / Memo</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {creditLedger.map((entry, idx) => (
-                        <tr key={entry.id || idx}>
-                          <td style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>{entry.created_at}</td>
-                          <td>
-                            <span className={`badge ${entry.type === 'Credit' ? 'badge-danger' : 'badge-success'}`}>
-                              {entry.type === 'Credit' ? '📈 Credit Purchase' : '💰 Repayment'}
-                            </span>
-                          </td>
-                          <td style={{ fontWeight: 700, color: entry.type === 'Credit' ? '#f87171' : '#34d399', whiteSpace: 'nowrap' }}>
-                            {entry.type === 'Credit' ? `+₹${Number(entry.amount).toFixed(2)}` : `-₹${Number(entry.amount).toFixed(2)}`}
-                          </td>
-                          <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                            {entry.order_id ? `#${entry.order_id}` : '—'}
-                          </td>
-                          <td>
-                            {entry.type === 'Payment' ? (
-                              <span style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
-                                {entry.payment_mode || 'Cash'}
-                              </span>
-                            ) : (
-                              <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Credit Sale</span>
-                            )}
-                          </td>
-                          <td>
-                            {entry.type === 'Payment' ? (
-                              <span className="badge badge-success">Cleared</span>
-                            ) : entry.is_settled ? (
-                              <span className="badge badge-success">Settled</span>
-                            ) : (
-                              <span className="badge badge-warning" style={{ background: '#f59e0b22', color: '#f59e0b' }}>Outstanding</span>
-                            )}
-                          </td>
-                          <td style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '200px' }}>
-                            {entry.notes || '—'}
-                          </td>
+                  <div style={{ border: '1px solid var(--border-light)', borderRadius: '10px', overflow: 'hidden', background: 'var(--bg-surface)' }}>
+                    <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+                      <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#181d30' }}>
+                        <tr style={{ borderBottom: '2px solid var(--border-light)' }}>
+                          <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '0.76rem', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Date & Time</th>
+                          <th style={{ padding: '12px 14px', textAlign: 'left', fontWeight: 600, fontSize: '0.76rem', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Type</th>
+                          <th style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 600, fontSize: '0.76rem', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Amount</th>
+                          <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, fontSize: '0.76rem', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Order #</th>
+                          <th style={{ padding: '12px 14px', textAlign: 'left', fontWeight: 600, fontSize: '0.76rem', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Tender Mode</th>
+                          <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, fontSize: '0.76rem', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Status</th>
+                          <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '0.76rem', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Notes / Memo</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {creditLedger.map((entry, idx) => {
+                          const dateParts = (entry.created_at || '').split(' ');
+                          const dateStr = dateParts[0] || '—';
+                          const timeStr = dateParts[1] || '';
+
+                          return (
+                            <tr key={entry.id || idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)', transition: 'background-color 0.15s ease' }}>
+                              <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                                <div style={{ fontWeight: 600, color: 'var(--text-light)' }}>{dateStr}</div>
+                                {timeStr && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>🕒 {timeStr}</div>}
+                              </td>
+                              <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  padding: '4px 9px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.76rem',
+                                  fontWeight: 600,
+                                  background: entry.type === 'Credit' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)',
+                                  border: entry.type === 'Credit' ? '1px solid rgba(239, 68, 68, 0.25)' : '1px solid rgba(16, 185, 129, 0.25)',
+                                  color: entry.type === 'Credit' ? '#f87171' : '#34d399'
+                                }}>
+                                  {entry.type === 'Credit' ? '📈 Credit Purchase' : '💰 Repayment'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, fontSize: '0.92rem', whiteSpace: 'nowrap', color: entry.type === 'Credit' ? '#f87171' : '#34d399' }}>
+                                {entry.type === 'Credit' ? `+₹${Number(entry.amount).toFixed(2)}` : `-₹${Number(entry.amount).toFixed(2)}`}
+                              </td>
+                              <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                                {entry.order_id ? (
+                                  <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '3px 8px', borderRadius: '4px', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-light)' }}>
+                                    #{entry.order_id}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
+                                {entry.type === 'Payment' ? (
+                                  <span style={{ background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#60a5fa', padding: '3px 8px', borderRadius: '4px', fontSize: '0.76rem', fontWeight: 600 }}>
+                                    {entry.payment_mode || 'Cash'}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)', fontSize: '0.76rem', background: 'rgba(255, 255, 255, 0.04)', padding: '2px 7px', borderRadius: '4px' }}>
+                                    Credit Sale
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px 14px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                                {entry.type === 'Payment' ? (
+                                  <span className="badge badge-success" style={{ fontSize: '0.74rem', padding: '3px 8px' }}>Cleared</span>
+                                ) : entry.is_settled ? (
+                                  <span className="badge badge-success" style={{ fontSize: '0.74rem', padding: '3px 8px' }}>Settled</span>
+                                ) : (
+                                  <span className="badge badge-warning" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.3)', fontSize: '0.74rem', padding: '3px 8px' }}>
+                                    Outstanding
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.8rem', color: entry.notes ? 'var(--text-light)' : 'var(--text-muted)', lineHeight: '1.4', maxWidth: '280px' }}>
+                                {entry.notes || '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
 
               {/* Modal Footer */}
-              <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '10px', background: 'var(--bg-input, #111827)' }}>
+              <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
+                <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                  Showing <strong style={{ color: 'var(--text-light)' }}>{creditLedger.length}</strong> {creditLedger.length === 1 ? 'transaction' : 'transactions'}
+                  {creditLedger.length > 0 && (
+                    <span style={{ marginLeft: '8px' }}>
+                      ({creditCount} {creditCount === 1 ? 'purchase' : 'purchases'}, {paymentCount} {paymentCount === 1 ? 'repayment' : 'repayments'})
+                    </span>
+                  )}
+                </div>
                 <button
                   type="button"
                   className="btn btn-secondary"
                   onClick={() => setCreditHistoryModal({ show: false, customer: null, loading: false })}
+                  style={{ padding: '8px 22px', borderRadius: '8px', fontSize: '0.88rem' }}
                 >
                   Close Ledger
                 </button>
               </div>
+
             </div>
           </div>
         );
