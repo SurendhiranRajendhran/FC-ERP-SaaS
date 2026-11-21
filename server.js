@@ -5464,8 +5464,9 @@ app.delete('/api/staff/:id', async (req, res) => {
 app.get('/api/shifts', async (req, res) => {
   try {
     res.set('Cache-Control', 'private, must-revalidate');
-    let query = 'SELECT * FROM shifts WHERE vendor_id ';
-    const params = [];
+    const assignedTenantId = req.user.tenant_id || 1;
+    let query = 'SELECT * FROM shifts WHERE (tenant_id = ? OR tenant_id IS NULL) AND vendor_id ';
+    const params = [assignedTenantId];
     if (req.user.vendor_id) {
       query += '= ?';
       params.push(req.user.vendor_id);
@@ -5569,15 +5570,11 @@ app.get('/api/roster', async (req, res) => {
   }
 
   try {
-    const weekEnd = new Date(week_start);
-    weekEnd.setDate(weekEnd.getDate() + 6);
+    const [wy, wm, wd] = week_start.split('-').map(Number);
+    const weekEnd = new Date(Date.UTC(wy, wm - 1, wd + 6));
     const weekEndStr = weekEnd.toISOString().split('T')[0];
 
-    const scopeClause = req.user.vendor_id
-      ? `AND s.vendor_id = ${pool.escape(req.user.vendor_id)} AND s.role NOT IN ('Manager', 'Owner')`
-      : `AND s.vendor_id IS NULL AND s.role NOT IN ('Manager', 'Owner')`;
-
-    const [rows] = await pool.query(`
+    let query = `
       SELECT r.id, r.staff_id, s.name as staff_name, r.shift_id, sh.name as shift_name,
              sh.start_time, sh.end_time, DATE_FORMAT(r.roster_date, '%Y-%m-%d') as roster_date, r.status, r.swap_with_staff_id,
              sw.name as swap_with_staff_name, r.created_at
@@ -5585,9 +5582,24 @@ app.get('/api/roster', async (req, res) => {
       JOIN staff s ON r.staff_id = s.id
       JOIN shifts sh ON r.shift_id = sh.id
       LEFT JOIN staff sw ON r.swap_with_staff_id = sw.id
-      WHERE r.roster_date BETWEEN ? AND ? ${scopeClause}
-      ORDER BY r.roster_date, sh.start_time
-    `, [week_start, weekEndStr]);
+      WHERE r.roster_date BETWEEN ? AND ?
+    `;
+    const queryParams = [week_start, weekEndStr];
+
+    if (req.user.tenant_id) {
+      query += ' AND (s.tenant_id = ? OR s.tenant_id IS NULL)';
+      queryParams.push(req.user.tenant_id);
+    }
+
+    if (req.user.vendor_id) {
+      query += ` AND s.vendor_id = ? AND s.role NOT IN ('Manager', 'Owner')`;
+      queryParams.push(req.user.vendor_id);
+    } else {
+      query += ` AND s.vendor_id IS NULL AND s.role NOT IN ('Manager', 'Owner')`;
+    }
+    query += ' ORDER BY r.roster_date, sh.start_time';
+
+    const [rows] = await pool.query(query, queryParams);
 
     res.json(rows);
   } catch (error) {
@@ -5641,9 +5653,10 @@ app.post('/api/roster/bulk', async (req, res) => {
           [entry.staff_id, entry.roster_date]
         );
       } else {
+        const assignedTenantId = req.user.tenant_id || 1;
         const [result] = await connection.query(
-          'INSERT INTO shift_roster (staff_id, shift_id, roster_date, status) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), status = VALUES(status)',
-          [entry.staff_id, entry.shift_id, entry.roster_date, entry.status || 'Scheduled']
+          'INSERT INTO shift_roster (staff_id, shift_id, roster_date, status, tenant_id) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), status = VALUES(status), tenant_id = VALUES(tenant_id)',
+          [entry.staff_id, entry.shift_id, entry.roster_date, entry.status || 'Scheduled', assignedTenantId]
         );
         inserted.push({ id: result.insertId, ...entry, status: entry.status || 'Scheduled' });
       }
@@ -9473,12 +9486,13 @@ app.get('/api/holidays', async (req, res) => {
     // Strict stall isolation:
     // - Stall staff / Stall managers (vendor_id present) see ONLY holidays marked for their specific stall.
     // - Central Admin / Central staff (vendor_id is null) see ONLY Central Canteen holidays (vendor_id IS NULL).
+    const assignedTenantId = req.user.tenant_id || 1;
     if (req.user.vendor_id) {
-      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE vendor_id = ? ORDER BY holiday_date ASC';
-      params = [req.user.vendor_id];
+      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE vendor_id = ? AND (tenant_id = ? OR tenant_id IS NULL) ORDER BY holiday_date ASC';
+      params = [req.user.vendor_id, assignedTenantId];
     } else {
-      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE vendor_id IS NULL ORDER BY holiday_date ASC';
-      params = [];
+      query = 'SELECT *, DATE_FORMAT(holiday_date, "%Y-%m-%d") as holiday_date FROM holidays WHERE vendor_id IS NULL AND (tenant_id = ? OR tenant_id IS NULL) ORDER BY holiday_date ASC';
+      params = [assignedTenantId];
     }
     const [rows] = await pool.query(query, params);
 

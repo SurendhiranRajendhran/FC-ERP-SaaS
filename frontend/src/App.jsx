@@ -3656,6 +3656,14 @@ function App() {
     return d.toISOString().split('T')[0];
   };
 
+  const addDaysToDateStr = (dateStr, days) => {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
+    if (!y || !m || !d) return '';
+    const dt = new Date(Date.UTC(y, m - 1, d + days));
+    return dt.toISOString().split('T')[0];
+  };
+
   const actualRosterWeek = getMonday(selectedRosterWeek);
 
   // HR Form Bindings
@@ -3805,9 +3813,22 @@ function App() {
   }, [token, actualRosterWeek]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !selectedAttendanceDate) return;
     fetchAttendance(selectedAttendanceDate);
+    const mon = getMonday(selectedAttendanceDate);
+    if (mon) fetchRoster(mon);
   }, [token, selectedAttendanceDate]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (activeTab === 'employee-portal') {
+      fetchHolidays();
+      fetchShifts();
+      fetchAttendance(selectedAttendanceDate);
+      const mon = getMonday(selectedAttendanceDate);
+      if (mon) fetchRoster(mon);
+    }
+  }, [token, activeTab]);
 
   useEffect(() => {
     if (!token) return;
@@ -4493,21 +4514,29 @@ function App() {
   };
 
   const fetchRoster = async (weekStart) => {
+    if (!weekStart) return;
     try {
       const res = await fetch(`${API_BASE}/roster?week_start=${weekStart}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Fetch failed');
-      setRoster(data);
+      
+      const fetchedWeekDates = new Set(Array.from({ length: 7 }, (_, i) => addDaysToDateStr(weekStart, i)));
+      setRoster(prev => {
+        // Retain entries from other weeks, but replace current week with fresh server data
+        const otherWeeksEntries = (prev || []).filter(r => !fetchedWeekDates.has(String(r.roster_date || '').split('T')[0]));
+        return [...otherWeeksEntries, ...(data || [])];
+      });
     } catch (err) {
       console.error('Failed to fetch roster:', err);
     }
   };
 
   // Helper to dynamically calculate working schedule / active shift status for a staff member
-  const getStaffWorkingSchedule = (targetDateStr) => {
-    const dateStr = targetDateStr || getISTTodayString();
-    const rosterEntry = roster.find(r => r.staff_id === user?.id && String(r.roster_date || '').split('T')[0] === dateStr);
-    const myWeeklyShifts = roster.filter(r => r.staff_id === user?.id && r.status !== 'Off');
+  const getStaffWorkingSchedule = (targetDateStr, staffId = user?.id) => {
+    const memberId = staffId || user?.id;
+    const dateStr = (targetDateStr || getISTTodayString()).split('T')[0];
+    const mondayStr = getMonday(dateStr);
+    const weekDates = new Set(Array.from({ length: 7 }, (_, i) => addDaysToDateStr(mondayStr, i)));
 
     const formatTimeStr = (t) => {
       if (!t) return '';
@@ -4520,24 +4549,57 @@ function App() {
       return `${hour}:${minute} ${ampm}`;
     };
 
-    if (rosterEntry) {
-      if (rosterEntry.status === 'Off') {
-        return {
-          hasShift: false,
-          isOff: true,
-          title: 'Scheduled Off',
-          shiftName: 'Weekly Off',
-          timing: 'Rest Day / Duty Off',
-          statusLabel: 'Duty Off',
-          subtitle: 'Scheduled Rest Day',
-          icon: '🏖️',
-          color: '#fbbf24',
-          bg: 'rgba(245, 158, 11, 0.08)',
-          borderColor: 'rgba(245, 158, 11, 0.25)'
-        };
-      }
+    // 1. Check if the target date is a marked Canteen/Stall Holiday
+    const holidayObj = holidays.find(h => String(h.holiday_date || h.date || '').split('T')[0] === dateStr);
+    if (holidayObj) {
+      const holidayName = holidayObj.name || 'Holiday';
+      return {
+        hasShift: false,
+        isOff: true,
+        isHoliday: true,
+        title: `Holiday • ${holidayName}`,
+        shiftName: holidayName,
+        timing: 'Canteen Holiday / Non-Working Day',
+        statusLabel: 'Holiday',
+        subtitle: `Canteen Holiday: ${holidayName}`,
+        icon: '🏖️',
+        color: '#f59e0b',
+        bg: 'rgba(245, 158, 11, 0.08)',
+        borderColor: 'rgba(245, 158, 11, 0.25)'
+      };
+    }
+
+    // 2. Check if the staff member has an approved leave covering this date
+    const approvedLeave = leaves.find(l => {
+      if (l.staff_id !== memberId || l.status !== 'Approved') return false;
+      const lStart = String(l.start_date || '').split('T')[0];
+      const lEnd = String(l.end_date || '').split('T')[0];
+      return dateStr >= lStart && dateStr <= lEnd;
+    });
+    if (approvedLeave) {
+      const leaveType = approvedLeave.leave_type || 'Leave';
+      return {
+        hasShift: false,
+        isOff: true,
+        isLeave: true,
+        title: `On Leave • ${leaveType}`,
+        shiftName: 'Approved Leave',
+        timing: approvedLeave.reason ? `Reason: ${approvedLeave.reason}` : 'Approved Leave',
+        statusLabel: 'On Leave',
+        subtitle: `Approved Leave (${String(approvedLeave.start_date).split('T')[0]} to ${String(approvedLeave.end_date).split('T')[0]})`,
+        icon: '🌴',
+        color: '#ec4899',
+        bg: 'rgba(236, 72, 153, 0.08)',
+        borderColor: 'rgba(236, 72, 153, 0.25)'
+      };
+    }
+
+    // 3. Check for an active roster shift entry on this specific date
+    const rosterEntry = roster.find(r => r.staff_id === memberId && String(r.roster_date || '').split('T')[0] === dateStr);
+
+    if (rosterEntry && rosterEntry.status !== 'Off') {
       const shiftObj = shifts.find(s => s.id === rosterEntry.shift_id) || {};
-      const shiftName = rosterEntry.shift_name || shiftObj.name || 'Assigned Shift';
+      const shiftName = rosterEntry.shift_name || shiftObj.name || 'Full Day';
       const startTime = rosterEntry.start_time || shiftObj.start_time;
       const endTime = rosterEntry.end_time || shiftObj.end_time;
       const timeDisplay = (startTime && endTime) ? `${formatTimeStr(startTime)} – ${formatTimeStr(endTime)}` : '';
@@ -4548,8 +4610,8 @@ function App() {
         title: timeDisplay ? `${shiftName} (${timeDisplay})` : shiftName,
         shiftName,
         timing: timeDisplay,
-        statusLabel: 'Active Shift Duty',
-        subtitle: timeDisplay ? `Duty Hours: ${timeDisplay}` : 'Active Shift Duty',
+        statusLabel: shiftName,
+        subtitle: timeDisplay ? `Duty Hours: ${timeDisplay}` : `${shiftName} Duty`,
         icon: '💼',
         color: '#34d399',
         bg: 'rgba(16, 185, 129, 0.08)',
@@ -4557,30 +4619,40 @@ function App() {
       };
     }
 
-    if (myWeeklyShifts.length > 0) {
+    // 4. Off Duty vs No Shift
+    // Check if staff has any active scheduled shifts during this roster week
+    const staffWeeklyShifts = roster.filter(r =>
+      r.staff_id === memberId &&
+      weekDates.has(String(r.roster_date || '').split('T')[0]) &&
+      r.status !== 'Off'
+    );
+
+    // If today is explicitly marked 'Off' in roster, OR staff has scheduled shifts on other days of this week:
+    if ((rosterEntry && rosterEntry.status === 'Off') || staffWeeklyShifts.length > 0) {
       return {
         hasShift: false,
-        isOff: false,
-        title: 'No Shift Today',
-        shiftName: 'Off Duty Today',
-        timing: `${myWeeklyShifts.length} shift(s) scheduled this week`,
-        statusLabel: 'Off Duty Today',
-        subtitle: `${myWeeklyShifts.length} Shift(s) Scheduled this week`,
-        icon: '💼',
-        color: '#60a5fa',
-        bg: 'rgba(59, 130, 246, 0.08)',
-        borderColor: 'rgba(59, 130, 246, 0.25)'
+        isOff: true,
+        title: 'Off Duty',
+        shiftName: 'Off Duty',
+        timing: rosterEntry ? 'Scheduled Weekly Off / Rest Day' : `${staffWeeklyShifts.length} shift(s) scheduled this week`,
+        statusLabel: 'Off Duty',
+        subtitle: 'Weekly Off / Rest Day',
+        icon: '🏖️',
+        color: '#a78bfa',
+        bg: 'rgba(167, 139, 250, 0.08)',
+        borderColor: 'rgba(167, 139, 250, 0.25)'
       };
     }
 
+    // 5. Staff has no shifts assigned anywhere in this weekly roster
     return {
       hasShift: false,
       isOff: false,
-      title: 'No Shift Assigned',
-      shiftName: 'No Shift Assigned',
-      timing: 'Not scheduled in roster',
-      statusLabel: 'No Shift Assigned',
-      subtitle: 'Not scheduled in roster',
+      title: 'No Shift',
+      shiftName: 'No Shift',
+      timing: 'Not scheduled in weekly roster',
+      statusLabel: 'No Shift',
+      subtitle: 'Not scheduled in weekly roster',
       icon: '⚪',
       color: '#94a3b8',
       bg: 'rgba(148, 163, 184, 0.08)',
@@ -5575,7 +5647,7 @@ function App() {
 
   const handleUpdateRosterCell = (staffId, dateStr, shiftId) => {
     setRoster(prev => {
-      const existingIdx = prev.findIndex(r => r.staff_id === staffId && r.roster_date.split('T')[0] === dateStr);
+      const existingIdx = prev.findIndex(r => r.staff_id === staffId && String(r.roster_date || '').split('T')[0] === dateStr);
       const shiftObj = shifts.find(s => s.id == shiftId);
       const shiftName = shiftObj ? shiftObj.name : 'Off';
       
@@ -5602,11 +5674,13 @@ function App() {
   };
 
   const handleSaveRoster = async () => {
+    const weekDates = new Set(Array.from({ length: 7 }, (_, i) => addDaysToDateStr(actualRosterWeek, i)));
     const entries = roster
+      .filter(r => weekDates.has(String(r.roster_date || '').split('T')[0]))
       .map(r => ({
         staff_id: r.staff_id,
         shift_id: (!r.shift_id || r.status === 'Off') ? null : r.shift_id,
-        roster_date: r.roster_date.split('T')[0],
+        roster_date: String(r.roster_date || '').split('T')[0],
         status: r.status || 'Scheduled'
       }));
 
@@ -8455,8 +8529,15 @@ function App() {
                         fetchAttendance(selectedAttendanceDate);
                         fetchRoster(getMonday(selectedAttendanceDate));
                         fetchShifts();
+                        fetchHolidays();
+                        fetchLeaves();
                       }
-                      if (key === 'roster') fetchRoster(actualRosterWeek);
+                      if (key === 'roster') {
+                        fetchRoster(actualRosterWeek);
+                        fetchHolidays();
+                        fetchLeaves();
+                        fetchShifts();
+                      }
                       if (key === 'swaps') fetchShiftSwaps();
                       if (key === 'leaves') fetchLeaves();
                       if (key === 'holidays') {
@@ -8699,15 +8780,15 @@ function App() {
                             <th>Staff Member</th>
                             <th>Role</th>
                             {Array.from({ length: 7 }, (_, i) => {
-                              let start = new Date(actualRosterWeek);
-                              if (isNaN(start.getTime())) start = new Date();
-                              start.setDate(start.getDate() + i);
+                              const dateStr = addDaysToDateStr(actualRosterWeek, i);
+                              const [y, m, d] = dateStr ? dateStr.split('-').map(Number) : [2026, 1, 1];
+                              const colDate = new Date(Date.UTC(y, m - 1, d));
                               const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
                               return (
                                 <th key={i}>
                                   {dayNames[i]}<br />
                                   <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>
-                                    {start.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric' })}
+                                    {colDate.toLocaleDateString('en-IN', { timeZone: 'UTC', month: 'short', day: 'numeric' })}
                                   </span>
                                 </th>
                               );
@@ -8723,27 +8804,64 @@ function App() {
                               </td>
                               <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{member.role}</span></td>
                               {Array.from({ length: 7 }, (_, i) => {
-                                let d = new Date(actualRosterWeek);
-                                if (isNaN(d.getTime())) d = new Date();
-                                d.setDate(d.getDate() + i);
-                                const dateStr = d.toISOString().split('T')[0];
-                                const isHoliday = holidays.some(h => h.holiday_date === dateStr);
-                                const approvedLeave = leaves.find(l => l.staff_id === member.id && l.status === 'Approved' && l.start_date <= dateStr && l.end_date >= dateStr);
-                                const cellEntry = roster.find(r => r.staff_id === member.id && r.roster_date.split('T')[0] === dateStr);
+                                const dateStr = addDaysToDateStr(actualRosterWeek, i);
+                                const holidayObj = holidays.find(h => String(h.holiday_date || h.date || '').split('T')[0] === dateStr);
+                                const approvedLeave = leaves.find(l => {
+                                  if (l.staff_id !== member.id || l.status !== 'Approved') return false;
+                                  const lStart = String(l.start_date || '').split('T')[0];
+                                  const lEnd = String(l.end_date || '').split('T')[0];
+                                  return dateStr >= lStart && dateStr <= lEnd;
+                                });
+                                const cellEntry = roster.find(r => r.staff_id === member.id && String(r.roster_date || '').split('T')[0] === dateStr);
                                 
                                 return (
                                   <td key={i} style={{ 
-                                    backgroundColor: approvedLeave ? 'rgba(var(--accent-warning-rgb), 0.05)' : isHoliday ? 'rgba(var(--accent-success-rgb), 0.05)' : 'transparent',
+                                    backgroundColor: holidayObj ? 'rgba(245, 158, 11, 0.08)' : approvedLeave ? 'rgba(239, 68, 68, 0.08)' : 'transparent',
                                     padding: '8px'
                                   }}>
-                                    {approvedLeave ? (
-                                      <div style={{ fontSize: '0.8rem', color: 'var(--accent-warning)', fontWeight: 600 }}>🌴 On Leave</div>
+                                    {holidayObj ? (
+                                      <div style={{
+                                        padding: '6px 4px',
+                                        borderRadius: '6px',
+                                        backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                                        border: '1px solid rgba(245, 158, 11, 0.35)',
+                                        textAlign: 'center'
+                                      }}>
+                                        <div style={{ fontSize: '0.8rem', color: '#f59e0b', fontWeight: 600 }}>
+                                          🏖️ {holidayObj.name || 'Holiday'}
+                                        </div>
+                                      </div>
+                                    ) : approvedLeave ? (
+                                      <div style={{
+                                        padding: '6px 4px',
+                                        borderRadius: '6px',
+                                        backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                                        border: '1px solid rgba(239, 68, 68, 0.35)',
+                                        textAlign: 'center'
+                                      }}>
+                                        <div style={{ fontSize: '0.8rem', color: '#ef4444', fontWeight: 600 }}>🌴 On Leave</div>
+                                      </div>
                                     ) : (
                                       <div style={{ fontSize: '0.85rem' }}>
                                         {cellEntry && cellEntry.status !== 'Off' ? (
-                                          <span style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>{cellEntry.shift_name}</span>
+                                          <div style={{
+                                            padding: '6px 4px',
+                                            borderRadius: '6px',
+                                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                            border: '1px solid rgba(16, 185, 129, 0.25)',
+                                            textAlign: 'center'
+                                          }}>
+                                            <span style={{ color: '#34d399', fontWeight: 600 }}>{cellEntry.shift_name}</span>
+                                          </div>
                                         ) : (
-                                          <span style={{ color: 'var(--text-muted)' }}>Off</span>
+                                          <div style={{
+                                            padding: '6px 4px',
+                                            borderRadius: '6px',
+                                            backgroundColor: 'rgba(148, 163, 184, 0.05)',
+                                            textAlign: 'center'
+                                          }}>
+                                            <span style={{ color: 'var(--text-muted)' }}>Off</span>
+                                          </div>
                                         )}
                                       </div>
                                     )}
@@ -12566,15 +12684,15 @@ function App() {
                           <th>Staff Member</th>
                           <th>Role</th>
                           {Array.from({ length: 7 }, (_, i) => {
-                            let start = new Date(actualRosterWeek);
-                            if (isNaN(start.getTime())) start = new Date(); // fallback if input is cleared
-                            start.setDate(start.getDate() + i);
+                            const dateStr = addDaysToDateStr(actualRosterWeek, i);
+                            const [y, m, d] = dateStr ? dateStr.split('-').map(Number) : [2026, 1, 1];
+                            const colDate = new Date(Date.UTC(y, m - 1, d));
                             const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
                             return (
                               <th key={i}>
                                 {dayNames[i]}<br />
                                 <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>
-                                  {start.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric' })}
+                                  {colDate.toLocaleDateString('en-IN', { timeZone: 'UTC', month: 'short', day: 'numeric' })}
                                 </span>
                               </th>
                             );
@@ -12587,19 +12705,17 @@ function App() {
                             <td><strong>{member.name}</strong></td>
                             <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{member.role}</span></td>
                             {Array.from({ length: 7 }, (_, i) => {
-                              let d = new Date(actualRosterWeek);
-                              if (isNaN(d.getTime())) d = new Date(); // fallback if input is cleared
-                              d.setDate(d.getDate() + i);
-                              const dateStr = d.toISOString().split('T')[0];
+                              const dateStr = addDaysToDateStr(actualRosterWeek, i);
 
                               // Check if this date is a holiday
-                              const isHoliday = holidays.some(h => h.holiday_date === dateStr);
+                              const holidayObj = holidays.find(h => String(h.holiday_date || h.date || '').split('T')[0] === dateStr);
+                              const isHoliday = !!holidayObj;
 
                               // Check if this staff member has approved leave covering this date
                               const approvedLeave = leaves.find(l => {
                                 if (l.staff_id !== member.id || l.status !== 'Approved') return false;
-                                const leaveStart = new Date(l.start_date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-                                const leaveEnd = new Date(l.end_date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+                                const leaveStart = String(l.start_date || '').split('T')[0];
+                                const leaveEnd = String(l.end_date || '').split('T')[0];
                                 return dateStr >= leaveStart && dateStr <= leaveEnd;
                               });
 
@@ -12614,7 +12730,9 @@ function App() {
                                       border: '1px solid rgba(245, 158, 11, 0.4)',
                                       textAlign: 'center'
                                     }}>
-                                      <div style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600 }}>Holiday</div>
+                                      <div style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600 }}>
+                                        🏖️ {holidayObj?.name || 'Holiday'}
+                                      </div>
                                     </div>
                                   </td>
                                 );
@@ -12631,14 +12749,14 @@ function App() {
                                       border: '1px solid rgba(239, 68, 68, 0.35)',
                                       textAlign: 'center'
                                     }}>
-                                      <div style={{ fontSize: '0.75rem', color: '#ef4444', fontWeight: 600 }}>On Leave</div>
+                                      <div style={{ fontSize: '0.75rem', color: '#ef4444', fontWeight: 600 }}>🌴 On Leave</div>
                                     </div>
                                   </td>
                                 );
                               }
 
                               // Normal shift assignment
-                              const entry = roster.find(r => r.staff_id === member.id && r.roster_date.split('T')[0] === dateStr);
+                              const entry = roster.find(r => r.staff_id === member.id && String(r.roster_date || '').split('T')[0] === dateStr);
                               const currentVal = entry && entry.status !== 'Off' ? entry.shift_id || 'Off' : 'Off';
                               const isSwapped = entry && entry.status === 'Swapped';
 
@@ -13467,7 +13585,7 @@ function App() {
                           const tzoffset = (new Date()).getTimezoneOffset() * 60000; //offset in milliseconds
                           const dateStr = (new Date(currentDate.getTime() - tzoffset)).toISOString().split('T')[0];
                           const isCurrentMonth = currentDate.getMonth() === month;
-                          const holidayInfo = holidays.find(h => h.holiday_date === dateStr);
+                          const holidayInfo = holidays.find(h => String(h.holiday_date || h.date || '').split('T')[0] === dateStr);
                           
                           days.push(
                             <div 
