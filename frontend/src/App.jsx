@@ -7183,7 +7183,7 @@ function App() {
       const renderTimer = setTimeout(() => {
         if (upiQrCanvasRef.current) {
           QRCode.toCanvas(upiQrCanvasRef.current, dynamicUpiModal.qrString, {
-            width: 210,
+            width: 160,
             margin: 1,
             color: {
               dark: '#1e1b4b',
@@ -15449,17 +15449,17 @@ function App() {
            ========================================== */}
       {dynamicUpiModal.show && (
         <div className="modal-overlay active" style={{ zIndex: 1200, backdropFilter: 'blur(6px)' }}>
-          <div className="modal-card" style={{ maxWidth: '440px', width: '92vw', borderRadius: '16px', overflow: 'hidden', border: '1px solid rgba(139, 92, 246, 0.3)', boxShadow: '0 25px 50px -12px rgba(124, 58, 237, 0.25)', background: '#111827' }}>
+          <div className="modal-card" style={{ maxWidth: '440px', width: '92vw', maxHeight: '90vh', overflowY: 'auto', borderRadius: '16px', border: '1px solid rgba(139, 92, 246, 0.3)', boxShadow: '0 25px 50px -12px rgba(124, 58, 237, 0.25)', background: '#111827' }}>
             
             {/* Modal Header */}
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.15) 0%, rgba(99, 102, 241, 0.05) 100%)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(139, 92, 246, 0.2)', border: '1px solid rgba(139, 92, 246, 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>
+            <div style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.15) 0%, rgba(99, 102, 241, 0.05) 100%)', position: 'sticky', top: 0, zIndex: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: 'rgba(139, 92, 246, 0.2)', border: '1px solid rgba(139, 92, 246, 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}>
                   📱
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#f3f4f6' }}>Dynamic UPI Payment</h3>
-                  <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>Scan &amp; Pay via GPay, PhonePe, Paytm</p>
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#f3f4f6' }}>Dynamic UPI Payment</h3>
+                  <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-muted)' }}>Scan &amp; Pay via GPay, PhonePe, Paytm</p>
                 </div>
               </div>
               <button 
@@ -15472,33 +15472,33 @@ function App() {
             </div>
 
             {/* Modal Body */}
-            <div style={{ padding: '20px', textAlign: 'center' }}>
+            <div style={{ padding: '14px 18px', textAlign: 'center' }}>
               
-              {/* Amount Display */}
-              <div style={{ marginBottom: '16px', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.25)', borderRadius: '12px', padding: '12px 16px' }}>
-                <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', fontWeight: 600 }}>Amount Due</div>
-                <div style={{ fontSize: '32px', fontWeight: 800, color: '#c4b5fd', letterSpacing: '-0.5px', margin: '2px 0' }}>
-                  ₹{Number(dynamicUpiModal.amount || 0).toFixed(2)}
+              {/* Compact Amount & Merchant Banner */}
+              <div style={{ marginBottom: '10px', background: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.22)', borderRadius: '10px', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left' }}>
+                <div>
+                  <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', fontWeight: 600 }}>Amount Due</div>
+                  <div style={{ fontSize: '24px', fontWeight: 800, color: '#c4b5fd', letterSpacing: '-0.5px', lineHeight: 1.1 }}>
+                    ₹{Number(dynamicUpiModal.amount || 0).toFixed(2)}
+                  </div>
                 </div>
-                <div style={{ fontSize: '12px', color: '#e2e8f0', fontWeight: 500 }}>
-                  Payee: <span style={{ fontWeight: 700 }}>{dynamicUpiModal.merchantName || 'Food Court Central'}</span>
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  VPA: <span style={{ fontFamily: 'monospace' }}>{dynamicUpiModal.merchantVpa}</span>
+                <div style={{ textAlign: 'right', fontSize: '11px' }}>
+                  <div style={{ color: '#e2e8f0', fontWeight: 600 }}>{dynamicUpiModal.merchantName || 'Food Court Central'}</div>
+                  <div style={{ color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '10px' }}>{dynamicUpiModal.merchantVpa}</div>
                 </div>
               </div>
 
               {/* QR Code Canvas Card */}
               <div style={{ 
                 background: '#ffffff', 
-                borderRadius: '16px', 
-                padding: '14px', 
+                borderRadius: '12px', 
+                padding: '8px', 
                 display: 'inline-block', 
-                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
-                margin: '0 auto 14px auto',
+                boxShadow: '0 8px 20px -4px rgba(0, 0, 0, 0.5)',
+                margin: '0 auto 8px auto',
                 position: 'relative'
               }}>
-                <canvas ref={upiQrCanvasRef} style={{ width: '210px', height: '210px', display: 'block', borderRadius: '4px' }} />
+                <canvas ref={upiQrCanvasRef} style={{ width: '160px', height: '160px', display: 'block', borderRadius: '4px' }} />
                 {dynamicUpiModal.status === 'EXPIRED' && (
                   <div style={{
                     position: 'absolute',
@@ -15507,21 +15507,21 @@ function App() {
                     right: 0,
                     bottom: 0,
                     background: 'rgba(17, 24, 39, 0.92)',
-                    borderRadius: '16px',
+                    borderRadius: '12px',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '20px'
+                    padding: '14px'
                   }}>
-                    <span style={{ fontSize: '30px', marginBottom: '8px' }}>⏱️</span>
-                    <span style={{ color: '#fbbf24', fontWeight: 700, fontSize: '14px', marginBottom: '4px' }}>QR Expired</span>
-                    <span style={{ color: '#9ca3af', fontSize: '11px', marginBottom: '14px' }}>Session timed out</span>
+                    <span style={{ fontSize: '24px', marginBottom: '6px' }}>⏱️</span>
+                    <span style={{ color: '#fbbf24', fontWeight: 700, fontSize: '13px', marginBottom: '2px' }}>QR Expired</span>
+                    <span style={{ color: '#9ca3af', fontSize: '10px', marginBottom: '10px' }}>Session timed out</span>
                     <button 
                       type="button" 
                       onClick={handleRegenerateUpiQr}
                       className="btn btn-primary btn-sm"
-                      style={{ fontSize: '12px', padding: '6px 14px' }}
+                      style={{ fontSize: '11px', padding: '5px 12px' }}
                     >
                       🔄 Generate Fresh QR
                     </button>
@@ -15535,21 +15535,21 @@ function App() {
                     right: 0,
                     bottom: 0,
                     background: 'rgba(17, 24, 39, 0.92)',
-                    borderRadius: '16px',
+                    borderRadius: '12px',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '20px'
+                    padding: '14px'
                   }}>
-                    <span style={{ fontSize: '30px', marginBottom: '8px' }}>❌</span>
-                    <span style={{ color: '#f87171', fontWeight: 700, fontSize: '14px', marginBottom: '4px' }}>Payment Failed</span>
-                    <span style={{ color: '#9ca3af', fontSize: '11px', marginBottom: '14px' }}>Transaction cancelled or declined</span>
+                    <span style={{ fontSize: '24px', marginBottom: '6px' }}>❌</span>
+                    <span style={{ color: '#f87171', fontWeight: 700, fontSize: '13px', marginBottom: '2px' }}>Payment Failed</span>
+                    <span style={{ color: '#9ca3af', fontSize: '10px', marginBottom: '10px' }}>Declined or cancelled</span>
                     <button 
                       type="button" 
                       onClick={handleRegenerateUpiQr}
                       className="btn btn-primary btn-sm"
-                      style={{ fontSize: '12px', padding: '6px 14px' }}
+                      style={{ fontSize: '11px', padding: '5px 12px' }}
                     >
                       🔄 Retry Payment
                     </button>
@@ -15558,10 +15558,10 @@ function App() {
               </div>
 
               {/* Supported UPI Apps Bar */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginBottom: '16px' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginRight: '2px' }}>Accepted:</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '9px', color: 'var(--text-muted)', marginRight: '2px' }}>Accepted:</span>
                 {['GPay', 'PhonePe', 'Paytm', 'BHIM', 'Cred'].map(app => (
-                  <span key={app} style={{ fontSize: '10px', fontWeight: 600, padding: '2px 7px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.05)', color: '#cbd5e1', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <span key={app} style={{ fontSize: '9px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.05)', color: '#cbd5e1', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
                     {app}
                   </span>
                 ))}
@@ -15570,20 +15570,20 @@ function App() {
               {/* Live Status Indicator Pill */}
               {dynamicUpiModal.status === 'PENDING' && (
                 <div style={{ 
-                  background: 'rgba(139, 92, 246, 0.1)', 
-                  border: '1px solid rgba(139, 92, 246, 0.25)', 
-                  borderRadius: '10px', 
-                  padding: '10px 14px', 
-                  marginBottom: '16px',
+                  background: 'rgba(139, 92, 246, 0.08)', 
+                  border: '1px solid rgba(139, 92, 246, 0.22)', 
+                  borderRadius: '8px', 
+                  padding: '6px 12px', 
+                  marginBottom: '10px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 8px #10b981' }} />
-                    <span style={{ fontSize: '12px', color: '#e2e8f0', fontWeight: 500 }}>Awaiting payment...</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 6px #10b981' }} />
+                    <span style={{ fontSize: '11px', color: '#e2e8f0', fontWeight: 500 }}>Awaiting payment...</span>
                   </div>
-                  <span style={{ fontSize: '12px', fontWeight: 700, color: dynamicUpiModal.countdown < 30 ? '#f87171' : '#a78bfa' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: dynamicUpiModal.countdown < 30 ? '#f87171' : '#a78bfa' }}>
                     ⏱️ {Math.floor(dynamicUpiModal.countdown / 60).toString().padStart(2, '0')}:{(dynamicUpiModal.countdown % 60).toString().padStart(2, '0')}
                   </span>
                 </div>
@@ -15593,18 +15593,18 @@ function App() {
                 <div style={{ 
                   background: 'rgba(16, 185, 129, 0.15)', 
                   border: '1px solid #10b981', 
-                  borderRadius: '10px', 
-                  padding: '12px 14px', 
-                  marginBottom: '16px',
+                  borderRadius: '8px', 
+                  padding: '10px 12px', 
+                  marginBottom: '10px',
                   animation: 'fadeIn 0.3s ease'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#34d399', fontWeight: 700, fontSize: '14px', marginBottom: '2px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#34d399', fontWeight: 700, fontSize: '13px', marginBottom: '2px' }}>
                     <span>✅</span> Payment Verified Successfully!
                   </div>
                   <div style={{ fontSize: '11px', color: '#a7f3d0' }}>
                     Bank RRN: <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{dynamicUpiModal.bankRrn}</span>
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
                     Finalizing order &amp; printing receipt...
                   </div>
                 </div>
@@ -15614,31 +15614,31 @@ function App() {
               <div style={{ 
                 background: 'rgba(255, 255, 255, 0.02)', 
                 border: '1px dashed rgba(139, 92, 246, 0.3)', 
-                borderRadius: '12px', 
-                padding: '12px 14px', 
+                borderRadius: '10px', 
+                padding: '10px 12px', 
                 textAlign: 'left',
-                marginBottom: '16px'
+                marginBottom: '10px'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     🛠️ Mock Mode Simulator
                   </span>
-                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>POS Dev Mode</span>
+                  <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>POS Dev Mode</span>
                 </div>
 
                 {/* Simulation Buttons */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '8px' }}>
                   <button 
                     type="button" 
                     disabled={dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating}
                     onClick={() => handleSimulateUpi('SUCCESS')}
                     style={{
-                      padding: '7px 4px',
-                      borderRadius: '6px',
+                      padding: '6px 4px',
+                      borderRadius: '5px',
                       border: '1px solid #10b981',
                       background: 'rgba(16, 185, 129, 0.15)',
                       color: '#34d399',
-                      fontSize: '11px',
+                      fontSize: '10px',
                       fontWeight: 600,
                       cursor: (dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating) ? 'not-allowed' : 'pointer'
                     }}
@@ -15650,12 +15650,12 @@ function App() {
                     disabled={dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating}
                     onClick={() => handleSimulateUpi('FAILED')}
                     style={{
-                      padding: '7px 4px',
-                      borderRadius: '6px',
+                      padding: '6px 4px',
+                      borderRadius: '5px',
                       border: '1px solid #ef4444',
                       background: 'rgba(239, 68, 68, 0.15)',
                       color: '#f87171',
-                      fontSize: '11px',
+                      fontSize: '10px',
                       fontWeight: 600,
                       cursor: (dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating) ? 'not-allowed' : 'pointer'
                     }}
@@ -15667,12 +15667,12 @@ function App() {
                     disabled={dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating}
                     onClick={() => handleSimulateUpi('EXPIRED')}
                     style={{
-                      padding: '7px 4px',
-                      borderRadius: '6px',
+                      padding: '6px 4px',
+                      borderRadius: '5px',
                       border: '1px solid #f59e0b',
                       background: 'rgba(245, 158, 11, 0.15)',
                       color: '#fbbf24',
-                      fontSize: '11px',
+                      fontSize: '10px',
                       fontWeight: 600,
                       cursor: (dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating) ? 'not-allowed' : 'pointer'
                     }}
@@ -15691,11 +15691,11 @@ function App() {
                     disabled={dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating}
                     style={{
                       flex: 1,
-                      padding: '6px 10px',
-                      fontSize: '11px',
+                      padding: '5px 8px',
+                      fontSize: '10px',
                       background: '#111827',
                       border: '1px solid #374151',
-                      borderRadius: '6px',
+                      borderRadius: '5px',
                       color: '#fff',
                       fontFamily: 'monospace'
                     }}
@@ -15704,26 +15704,26 @@ function App() {
                     type="submit"
                     disabled={dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating}
                     className="btn btn-secondary btn-xs"
-                    style={{ padding: '6px 10px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                    style={{ padding: '5px 8px', fontSize: '10px', whiteSpace: 'nowrap' }}
                   >
                     Verify UTR
                   </button>
                 </form>
 
                 {dynamicUpiModal.errorMsg && (
-                  <div style={{ marginTop: '6px', fontSize: '11px', color: '#f87171' }}>
+                  <div style={{ marginTop: '5px', fontSize: '10px', color: '#f87171' }}>
                     {dynamicUpiModal.errorMsg}
                   </div>
                 )}
               </div>
 
               {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
                 <button 
                   type="button" 
                   className="btn btn-outline-primary btn-block" 
                   onClick={handleCloseDynamicUpiModal}
-                  style={{ fontSize: '12px' }}
+                  style={{ fontSize: '11px', padding: '7px 12px' }}
                 >
                   Cancel / Pay with Cash
                 </button>
@@ -15732,7 +15732,7 @@ function App() {
                     type="button" 
                     className="btn btn-primary btn-block" 
                     onClick={handleRegenerateUpiQr}
-                    style={{ fontSize: '12px' }}
+                    style={{ fontSize: '11px', padding: '7px 12px' }}
                   >
                     🔄 New QR
                   </button>
