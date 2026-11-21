@@ -3429,12 +3429,12 @@ function App() {
     if (!role) return '';
     const isSingle = !isFeaturePermitted('multi_vendor');
     if (role === 'Billing Staff' || role === 'Cashier') return 'Cashier';
-    if (role === 'Helper' || role === 'Helping Staff' || role === 'General Staff') return isSingle ? 'Helping Staff' : 'General Staff';
+    if (role === 'Helper' || role === 'Helping Staff' || role === 'General Staff') return 'Helping Staff';
     if (role === 'Owner' || role === 'Canteen Owner') return isSingle ? 'Canteen Owner' : 'Owner';
     if (role === 'Cook') return 'Cook';
     if (role === 'Manager' || role === 'Stall Manager') return isSingle ? 'Canteen Staff' : 'Stall Manager';
     if (role === 'Admin' || role === 'Central Admin') return isSingle ? 'Canteen Owner' : 'Central Admin';
-    if (role === 'Stall Staff') return isSingle ? 'Helping Staff' : 'Stall Staff';
+    if (role === 'Stall Staff') return 'Helping Staff';
     return role;
   };
 
@@ -12282,7 +12282,7 @@ function App() {
                                 <select value={formStaff.role} onChange={e => setFormStaff({ ...formStaff, role: e.target.value })}>
                                   <option value="Cook">Cook</option>
                                   <option value="Billing Staff">Cashier</option>
-                                  <option value="Helper">{!isFeaturePermitted('multi_vendor') ? 'Helping Staff' : 'General Staff'}</option>
+                                  <option value="Helper">Helping Staff</option>
                                 </select>
                               </div>
                               <div className="hr-form-group">
