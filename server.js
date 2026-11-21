@@ -790,6 +790,43 @@ async function runStartupMigrations() {
     // Ensure any NULL customer_type is defaulted to loyalty
     await conn.query("UPDATE customers SET customer_type = 'loyalty' WHERE customer_type IS NULL");
 
+    // 19. Ensure payment_transactions table & merchant_upi_id column on tenants
+    const [mUpiCols] = await conn.query("SHOW COLUMNS FROM tenants LIKE 'merchant_upi_id'");
+    if (mUpiCols.length === 0) {
+      await conn.query("ALTER TABLE tenants ADD COLUMN merchant_upi_id VARCHAR(100) NULL DEFAULT NULL");
+      console.log("Migration: Added merchant_upi_id column to tenants table.");
+    }
+
+    const [ptTables] = await conn.query("SHOW TABLES LIKE 'payment_transactions'");
+    if (ptTables.length === 0) {
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS payment_transactions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenant_id INT NOT NULL,
+          vendor_id INT NULL DEFAULT NULL,
+          order_id INT NULL DEFAULT NULL,
+          txn_ref VARCHAR(100) NOT NULL UNIQUE,
+          amount DECIMAL(10,2) NOT NULL,
+          currency VARCHAR(10) DEFAULT 'INR',
+          gateway_name VARCHAR(50) DEFAULT 'MOCK',
+          merchant_vpa VARCHAR(100) NOT NULL,
+          merchant_name VARCHAR(100) NOT NULL,
+          qr_string TEXT NOT NULL,
+          status ENUM('PENDING', 'SUCCESS', 'FAILED', 'EXPIRED') DEFAULT 'PENDING',
+          bank_rrn VARCHAR(100) NULL,
+          payer_vpa VARCHAR(100) NULL,
+          payment_details TEXT NULL,
+          expires_at DATETIME NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          KEY idx_pt_tenant (tenant_id),
+          KEY idx_pt_txn_ref (txn_ref),
+          KEY idx_pt_status (status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+      console.log("Migration: Created payment_transactions table.");
+    }
+
     conn.release();
   } catch (err) {
     console.error("Migration error on startup:", err.message);
@@ -811,7 +848,7 @@ const tenantTables = [
   'holidays', 'customers', 'customer_feedback', 'daily_reconciliation',
   'stock_logs', 'suppliers', 'vendor_settlements', 'broadcast_campaigns',
   'cash_drawer', 'notification_logs', 'vendor_common_expenses', 'overheads', 'central_settlements',
-  'notification_settings', 'credit_ledger'
+  'notification_settings', 'credit_ledger', 'payment_transactions'
 ];
 
 function getTableIdentifier(sql, tableName) {
@@ -1193,6 +1230,9 @@ const authenticateToken = (req, res, next) => {
 
   // Allow QR menu to submit feedback without auth
   if (req.path === '/feedback' && req.method === 'POST') return next();
+
+  // Allow Dynamic UPI QR status polling without auth token (e.g. for customer-facing screen / table QR)
+  if (req.path.startsWith('/payments/dynamic-qr/status') && req.method === 'GET') return next();
 
   if (!req.user) {
     return res.status(401).json({ error: 'Access denied. No valid token provided.' });
@@ -2997,6 +3037,19 @@ app.post('/api/orders', async (req, res) => {
       [tokenNumber, finalPayable, gstTotal, payment_mode, discount_type, parseFloat(discount_value), parseFloat(discount_amount), discount_reference, paymentDetailsStr, customer_id ? parseInt(customer_id) : null, billing_staff_id ? parseInt(billing_staff_id) : null, is_upsold ? 1 : 0, order_source, customer_name, customer_phone, pickup_slot, customer_staff_id ? parseInt(customer_staff_id) : null]
     );
     const orderId = orderResult.insertId;
+
+    // Link dynamic UPI payment transaction if present
+    try {
+      const parsedDetails = payment_details ? (typeof payment_details === 'string' ? JSON.parse(payment_details) : payment_details) : null;
+      if (parsedDetails && parsedDetails.txn_ref) {
+        await connection.query(
+          'UPDATE payment_transactions SET order_id = ? WHERE txn_ref = ? AND tenant_id = ?',
+          [orderId, parsedDetails.txn_ref, req.user?.tenant_id || 1]
+        );
+      }
+    } catch (ptLinkErr) {
+      console.warn('[Orders] Could not link payment_transactions to order:', ptLinkErr.message);
+    }
 
     // Credit Ledger Entry if credit payment
     if (payment_mode === 'Credit') {
@@ -10001,6 +10054,259 @@ app.put('/api/wallet/assign-rfid', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'This RFID tag is already assigned to another customer.' });
     }
     res.status(500).json({ error: 'Failed to assign RFID' });
+  }
+});
+
+// ==========================================
+// DYNAMIC UPI QR PAYMENT INTEGRATION MODULE
+// ==========================================
+
+// 1. Create a Dynamic UPI QR Transaction
+app.post('/api/payments/dynamic-qr/create', async (req, res) => {
+  const { amount, note, vendor_id } = req.body;
+  const numAmount = parseFloat(amount);
+  if (!numAmount || isNaN(numAmount) || numAmount <= 0) {
+    return res.status(400).json({ error: 'Valid payment amount greater than zero is required.' });
+  }
+
+  try {
+    const tenantId = req.user?.tenant_id || req.body.tenant_id || 1;
+
+    // Fetch tenant details for merchant name and UPI ID
+    const [tRows] = await pool.query('SELECT id, name, merchant_upi_id FROM tenants WHERE id = ?', [tenantId]);
+    const tenant = tRows.length > 0 ? tRows[0] : { name: 'Food Court Central', merchant_upi_id: null };
+
+    // Format merchant name (sanitize characters for UPI standard)
+    const merchantName = (tenant.name || 'Food Court Central').trim();
+    // Default fallback merchant VPA if not configured
+    const merchantVpa = (tenant.merchant_upi_id && tenant.merchant_upi_id.trim()) 
+      ? tenant.merchant_upi_id.trim() 
+      : `${(tenant.name || 'foodcourt').toLowerCase().replace(/[^a-z0-9]/g, '')}.merchant@upi`;
+
+    // Generate unique 16-character transaction reference
+    const timestampPart = Date.now().toString(36).toUpperCase();
+    const randomPart = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const txnRef = `FC_${timestampPart}_${randomPart}`;
+
+    const formattedAmount = numAmount.toFixed(2);
+    const txnNote = (note || `POS Order ${txnRef}`).substring(0, 40);
+
+    // Formulate NPCI standard UPI URI
+    // Specs: upi://pay?pa=<vpa>&pn=<payee_name>&am=<amount>&cu=INR&tr=<txn_ref>&tn=<note>
+    const qrString = `upi://pay?pa=${encodeURIComponent(merchantVpa)}&pn=${encodeURIComponent(merchantName)}&am=${formattedAmount}&cu=INR&tr=${txnRef}&tn=${encodeURIComponent(txnNote)}`;
+
+    // Set expiry to 3 minutes (180 seconds)
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000);
+
+    await pool.query(`
+      INSERT INTO payment_transactions 
+      (tenant_id, vendor_id, txn_ref, amount, currency, gateway_name, merchant_vpa, merchant_name, qr_string, status, expires_at)
+      VALUES (?, ?, ?, ?, 'INR', 'MOCK', ?, ?, ?, 'PENDING', ?)
+    `, [
+      tenantId,
+      vendor_id ? parseInt(vendor_id) : null,
+      txnRef,
+      formattedAmount,
+      merchantVpa,
+      merchantName,
+      qrString,
+      expiresAt
+    ]);
+
+    res.status(201).json({
+      success: true,
+      txn_ref: txnRef,
+      amount: parseFloat(formattedAmount),
+      currency: 'INR',
+      merchant_name: merchantName,
+      merchant_vpa: merchantVpa,
+      qr_string: qrString,
+      expires_at: expiresAt.toISOString(),
+      expires_in_seconds: 180,
+      gateway_name: 'MOCK'
+    });
+  } catch (error) {
+    console.error('[Dynamic QR Create Error]:', error);
+    res.status(500).json({ error: 'Failed to generate dynamic UPI QR code: ' + error.message });
+  }
+});
+
+// 2. Poll Transaction Status
+app.get('/api/payments/dynamic-qr/status/:txn_ref', async (req, res) => {
+  const { txn_ref } = req.params;
+  if (!txn_ref) {
+    return res.status(400).json({ error: 'Transaction reference is required.' });
+  }
+
+  try {
+    const [rows] = await pool.query('SELECT * FROM payment_transactions WHERE txn_ref = ?', [txn_ref]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Transaction not found.' });
+    }
+
+    const txn = rows[0];
+
+    // Check if expired
+    if (txn.status === 'PENDING' && new Date(txn.expires_at) < new Date()) {
+      await pool.query("UPDATE payment_transactions SET status = 'EXPIRED' WHERE id = ?", [txn.id]);
+      txn.status = 'EXPIRED';
+    }
+
+    let parsedDetails = null;
+    try {
+      parsedDetails = txn.payment_details ? JSON.parse(txn.payment_details) : null;
+    } catch(e) {}
+
+    res.json({
+      success: true,
+      txn_ref: txn.txn_ref,
+      status: txn.status,
+      amount: parseFloat(txn.amount),
+      currency: txn.currency,
+      bank_rrn: txn.bank_rrn,
+      payer_vpa: txn.payer_vpa,
+      order_id: txn.order_id,
+      expires_at: txn.expires_at,
+      details: parsedDetails
+    });
+  } catch (error) {
+    console.error('[Dynamic QR Status Error]:', error);
+    res.status(500).json({ error: 'Failed to retrieve transaction status: ' + error.message });
+  }
+});
+
+// 3. Developer / Cashier Simulation (Mock Mode)
+app.post('/api/payments/dynamic-qr/simulate', async (req, res) => {
+  const { txn_ref, target_status = 'SUCCESS', payer_vpa, bank_rrn } = req.body;
+  if (!txn_ref) {
+    return res.status(400).json({ error: 'Transaction reference is required.' });
+  }
+
+  const validStatuses = ['SUCCESS', 'FAILED', 'EXPIRED'];
+  if (!validStatuses.includes(target_status)) {
+    return res.status(400).json({ error: 'Invalid target status. Must be SUCCESS, FAILED, or EXPIRED.' });
+  }
+
+  try {
+    const [rows] = await pool.query('SELECT * FROM payment_transactions WHERE txn_ref = ?', [txn_ref]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Transaction not found.' });
+    }
+
+    const txn = rows[0];
+    if (txn.status !== 'PENDING') {
+      return res.status(400).json({ error: `Transaction is already in status '${txn.status}'. Cannot simulate.` });
+    }
+
+    if (target_status === 'SUCCESS') {
+      // Generate realistic 12-digit Indian Bank RRN (Reference Routing Number)
+      const mockRrn = bank_rrn || Math.floor(100000000000 + Math.random() * 900000000000).toString();
+      const mockPayer = payer_vpa || 'customer.pos@okaxis';
+      const meta = JSON.stringify({
+        mode: 'UPI_SIMULATED',
+        timestamp: new Date().toISOString(),
+        simulated_by: req.user ? `${req.user.name} (${req.user.role})` : 'Simulator',
+        app: 'Google Pay / PhonePe (Simulated)'
+      });
+
+      await pool.query(`
+        UPDATE payment_transactions 
+        SET status = 'SUCCESS', bank_rrn = ?, payer_vpa = ?, payment_details = ?
+        WHERE id = ?
+      `, [mockRrn, mockPayer, meta, txn.id]);
+
+      return res.json({
+        success: true,
+        txn_ref: txn.txn_ref,
+        status: 'SUCCESS',
+        bank_rrn: mockRrn,
+        payer_vpa: mockPayer,
+        message: 'Payment simulation succeeded.'
+      });
+    }
+
+    if (target_status === 'FAILED') {
+      const meta = JSON.stringify({
+        mode: 'UPI_SIMULATED',
+        timestamp: new Date().toISOString(),
+        reason: 'Payment declined by customer bank or user cancelled on UPI app.'
+      });
+
+      await pool.query(`
+        UPDATE payment_transactions 
+        SET status = 'FAILED', payment_details = ?
+        WHERE id = ?
+      `, [meta, txn.id]);
+
+      return res.json({
+        success: true,
+        txn_ref: txn.txn_ref,
+        status: 'FAILED',
+        message: 'Payment simulation marked as FAILED.'
+      });
+    }
+
+    if (target_status === 'EXPIRED') {
+      await pool.query("UPDATE payment_transactions SET status = 'EXPIRED' WHERE id = ?", [txn.id]);
+      return res.json({
+        success: true,
+        txn_ref: txn.txn_ref,
+        status: 'EXPIRED',
+        message: 'Payment simulation marked as EXPIRED.'
+      });
+    }
+  } catch (error) {
+    console.error('[Dynamic QR Simulate Error]:', error);
+    res.status(500).json({ error: 'Failed to simulate transaction: ' + error.message });
+  }
+});
+
+// 4. Cashier Manual UTR / RRN Verification
+app.post('/api/payments/dynamic-qr/manual-verify', async (req, res) => {
+  const { txn_ref, bank_rrn, payer_vpa } = req.body;
+  if (!txn_ref) {
+    return res.status(400).json({ error: 'Transaction reference is required.' });
+  }
+
+  const cleanRrn = (bank_rrn || '').trim();
+  if (!cleanRrn || cleanRrn.length < 6) {
+    return res.status(400).json({ error: 'Valid Bank RRN / UTR reference number (at least 6-12 digits) is required.' });
+  }
+
+  try {
+    const [rows] = await pool.query('SELECT * FROM payment_transactions WHERE txn_ref = ?', [txn_ref]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Transaction not found.' });
+    }
+
+    const txn = rows[0];
+    if (txn.status === 'SUCCESS') {
+      return res.status(400).json({ error: 'Transaction is already marked as SUCCESS.' });
+    }
+
+    const meta = JSON.stringify({
+      verification_type: 'MANUAL_CASHIER_UTR_OVERRIDE',
+      verified_by_id: req.user?.id || null,
+      verified_by_name: req.user?.name || 'Cashier',
+      verified_at: new Date().toISOString()
+    });
+
+    await pool.query(`
+      UPDATE payment_transactions 
+      SET status = 'SUCCESS', bank_rrn = ?, payer_vpa = ?, payment_details = ?
+      WHERE id = ?
+    `, [cleanRrn, payer_vpa || 'manual.cashier@upi', meta, txn.id]);
+
+    res.json({
+      success: true,
+      txn_ref: txn.txn_ref,
+      status: 'SUCCESS',
+      bank_rrn: cleanRrn,
+      message: 'Payment manually verified and settled by cashier.'
+    });
+  } catch (error) {
+    console.error('[Dynamic QR Manual Verify Error]:', error);
+    res.status(500).json({ error: 'Failed to manually verify transaction: ' + error.message });
   }
 });
 

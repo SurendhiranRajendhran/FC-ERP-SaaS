@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import QRCode from 'qrcode';
 import { createPortal } from 'react-dom';
 import CrmNotifications from './CrmNotifications';
 import WalletManagement from './WalletManagement';
@@ -7,6 +8,40 @@ import Promotions from './Promotions';
 import { formatISTDateTime, formatISTDate, formatISTTime, getISTTodayString } from './dateUtils';
 
 const API_BASE = '/api';
+
+// Sound synthesizer for successful payment completion
+const playPaymentSuccessChime = () => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const now = ctx.currentTime;
+    
+    // Tone 1: E5 (659.25 Hz)
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(659.25, now);
+    gain1.gain.setValueAtTime(0.12, now);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.3);
+
+    // Tone 2: A5 (880 Hz)
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(880, now + 0.15);
+    gain2.gain.setValueAtTime(0.15, now + 0.15);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(now + 0.15);
+    osc2.stop(now + 0.6);
+  } catch (e) {}
+};
 
 // --- AUTHENTICATION INTERCEPTOR ---
 const originalFetch = window.fetch;
@@ -3007,6 +3042,26 @@ function App() {
   const [recipeRows, setRecipeRows] = useState([]); // array of { material_id, quantity }
 
   // Modal Control States
+  const [dynamicUpiModal, setDynamicUpiModal] = useState({
+    show: false,
+    txnRef: '',
+    qrString: '',
+    amount: 0,
+    merchantName: '',
+    merchantVpa: '',
+    status: 'PENDING', // 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED'
+    expiresAt: null,
+    countdown: 180,
+    bankRrn: null,
+    payerVpa: null,
+    isSimulating: false,
+    manualRrn: '',
+    errorMsg: ''
+  });
+  const upiQrCanvasRef = useRef(null);
+  const upiPollingTimerRef = useRef(null);
+  const upiCountdownTimerRef = useRef(null);
+
   const [menuItemModal, setMenuItemModal] = useState({ show: false, mode: 'add', data: null });
   const [materialModal, setMaterialModal] = useState({ show: false, data: null });
   const [stockActionModal, setStockActionModal] = useState({ show: false, material_id: '', change_qty: '', log_type: 'Purchase', reason: '' });
@@ -6748,6 +6803,54 @@ function App() {
 
     // If split billing, check if the total sums match the payable amount
     const payableTotal = Math.max(0, cartSubtotal - discountAmount);
+
+    // Dynamic UPI QR Interception for POS Counter
+    if (posPaymentMode === 'UPI' && payableTotal > 0) {
+      if (!posCashierId && user?.role !== 'Billing Staff') {
+        showToast('Please select a cashier / billing staff.', 'error');
+        setIsPosCheckoutLoading(false);
+        return;
+      }
+      try {
+        const qrRes = await fetch(`${API_BASE}/payments/dynamic-qr/create`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: payableTotal,
+            note: 'POS Terminal Order',
+            vendor_id: user?.vendor_id || (selectedVendorId !== 'all' ? parseInt(selectedVendorId) : null) || null
+          })
+        });
+
+        if (qrRes.ok) {
+          const qrData = await qrRes.json();
+          setDynamicUpiModal({
+            show: true,
+            txnRef: qrData.txn_ref,
+            qrString: qrData.qr_string,
+            amount: qrData.amount,
+            merchantName: qrData.merchant_name,
+            merchantVpa: qrData.merchant_vpa,
+            status: 'PENDING',
+            expiresAt: qrData.expires_at,
+            countdown: qrData.expires_in_seconds || 180,
+            bankRrn: null,
+            payerVpa: null,
+            isSimulating: false,
+            manualRrn: '',
+            errorMsg: ''
+          });
+        } else {
+          const err = await qrRes.json();
+          showToast(err.error || 'Failed to initialize Dynamic UPI QR.', 'error');
+        }
+      } catch (err) {
+        showToast('Network error initializing Dynamic UPI QR.', 'error');
+      } finally {
+        setIsPosCheckoutLoading(false);
+      }
+      return;
+    }
     if (posPaymentMode === 'Split') {
       const sumSplits = splitPayments.reduce((sum, sp) => sum + parseFloat(sp.amount || 0), 0);
       if (Math.abs(sumSplits - payableTotal) > 0.01) {
@@ -6834,6 +6937,323 @@ function App() {
       setIsPosCheckoutLoading(false);
     }
   };
+
+  // ── DYNAMIC UPI QR HANDLERS & TIMERS ──
+
+  // Finalize order after successful Dynamic UPI payment verification
+  const handleFinalizeUpiOrder = async (txnRef, bankRrn, payerVpa) => {
+    setIsPosCheckoutLoading(true);
+    let currentCustomerInfo = rfidCustomerInfo;
+    const payableTotal = Math.max(0, cartSubtotal - discountAmount);
+
+    const payload = {
+      items: cart.map(i => ({ item_id: i.id, quantity: i.quantity })),
+      payment_mode: 'UPI',
+      discount_type: discountAmount > 0 ? discountType : 'None',
+      discount_value: discountAmount > 0 ? discountValue : 0,
+      discount_amount: discountAmount > 0 ? discountAmount : 0,
+      discount_reference: discountAmount > 0 ? discountReference : '',
+      payment_details: {
+        txn_ref: txnRef,
+        bank_rrn: bankRrn,
+        payer_vpa: payerVpa || 'customer@upi',
+        gateway: 'MOCK',
+        amount: payableTotal,
+        payment_time: new Date().toISOString()
+      },
+      customer_id: posCustomerId || (currentCustomerInfo ? currentCustomerInfo.id : null) || null,
+      billing_staff_id: posCashierId || null,
+      is_upsold: posIsUpsold ? 1 : 0,
+      customer_staff_id: null,
+      loyalty_redeem_points: (discountType === 'Loyalty' && discountAmount > 0) ? parseInt(loyaltyRedeemPoints || 0) : 0,
+      vendor_id: user?.vendor_id || (selectedVendorId !== 'all' ? parseInt(selectedVendorId) : null) || null
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        showToast(`UPI Order Token ${data.token_number} generated successfully!`, 'success');
+        setCart([]); // Clear cart
+        handleClearDiscount();
+        setShowSplitModal(false);
+        setPosPaymentMode('Cash');
+        setPosCustomerId('');
+        if (user.role !== 'Billing Staff') setPosCashierId('');
+        setPosIsUpsold(false);
+        setRfidScanInput('');
+        setRfidCustomerInfo(null);
+        setRfidStatusMsg('');
+
+        // Close UPI modal
+        if (upiPollingTimerRef.current) clearInterval(upiPollingTimerRef.current);
+        if (upiCountdownTimerRef.current) clearInterval(upiCountdownTimerRef.current);
+        setDynamicUpiModal({
+          show: false,
+          txnRef: '',
+          qrString: '',
+          amount: 0,
+          merchantName: '',
+          merchantVpa: '',
+          status: 'PENDING',
+          expiresAt: null,
+          countdown: 180,
+          bankRrn: null,
+          payerVpa: null,
+          isSimulating: false,
+          manualRrn: '',
+          errorMsg: ''
+        });
+
+        // Open virtual printer terminal with receipt layouts
+        setPrinterModal({
+          show: true,
+          bill: data.receipts.bill,
+          kot: data.receipts.kot
+        });
+
+        // Reload data
+        loadAllData();
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Failed to complete UPI order.', 'error');
+        setDynamicUpiModal(prev => ({ ...prev, isSimulating: false, errorMsg: err.error || 'Order creation failed' }));
+      }
+    } catch (error) {
+      showToast('Network error during UPI order finalization.', 'error');
+      setDynamicUpiModal(prev => ({ ...prev, isSimulating: false, errorMsg: 'Network error during finalization' }));
+    } finally {
+      setIsPosCheckoutLoading(false);
+    }
+  };
+
+  // Close Dynamic UPI QR modal safely
+  const handleCloseDynamicUpiModal = () => {
+    if (upiPollingTimerRef.current) clearInterval(upiPollingTimerRef.current);
+    if (upiCountdownTimerRef.current) clearInterval(upiCountdownTimerRef.current);
+    setDynamicUpiModal({
+      show: false,
+      txnRef: '',
+      qrString: '',
+      amount: 0,
+      merchantName: '',
+      merchantVpa: '',
+      status: 'PENDING',
+      expiresAt: null,
+      countdown: 180,
+      bankRrn: null,
+      payerVpa: null,
+      isSimulating: false,
+      manualRrn: '',
+      errorMsg: ''
+    });
+    setPosPaymentMode('Cash');
+  };
+
+  // Developer Simulator (Mock Mode)
+  const handleSimulateUpi = async (targetStatus) => {
+    if (!dynamicUpiModal.txnRef) return;
+    setDynamicUpiModal(prev => ({ ...prev, isSimulating: true, errorMsg: '' }));
+    try {
+      const res = await fetch(`${API_BASE}/payments/dynamic-qr/simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          txn_ref: dynamicUpiModal.txnRef,
+          target_status: targetStatus
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (targetStatus === 'SUCCESS') {
+          playPaymentSuccessChime();
+          setDynamicUpiModal(prev => ({
+            ...prev,
+            status: 'SUCCESS',
+            bankRrn: data.bank_rrn,
+            payerVpa: data.payer_vpa,
+            isSimulating: false
+          }));
+          setTimeout(() => {
+            handleFinalizeUpiOrder(dynamicUpiModal.txnRef, data.bank_rrn, data.payer_vpa);
+          }, 1200);
+        } else {
+          setDynamicUpiModal(prev => ({
+            ...prev,
+            status: targetStatus,
+            isSimulating: false
+          }));
+        }
+      } else {
+        setDynamicUpiModal(prev => ({ ...prev, isSimulating: false, errorMsg: data.error || 'Simulation failed' }));
+      }
+    } catch (e) {
+      setDynamicUpiModal(prev => ({ ...prev, isSimulating: false, errorMsg: 'Simulation network error' }));
+    }
+  };
+
+  // Cashier Manual UTR Override
+  const handleManualVerifyUpi = async (e) => {
+    if (e) e.preventDefault();
+    if (!dynamicUpiModal.manualRrn || dynamicUpiModal.manualRrn.trim().length < 6) {
+      showToast('Please enter a valid 6 to 12 digit UTR / Bank RRN.', 'error');
+      return;
+    }
+    setDynamicUpiModal(prev => ({ ...prev, isSimulating: true, errorMsg: '' }));
+    try {
+      const res = await fetch(`${API_BASE}/payments/dynamic-qr/manual-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          txn_ref: dynamicUpiModal.txnRef,
+          bank_rrn: dynamicUpiModal.manualRrn.trim()
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        playPaymentSuccessChime();
+        setDynamicUpiModal(prev => ({
+          ...prev,
+          status: 'SUCCESS',
+          bankRrn: data.bank_rrn,
+          isSimulating: false
+        }));
+        setTimeout(() => {
+          handleFinalizeUpiOrder(dynamicUpiModal.txnRef, data.bank_rrn, 'manual.cashier@upi');
+        }, 1200);
+      } else {
+        setDynamicUpiModal(prev => ({ ...prev, isSimulating: false, errorMsg: data.error || 'Verification failed' }));
+      }
+    } catch (e) {
+      setDynamicUpiModal(prev => ({ ...prev, isSimulating: false, errorMsg: 'Verification network error' }));
+    }
+  };
+
+  // Regenerate / Retry Fresh UPI QR
+  const handleRegenerateUpiQr = async () => {
+    const payableTotal = Math.max(0, cartSubtotal - discountAmount);
+    setDynamicUpiModal(prev => ({ ...prev, isSimulating: true, errorMsg: '' }));
+    try {
+      const res = await fetch(`${API_BASE}/payments/dynamic-qr/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: payableTotal,
+          note: 'POS Terminal Order',
+          vendor_id: user?.vendor_id || null
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDynamicUpiModal({
+          show: true,
+          txnRef: data.txn_ref,
+          qrString: data.qr_string,
+          amount: data.amount,
+          merchantName: data.merchant_name,
+          merchantVpa: data.merchant_vpa,
+          status: 'PENDING',
+          expiresAt: data.expires_at,
+          countdown: data.expires_in_seconds || 180,
+          bankRrn: null,
+          payerVpa: null,
+          isSimulating: false,
+          manualRrn: '',
+          errorMsg: ''
+        });
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Failed to regenerate QR.', 'error');
+        setDynamicUpiModal(prev => ({ ...prev, isSimulating: false, errorMsg: err.error || 'Regenerate failed' }));
+      }
+    } catch (e) {
+      showToast('Network error regenerating QR.', 'error');
+      setDynamicUpiModal(prev => ({ ...prev, isSimulating: false, errorMsg: 'Network error regenerating QR' }));
+    }
+  };
+
+  // Effect: Render Dynamic UPI QR onto canvas
+  useEffect(() => {
+    if (dynamicUpiModal.show && dynamicUpiModal.qrString) {
+      const renderTimer = setTimeout(() => {
+        if (upiQrCanvasRef.current) {
+          QRCode.toCanvas(upiQrCanvasRef.current, dynamicUpiModal.qrString, {
+            width: 210,
+            margin: 1,
+            color: {
+              dark: '#1e1b4b',
+              light: '#ffffff'
+            }
+          }).catch(err => {
+            console.warn('[UPI QR Canvas Render Error]:', err);
+          });
+        }
+      }, 50);
+      return () => clearTimeout(renderTimer);
+    }
+  }, [dynamicUpiModal.show, dynamicUpiModal.qrString]);
+
+  // Effect: Status Polling & Countdown for Dynamic UPI QR
+  useEffect(() => {
+    if (!dynamicUpiModal.show || dynamicUpiModal.status !== 'PENDING') {
+      if (upiPollingTimerRef.current) clearInterval(upiPollingTimerRef.current);
+      if (upiCountdownTimerRef.current) clearInterval(upiCountdownTimerRef.current);
+      return;
+    }
+
+    // 1-second countdown interval
+    upiCountdownTimerRef.current = setInterval(() => {
+      setDynamicUpiModal(prev => {
+        if (!prev.show || prev.status !== 'PENDING') return prev;
+        if (prev.countdown <= 1) {
+          if (upiPollingTimerRef.current) clearInterval(upiPollingTimerRef.current);
+          if (upiCountdownTimerRef.current) clearInterval(upiCountdownTimerRef.current);
+          return { ...prev, countdown: 0, status: 'EXPIRED' };
+        }
+        return { ...prev, countdown: prev.countdown - 1 };
+      });
+    }, 1000);
+
+    // 2.5-second polling interval
+    upiPollingTimerRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/payments/dynamic-qr/status/${dynamicUpiModal.txnRef}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 'SUCCESS') {
+            if (upiPollingTimerRef.current) clearInterval(upiPollingTimerRef.current);
+            if (upiCountdownTimerRef.current) clearInterval(upiCountdownTimerRef.current);
+            playPaymentSuccessChime();
+            setDynamicUpiModal(prev => ({
+              ...prev,
+              status: 'SUCCESS',
+              bankRrn: data.bank_rrn,
+              payerVpa: data.payer_vpa
+            }));
+            setTimeout(() => {
+              handleFinalizeUpiOrder(dynamicUpiModal.txnRef, data.bank_rrn, data.payer_vpa);
+            }, 1200);
+          } else if (data.status === 'FAILED' || data.status === 'EXPIRED') {
+            if (upiPollingTimerRef.current) clearInterval(upiPollingTimerRef.current);
+            if (upiCountdownTimerRef.current) clearInterval(upiCountdownTimerRef.current);
+            setDynamicUpiModal(prev => ({ ...prev, status: data.status }));
+          }
+        }
+      } catch (err) {
+        console.warn('[UPI Status Poll Error]:', err);
+      }
+    }, 2500);
+
+    return () => {
+      if (upiPollingTimerRef.current) clearInterval(upiPollingTimerRef.current);
+      if (upiCountdownTimerRef.current) clearInterval(upiCountdownTimerRef.current);
+    };
+  }, [dynamicUpiModal.show, dynamicUpiModal.status, dynamicUpiModal.txnRef]);
 
   const handleLocalPrintReceipt = () => {
     const printWindow = window.open('', '_blank');
@@ -9596,11 +10016,35 @@ function App() {
                             }}
                             style={{ whiteSpace: 'nowrap' }}
                           >
-                            {mode}
+                            {mode === 'UPI' ? '⚡ UPI QR' : mode}
                           </button>
                         ))}
                       </div>
                     </div>
+                    {posPaymentMode === 'UPI' && (
+                      <div style={{
+                        marginTop: '10px',
+                        background: 'rgba(124, 58, 237, 0.12)',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(139, 92, 246, 0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '18px' }}>⚡</span>
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#c4b5fd' }}>Dynamic UPI QR Active</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Auto-locks exact bill amount for GPay, PhonePe &amp; Paytm</div>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '10px', textTransform: 'uppercase', padding: '3px 8px', borderRadius: '4px', background: 'rgba(139, 92, 246, 0.25)', color: '#a78bfa', fontWeight: 700, letterSpacing: '0.5px' }}>
+                          Auto-Settle
+                        </span>
+                      </div>
+                    )}
                     {posPaymentMode === 'RFID Wallet' && (
                       <div style={{ marginTop: '12px', background: 'rgba(59,130,246,0.1)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)' }}>
                         <label style={{ fontSize: '11px', color: '#60a5fa' }}>Tap Card on Reader</label>
@@ -9644,7 +10088,12 @@ function App() {
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: 20, height: 20, marginRight: 8, animation: 'spin 1s linear infinite'}}>
                             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
                           </svg>
-                          Processing Order...
+                          Processing...
+                        </>
+                      ) : posPaymentMode === 'UPI' ? (
+                        <>
+                          <span style={{ fontSize: '18px', marginRight: '6px' }}>⚡</span>
+                          Generate Dynamic UPI QR &middot; ₹{Math.max(0, cartSubtotal - discountAmount).toFixed(2)}
                         </>
                       ) : (
                         <>
@@ -14990,6 +15439,306 @@ function App() {
               <button className="btn btn-outline-primary" onClick={() => setPrinterModal({ show: false, bill: '', kot: '' })}>
                 Done (New Order)
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+           MODAL 4B: DYNAMIC UPI QR CODE PAYMENT TERMINAL
+           ========================================== */}
+      {dynamicUpiModal.show && (
+        <div className="modal-overlay active" style={{ zIndex: 1200, backdropFilter: 'blur(6px)' }}>
+          <div className="modal-card" style={{ maxWidth: '440px', width: '92vw', borderRadius: '16px', overflow: 'hidden', border: '1px solid rgba(139, 92, 246, 0.3)', boxShadow: '0 25px 50px -12px rgba(124, 58, 237, 0.25)', background: '#111827' }}>
+            
+            {/* Modal Header */}
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.15) 0%, rgba(99, 102, 241, 0.05) 100%)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(139, 92, 246, 0.2)', border: '1px solid rgba(139, 92, 246, 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>
+                  📱
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#f3f4f6' }}>Dynamic UPI Payment</h3>
+                  <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>Scan &amp; Pay via GPay, PhonePe, Paytm</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={handleCloseDynamicUpiModal} 
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '20px', cursor: 'pointer', lineHeight: 1 }}
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '20px', textAlign: 'center' }}>
+              
+              {/* Amount Display */}
+              <div style={{ marginBottom: '16px', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.25)', borderRadius: '12px', padding: '12px 16px' }}>
+                <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', fontWeight: 600 }}>Amount Due</div>
+                <div style={{ fontSize: '32px', fontWeight: 800, color: '#c4b5fd', letterSpacing: '-0.5px', margin: '2px 0' }}>
+                  ₹{Number(dynamicUpiModal.amount || 0).toFixed(2)}
+                </div>
+                <div style={{ fontSize: '12px', color: '#e2e8f0', fontWeight: 500 }}>
+                  Payee: <span style={{ fontWeight: 700 }}>{dynamicUpiModal.merchantName || 'Food Court Central'}</span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  VPA: <span style={{ fontFamily: 'monospace' }}>{dynamicUpiModal.merchantVpa}</span>
+                </div>
+              </div>
+
+              {/* QR Code Canvas Card */}
+              <div style={{ 
+                background: '#ffffff', 
+                borderRadius: '16px', 
+                padding: '14px', 
+                display: 'inline-block', 
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
+                margin: '0 auto 14px auto',
+                position: 'relative'
+              }}>
+                <canvas ref={upiQrCanvasRef} style={{ width: '210px', height: '210px', display: 'block', borderRadius: '4px' }} />
+                {dynamicUpiModal.status === 'EXPIRED' && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(17, 24, 39, 0.92)',
+                    borderRadius: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px'
+                  }}>
+                    <span style={{ fontSize: '30px', marginBottom: '8px' }}>⏱️</span>
+                    <span style={{ color: '#fbbf24', fontWeight: 700, fontSize: '14px', marginBottom: '4px' }}>QR Expired</span>
+                    <span style={{ color: '#9ca3af', fontSize: '11px', marginBottom: '14px' }}>Session timed out</span>
+                    <button 
+                      type="button" 
+                      onClick={handleRegenerateUpiQr}
+                      className="btn btn-primary btn-sm"
+                      style={{ fontSize: '12px', padding: '6px 14px' }}
+                    >
+                      🔄 Generate Fresh QR
+                    </button>
+                  </div>
+                )}
+                {dynamicUpiModal.status === 'FAILED' && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(17, 24, 39, 0.92)',
+                    borderRadius: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px'
+                  }}>
+                    <span style={{ fontSize: '30px', marginBottom: '8px' }}>❌</span>
+                    <span style={{ color: '#f87171', fontWeight: 700, fontSize: '14px', marginBottom: '4px' }}>Payment Failed</span>
+                    <span style={{ color: '#9ca3af', fontSize: '11px', marginBottom: '14px' }}>Transaction cancelled or declined</span>
+                    <button 
+                      type="button" 
+                      onClick={handleRegenerateUpiQr}
+                      className="btn btn-primary btn-sm"
+                      style={{ fontSize: '12px', padding: '6px 14px' }}
+                    >
+                      🔄 Retry Payment
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Supported UPI Apps Bar */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginBottom: '16px' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginRight: '2px' }}>Accepted:</span>
+                {['GPay', 'PhonePe', 'Paytm', 'BHIM', 'Cred'].map(app => (
+                  <span key={app} style={{ fontSize: '10px', fontWeight: 600, padding: '2px 7px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.05)', color: '#cbd5e1', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    {app}
+                  </span>
+                ))}
+              </div>
+
+              {/* Live Status Indicator Pill */}
+              {dynamicUpiModal.status === 'PENDING' && (
+                <div style={{ 
+                  background: 'rgba(139, 92, 246, 0.1)', 
+                  border: '1px solid rgba(139, 92, 246, 0.25)', 
+                  borderRadius: '10px', 
+                  padding: '10px 14px', 
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 8px #10b981' }} />
+                    <span style={{ fontSize: '12px', color: '#e2e8f0', fontWeight: 500 }}>Awaiting payment...</span>
+                  </div>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: dynamicUpiModal.countdown < 30 ? '#f87171' : '#a78bfa' }}>
+                    ⏱️ {Math.floor(dynamicUpiModal.countdown / 60).toString().padStart(2, '0')}:{(dynamicUpiModal.countdown % 60).toString().padStart(2, '0')}
+                  </span>
+                </div>
+              )}
+
+              {dynamicUpiModal.status === 'SUCCESS' && (
+                <div style={{ 
+                  background: 'rgba(16, 185, 129, 0.15)', 
+                  border: '1px solid #10b981', 
+                  borderRadius: '10px', 
+                  padding: '12px 14px', 
+                  marginBottom: '16px',
+                  animation: 'fadeIn 0.3s ease'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#34d399', fontWeight: 700, fontSize: '14px', marginBottom: '2px' }}>
+                    <span>✅</span> Payment Verified Successfully!
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#a7f3d0' }}>
+                    Bank RRN: <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{dynamicUpiModal.bankRrn}</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Finalizing order &amp; printing receipt...
+                  </div>
+                </div>
+              )}
+
+              {/* Developer Simulator & Manual Override Box */}
+              <div style={{ 
+                background: 'rgba(255, 255, 255, 0.02)', 
+                border: '1px dashed rgba(139, 92, 246, 0.3)', 
+                borderRadius: '12px', 
+                padding: '12px 14px', 
+                textAlign: 'left',
+                marginBottom: '16px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    🛠️ Mock Mode Simulator
+                  </span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>POS Dev Mode</span>
+                </div>
+
+                {/* Simulation Buttons */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '10px' }}>
+                  <button 
+                    type="button" 
+                    disabled={dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating}
+                    onClick={() => handleSimulateUpi('SUCCESS')}
+                    style={{
+                      padding: '7px 4px',
+                      borderRadius: '6px',
+                      border: '1px solid #10b981',
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      color: '#34d399',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: (dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating) ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    ⚡ Paid (Success)
+                  </button>
+                  <button 
+                    type="button" 
+                    disabled={dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating}
+                    onClick={() => handleSimulateUpi('FAILED')}
+                    style={{
+                      padding: '7px 4px',
+                      borderRadius: '6px',
+                      border: '1px solid #ef4444',
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      color: '#f87171',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: (dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating) ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    ❌ Decline
+                  </button>
+                  <button 
+                    type="button" 
+                    disabled={dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating}
+                    onClick={() => handleSimulateUpi('EXPIRED')}
+                    style={{
+                      padding: '7px 4px',
+                      borderRadius: '6px',
+                      border: '1px solid #f59e0b',
+                      background: 'rgba(245, 158, 11, 0.15)',
+                      color: '#fbbf24',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: (dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating) ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    ⏱️ Expire
+                  </button>
+                </div>
+
+                {/* Cashier Manual UTR Override */}
+                <form onSubmit={handleManualVerifyUpi} style={{ display: 'flex', gap: '6px' }}>
+                  <input 
+                    type="text" 
+                    placeholder="Enter 12-digit UTR manually" 
+                    value={dynamicUpiModal.manualRrn}
+                    onChange={(e) => setDynamicUpiModal(prev => ({ ...prev, manualRrn: e.target.value.replace(/[^0-9a-zA-Z]/g, '') }))}
+                    disabled={dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating}
+                    style={{
+                      flex: 1,
+                      padding: '6px 10px',
+                      fontSize: '11px',
+                      background: '#111827',
+                      border: '1px solid #374151',
+                      borderRadius: '6px',
+                      color: '#fff',
+                      fontFamily: 'monospace'
+                    }}
+                  />
+                  <button 
+                    type="submit"
+                    disabled={dynamicUpiModal.status !== 'PENDING' || dynamicUpiModal.isSimulating}
+                    className="btn btn-secondary btn-xs"
+                    style={{ padding: '6px 10px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                  >
+                    Verify UTR
+                  </button>
+                </form>
+
+                {dynamicUpiModal.errorMsg && (
+                  <div style={{ marginTop: '6px', fontSize: '11px', color: '#f87171' }}>
+                    {dynamicUpiModal.errorMsg}
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-outline-primary btn-block" 
+                  onClick={handleCloseDynamicUpiModal}
+                  style={{ fontSize: '12px' }}
+                >
+                  Cancel / Pay with Cash
+                </button>
+                {(dynamicUpiModal.status === 'EXPIRED' || dynamicUpiModal.status === 'FAILED') && (
+                  <button 
+                    type="button" 
+                    className="btn btn-primary btn-block" 
+                    onClick={handleRegenerateUpiQr}
+                    style={{ fontSize: '12px' }}
+                  >
+                    🔄 New QR
+                  </button>
+                )}
+              </div>
+
             </div>
           </div>
         </div>
