@@ -6030,9 +6030,9 @@ app.put('/api/attendance/:id', async (req, res) => {
       const staffVendorId = staffRows[0].vendor_id;
       
       if (staffVendorId === null) {
-        // Central staff -> only Central Admin (Owner)
+        // Central / Single-facility staff -> only Owner
         if (req.user.role !== 'Owner') {
-          return res.status(403).json({ error: 'Only Central Admin can override Late or Missed Shift status for Central Staff.' });
+          return res.status(403).json({ error: 'Only the Canteen Owner can override Late or Missed Shift status.' });
         }
       } else {
         // Stall staff -> only respective Stall Manager

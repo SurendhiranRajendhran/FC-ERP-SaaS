@@ -3424,6 +3424,20 @@ function App() {
     return features[featureKey] !== false;
   };
 
+  // Role Label Formatter — Strictly enforces Single-Facility vs Multi-Vendor roles & terminology
+  const formatRoleLabel = (role) => {
+    if (!role) return '';
+    const isSingle = !isFeaturePermitted('multi_vendor');
+    if (role === 'Billing Staff' || role === 'Cashier') return 'Cashier';
+    if (role === 'Helper' || role === 'Helping Staff' || role === 'General Staff') return isSingle ? 'Helping Staff' : 'General Staff';
+    if (role === 'Owner' || role === 'Canteen Owner') return isSingle ? 'Canteen Owner' : 'Owner';
+    if (role === 'Cook') return 'Cook';
+    if (role === 'Manager' || role === 'Stall Manager') return isSingle ? 'Canteen Staff' : 'Stall Manager';
+    if (role === 'Admin' || role === 'Central Admin') return isSingle ? 'Canteen Owner' : 'Central Admin';
+    if (role === 'Stall Staff') return isSingle ? 'Helping Staff' : 'Stall Staff';
+    return role;
+  };
+
   // Enforce default tab based on role AND plan entitlements
   useEffect(() => {
     if (user) {
@@ -3669,7 +3683,7 @@ function App() {
   // HR Form Bindings
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [formStaff, setFormStaff] = useState({
-    id: '', name: '', phone: '', email: '', password: '', role: 'Stall Staff',
+    id: '', name: '', phone: '', email: '', password: '', role: 'Cook',
     pay_type: 'monthly', daily_rate: '0', monthly_salary: '0',
     pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '',
     exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false,
@@ -5531,7 +5545,7 @@ function App() {
         showToast(formStaff.id ? 'Staff updated successfully' : 'Staff registered successfully', 'success');
         setShowStaffForm(false);
         setFormStaff({
-          id: '', name: '', phone: '', email: '', password: '', role: 'Stall Staff',
+          id: '', name: '', phone: '', email: '', password: '', role: 'Cook',
           pay_type: 'monthly', daily_rate: '0', monthly_salary: '0',
           pf_enabled: false, esi_enabled: false, tds_percentage: '0', bank_account: '', vendor_id: '',
           exclude_from_payroll: false, exclude_from_roster: false, exclude_from_attendance: false, exclude_from_performance: false,
@@ -6367,7 +6381,7 @@ function App() {
       </div>
       <div class="emp-cell">
         <span class="emp-label">Designation / Role</span>
-        <span class="emp-val">${p.role}</span>
+        <span class="emp-val">${formatRoleLabel(p.role)}</span>
       </div>
       <div class="emp-cell">
         <span class="emp-label">Salary Scheme</span>
@@ -7692,7 +7706,7 @@ function App() {
                 <strong style={{ color: 'var(--text-main)' }}>{user.name}</strong>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{user.role}</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{formatRoleLabel(user.role)}</span>
                 <span style={{
                   fontSize: '0.68rem',
                   fontWeight: '600',
@@ -8506,7 +8520,7 @@ function App() {
               <div className="view-header" style={{ marginBottom: '15px' }}>
                 <h2>👋 Welcome, {user.name}</h2>
                 <div className="view-actions">
-                  <span className="badge badge-primary">{user.role}</span>
+                  <span className="badge badge-primary">{formatRoleLabel(user.role)}</span>
                 </div>
               </div>
 
@@ -8651,7 +8665,7 @@ function App() {
                                   <div key={member.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
                                     <div>
                                       <strong style={{ display: 'block' }}>{member.name}</strong>
-                                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{member.role}</span>
+                                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{formatRoleLabel(member.role)}</span>
                                     </div>
                                     <div>
                                       {!rec ? (
@@ -8802,7 +8816,7 @@ function App() {
                                 <strong>{member.name}</strong>
                                 {member.id === user.id && <span className="badge badge-primary" style={{ marginLeft: '8px', fontSize: '0.65rem' }}>You</span>}
                               </td>
-                              <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{member.role}</span></td>
+                              <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{formatRoleLabel(member.role)}</span></td>
                               {Array.from({ length: 7 }, (_, i) => {
                                 const dateStr = addDaysToDateStr(actualRosterWeek, i);
                                 const holidayObj = holidays.find(h => String(h.holiday_date || h.date || '').split('T')[0] === dateStr);
@@ -8895,7 +8909,7 @@ function App() {
                               <select required value={formSwap.target_id} onChange={e => setFormSwap({ ...formSwap, target_id: e.target.value })}>
                                 <option value="">-- Choose Colleague --</option>
                                 {staff.filter(s => s.is_active === 1 && s.id !== user.id && s.role !== 'Owner' && s.role !== 'Manager' && (user.vendor_id ? s.vendor_id === user.vendor_id : !s.vendor_id)).map(s => (
-                                  <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                                  <option key={s.id} value={s.id}>{s.name} ({formatRoleLabel(s.role)})</option>
                                 ))}
                               </select>
                             </div>
@@ -9033,9 +9047,12 @@ function App() {
                 {portalSubTab === 'holidays' && (
                   <div className="holiday-calendar-portal" style={{ animation: 'fadeIn 0.2s ease-in' }}>
                     {(() => {
-                      const stallName = !user?.vendor_id 
-                        ? 'Central Canteen' 
-                        : (vendors.find(v => v.id === user.vendor_id)?.name || `Stall #${user.vendor_id}`);
+                      const isSingleFacility = !isFeaturePermitted('multi_vendor');
+                      const stallName = isSingleFacility
+                        ? (user?.canteen_name || user?.tenant_name || user?.food_court_name || 'Canteen')
+                        : (!user?.vendor_id 
+                            ? 'Central Canteen' 
+                            : (vendors.find(v => v.id === user.vendor_id)?.name || `Stall #${user.vendor_id}`));
 
                       const year = currentCalendarMonth.getFullYear();
                       const month = currentCalendarMonth.getMonth();
@@ -9113,7 +9130,7 @@ function App() {
                               key={dateStr}
                               title={
                                 holidayInfo 
-                                  ? `🏖️ Stall Holiday: ${holidayInfo.name}${holidayInfo.description ? ' (' + holidayInfo.description + ')' : ''} — Marked by Stall Manager` 
+                                  ? `🏖️ ${isSingleFacility ? 'Canteen Holiday' : (user?.vendor_id ? 'Stall Holiday' : 'Central Canteen Holiday')}: ${holidayInfo.name}${holidayInfo.description ? ' (' + holidayInfo.description + ')' : ''} — Marked by ${isSingleFacility ? 'Canteen Management' : (user?.vendor_id ? `${stallName} Manager` : 'Central Admin')}` 
                                   : userLeave 
                                     ? `✉️ Approved Leave: ${userLeave.leave_type} Leave (${userLeave.reason || 'Personal'})` 
                                     : ''
@@ -9201,7 +9218,7 @@ function App() {
                                         🏖️ Leave
                                       </span>
                                       <span style={{ fontSize: '0.58rem', color: '#fca5a5', opacity: 0.9 }}>
-                                        {user?.vendor_id ? 'Stall' : 'Central'}
+                                        {isSingleFacility ? 'Canteen' : (user?.vendor_id ? 'Stall' : 'Central')}
                                       </span>
                                     </div>
                                     <div style={{
@@ -9253,11 +9270,15 @@ function App() {
                                     🏖️ Holiday & Leave Calendar
                                   </h3>
                                   <span className="badge badge-primary" style={{ fontSize: '0.75rem', padding: '3px 8px' }}>
-                                    🏪 {stallName}
+                                    {isSingleFacility ? '🏢' : '🏪'} {stallName}
                                   </span>
                                 </div>
                                 <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                                  {user?.vendor_id ? `Holidays marked by your Stall Manager (${stallName}) are officially highlighted as duty off / paid leave.` : 'Holidays marked by Central Admin (Central Canteen) are officially highlighted as duty off / paid leave.'}
+                                  {isSingleFacility
+                                    ? 'Holidays marked by Canteen Management are officially highlighted as duty off / paid leave.'
+                                    : (user?.vendor_id 
+                                        ? `Holidays marked by your Stall Manager (${stallName}) are officially highlighted as duty off / paid leave.` 
+                                        : 'Holidays marked by Central Admin (Central Canteen) are officially highlighted as duty off / paid leave.')}
                                 </p>
                               </div>
 
@@ -9298,7 +9319,7 @@ function App() {
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', backgroundColor: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
                                 <div style={{ fontSize: '1.4rem' }}>🏖️</div>
                                 <div>
-                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Stall Holidays (Leave)</div>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>{isSingleFacility ? 'Canteen Holidays (Leave)' : (user?.vendor_id ? 'Stall Holidays (Leave)' : 'Central Canteen Holidays (Leave)')}</div>
                                   <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f87171' }}>{monthHolidays.length} Days</div>
                                 </div>
                               </div>
@@ -9383,7 +9404,7 @@ function App() {
                             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <div style={{ width: '14px', height: '14px', borderRadius: '4px', backgroundColor: 'rgba(239, 68, 68, 0.2)', border: '2px solid #ef4444' }}></div>
-                                <span style={{ fontWeight: 600, color: 'var(--text-light)' }}>{user?.vendor_id ? `Stall Holiday (Leave)` : `Central Canteen Holiday (Leave)`}</span>
+                                <span style={{ fontWeight: 600, color: 'var(--text-light)' }}>{isSingleFacility ? 'Canteen Holiday (Leave)' : (user?.vendor_id ? `Stall Holiday (Leave)` : `Central Canteen Holiday (Leave)`)}</span>
                               </div>
 
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -9403,7 +9424,7 @@ function App() {
                             </div>
 
                             <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                              🔒 Managed exclusively by {user?.vendor_id ? `${stallName} Manager` : 'Central Admin'}
+                              🔒 Managed exclusively by {isSingleFacility ? 'Canteen Owner' : (user?.vendor_id ? `${stallName} Manager` : 'Central Admin')}
                             </div>
                           </div>
 
@@ -9482,7 +9503,7 @@ function App() {
                                           {dateObj.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
                                         </div>
                                         <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '3px' }}>
-                                          {h.description ? h.description : (user?.vendor_id ? `Marked by ${stallName} Manager` : 'Marked by Central Admin')}
+                                          {h.description ? h.description : (isSingleFacility ? 'Marked by Canteen Management' : (user?.vendor_id ? `Marked by ${stallName} Manager` : 'Marked by Central Admin'))}
                                         </div>
                                       </div>
                                     </div>
@@ -9597,7 +9618,7 @@ function App() {
                           </div>
                           <div style={{ textAlign: 'right' }}>
                             <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>{user.name}</div>
-                            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{user.role}</div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{formatRoleLabel(user.role)}</div>
                             <div style={{ marginTop: '5px' }}>
                               <span className={`badge ${p.status === 'Paid' ? 'badge-success' : p.status === 'Finalized' ? 'badge-primary' : 'badge-warning'}`}>
                                 {p.status}
@@ -9929,7 +9950,7 @@ function App() {
                             >
                               <option value="">-- Choose Employee (Staff Meal) --</option>
                               {staff.filter(s => s.vendor_id === user.vendor_id && s.role !== 'Owner').map(s => (
-                                <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                                <option key={s.id} value={s.id}>{s.name} ({formatRoleLabel(s.role)})</option>
                               ))}
                             </select>
                           </div>
@@ -10079,7 +10100,7 @@ function App() {
                                   return isCashierRole && !s.vendor_id;
                                 }
                               }).map(s => (
-                                <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                                <option key={s.id} value={s.id}>{s.name} ({formatRoleLabel(s.role)})</option>
                               ))}
                             </select>
                           )}
@@ -12261,7 +12282,7 @@ function App() {
                                 <select value={formStaff.role} onChange={e => setFormStaff({ ...formStaff, role: e.target.value })}>
                                   <option value="Cook">Cook</option>
                                   <option value="Billing Staff">Cashier</option>
-                                  <option value="Helper">General Staff</option>
+                                  <option value="Helper">{!isFeaturePermitted('multi_vendor') ? 'Helping Staff' : 'General Staff'}</option>
                                 </select>
                               </div>
                               <div className="hr-form-group">
@@ -12443,7 +12464,7 @@ function App() {
                         <div key={s.id} className="hr-profile-card">
                           <div className="hr-card-header">
                             <h4>{s.name}</h4>
-                            <span className="hr-role-badge">{s.role}</span>
+                            <span className="hr-role-badge">{formatRoleLabel(s.role)}</span>
                           </div>
                           <div className="hr-card-info">
                             {isFeaturePermitted('multi_vendor') && (
@@ -12578,7 +12599,7 @@ function App() {
                               <select required value={formSwap.requester_id} onChange={e => setFormSwap({ ...formSwap, requester_id: e.target.value })}>
                                 <option value="">-- Select Requester --</option>
                                 {staff.filter(s => s.is_active === 1 && s.role !== 'Owner' && s.role !== 'Manager').map(s => (
-                                  <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                                  <option key={s.id} value={s.id}>{s.name} ({formatRoleLabel(s.role)})</option>
                                 ))}
                               </select>
                             </div>
@@ -12587,7 +12608,7 @@ function App() {
                               <select required value={formSwap.target_id} onChange={e => setFormSwap({ ...formSwap, target_id: e.target.value })}>
                                 <option value="">-- Select Target --</option>
                                 {staff.filter(s => s.is_active === 1 && s.role !== 'Owner' && s.role !== 'Manager' && s.id.toString() !== formSwap.requester_id).map(s => (
-                                  <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                                  <option key={s.id} value={s.id}>{s.name} ({formatRoleLabel(s.role)})</option>
                                 ))}
                               </select>
                             </div>
@@ -12703,7 +12724,7 @@ function App() {
                         {staff.filter(s => s.is_active === 1 && s.exclude_from_roster !== 1 && s.role !== 'Owner').map(member => (
                           <tr key={member.id}>
                             <td><strong>{member.name}</strong></td>
-                            <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{member.role}</span></td>
+                            <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{formatRoleLabel(member.role)}</span></td>
                             {Array.from({ length: 7 }, (_, i) => {
                               const dateStr = addDaysToDateStr(actualRosterWeek, i);
 
@@ -12826,7 +12847,7 @@ function App() {
                             <select required value={formAttendanceManual.staff_id} onChange={e => handleManualStaffSelect(e.target.value)}>
                               <option value="">-- Select Staff --</option>
                               {staff.filter(s => s.is_active === 1 && s.exclude_from_attendance !== 1 && s.role !== 'Owner').map(s => (
-                                <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                                <option key={s.id} value={s.id}>{s.name} ({formatRoleLabel(s.role)})</option>
                               ))}
                             </select>
                           </div>
@@ -12927,7 +12948,7 @@ function App() {
                               <div key={member.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
                                 <div>
                                   <strong style={{ display: 'block' }}>{member.name}</strong>
-                                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{member.role}</span>
+                                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{formatRoleLabel(member.role)}</span>
                                 </div>
                                 <div>
                                   {!rec ? (
@@ -13234,7 +13255,7 @@ function App() {
                           <tr key={p.id}>
                             <td>
                               <strong>{p.staff_name}</strong>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.role}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{formatRoleLabel(p.role)}</div>
                             </td>
                             <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{p.pay_type}</span></td>
                             <td><strong>{p.days_present}</strong> / {p.working_days}</td>
@@ -13302,7 +13323,7 @@ function App() {
                         >
                           <option value="">-- Select Staff --</option>
                           {staff.filter(s => s.is_active === 1 && s.role !== 'Owner').map(s => (
-                            <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                            <option key={s.id} value={s.id}>{s.name} ({formatRoleLabel(s.role)})</option>
                           ))}
                         </select>
                       </div>
@@ -13509,7 +13530,7 @@ function App() {
                           return (
                             <tr key={m.staff_id}>
                               <td><strong>{m.staff_name}</strong></td>
-                              <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{m.role}</span></td>
+                              <td><span className="badge badge-category" style={{ fontSize: '0.75rem' }}>{formatRoleLabel(m.role)}</span></td>
                               <td><strong>{m.days_present}</strong> days</td>
                               <td style={{ color: m.late_days > 2 ? 'var(--accent-danger)' : 'var(--text-light)' }}>
                                 {m.late_days} day(s)
@@ -13709,7 +13730,7 @@ function App() {
                 <div className="print-header-details">
                   <div><strong>Period:</strong> {reportDateRange.startDate || 'All Time'} to {reportDateRange.endDate || 'Present'}</div>
                   <div><strong>Generated:</strong> {new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</div>
-                  <div><strong>Generated By:</strong> {user?.name || 'Administrator'} ({user?.role || 'Management'})</div>
+                  <div><strong>Generated By:</strong> {user?.name || 'Administrator'} ({formatRoleLabel(user?.role) || 'Management'})</div>
                   {user?.vendor_id && <div><strong>Stall:</strong> #{user.vendor_id}</div>}
                 </div>
               </div>
@@ -14199,10 +14220,10 @@ function App() {
                             >
                               <option value="" disabled>-- Select Authorized Staff --</option>
                               {(reconData?.authorizedStaff || []).map(s => {
-                                let roleLabel = s.role;
-                                if (s.role === 'Owner') roleLabel = 'Canteen Owner';
-                                else if (s.role === 'Manager') roleLabel = s.vendor_name ? `Stall Manager - ${s.vendor_name}${s.stall_number ? ` [${s.stall_number}]` : ''}` : 'Manager';
-                                else if (s.role === 'Admin') roleLabel = 'Central Admin';
+                                let roleLabel = formatRoleLabel(s.role);
+                                if (isFeaturePermitted('multi_vendor') && s.role === 'Manager') {
+                                  roleLabel = s.vendor_name ? `Stall Manager - ${s.vendor_name}${s.stall_number ? ` [${s.stall_number}]` : ''}` : 'Stall Manager';
+                                }
                                 return (
                                   <option key={s.id} value={s.id}>{s.name} ({roleLabel})</option>
                                 );
@@ -14267,7 +14288,9 @@ function App() {
                                   <strong>{formatISTTime(rec.created_at)}</strong> • Submitted by: <strong style={{color:'var(--text-light)'}}>{rec.submitted_by_name || 'Unknown User'}</strong>
                                   {rec.submitted_by_role && (
                                     <span style={{ marginLeft: '6px', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.08)', color: 'var(--text-light)' }}>
-                                      {rec.submitted_by_role === 'Owner' ? 'Canteen Owner' : rec.submitted_by_role === 'Manager' ? (rec.vendor_name ? `Stall Manager (${rec.vendor_name})` : 'Manager') : rec.submitted_by_role}
+                                      {rec.submitted_by_role === 'Manager' && isFeaturePermitted('multi_vendor')
+                                        ? (rec.vendor_name ? `Stall Manager (${rec.vendor_name})` : 'Stall Manager')
+                                        : formatRoleLabel(rec.submitted_by_role)}
                                     </span>
                                   )}
                                 </div>
@@ -15601,7 +15624,7 @@ function App() {
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', fontSize: '11px' }}>
-                  <div style={{ color: '#e2e8f0', fontWeight: 600 }}>{dynamicUpiModal.merchantName || 'Food Court Central'}</div>
+                  <div style={{ color: '#e2e8f0', fontWeight: 600 }}>{dynamicUpiModal.merchantName || (!isFeaturePermitted('multi_vendor') ? (user?.canteen_name || user?.tenant_name || user?.food_court_name || 'Canteen') : 'Food Court Central')}</div>
                   <div style={{ color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '10px' }}>{dynamicUpiModal.merchantVpa}</div>
                 </div>
               </div>
@@ -16328,12 +16351,14 @@ function App() {
                 <div style={{ background: 'rgba(255,255,255,0.03)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Assigned Role</span>
-                    <span className="badge badge-primary">{formProfile.role || 'Staff'}</span>
+                    <span className="badge badge-primary">{formatRoleLabel(formProfile.role) || 'Staff'}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Stall / Scope</span>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{!isFeaturePermitted('multi_vendor') ? 'Facility' : 'Stall / Scope'}</span>
                     <strong style={{ fontSize: '0.9rem', color: '#f1f5f9' }}>
-                      {formProfile.vendor_name ? `🏪 ${formProfile.vendor_name} ${formProfile.stall_number ? `(${formProfile.stall_number})` : ''}` : '🏢 Central Canteen'}
+                      {!isFeaturePermitted('multi_vendor')
+                        ? `🏢 ${user?.canteen_name || user?.tenant_name || user?.food_court_name || 'Canteen'}`
+                        : (formProfile.vendor_name ? `🏪 ${formProfile.vendor_name} ${formProfile.stall_number ? `(${formProfile.stall_number})` : ''}` : '🏢 Central Canteen')}
                     </strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -16347,7 +16372,9 @@ function App() {
                     </div>
                   )}
                   <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '8px', borderTop: '1px dashed rgba(255,255,255,0.1)', paddingTop: '6px' }}>
-                    🔒 Role, assigned stall, email, and settlement bank details are administratively managed by Central Admin.
+                    {!isFeaturePermitted('multi_vendor')
+                      ? '🔒 Role, email, and settlement bank details are administratively managed by Canteen Owner.'
+                      : '🔒 Role, assigned stall, email, and settlement bank details are administratively managed by Central Admin.'}
                   </div>
                 </div>
 

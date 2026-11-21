@@ -649,7 +649,7 @@ function LogsTab() {
 }
 
 // ─── Settings Tab ─────────────────────────────────────────────────────────────
-function SettingsTab({ userRole }) {
+function SettingsTab({ userRole, isMultiVendor }) {
   const [settings, setSettings] = useState(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState('');
@@ -759,7 +759,7 @@ function SettingsTab({ userRole }) {
       </Section>
 
       <Section title="Alert Controls" icon="🔔">
-        <Toggle label="Central Canteen Low Stock WhatsApp Alert" k="low_stock_alert_enabled" note="Alert owner when Central Canteen ingredient drops below minimum" />
+        <Toggle label={isMultiVendor ? "Central Canteen Low Stock WhatsApp Alert" : "Canteen Low Stock WhatsApp Alert"} k="low_stock_alert_enabled" note={isMultiVendor ? "Alert owner when Central Canteen ingredient drops below minimum" : "Alert owner when ingredient drops below minimum"} />
         <div style={{ padding: '12px 0', borderBottom: '1px solid #374151', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ color: '#f9fafb', fontSize: 14 }}>Low Stock Alert Throttle (hours)</div>
@@ -767,7 +767,7 @@ function SettingsTab({ userRole }) {
           </div>
           <input type="number" value={settings.low_stock_throttle_hours || 4} onChange={e => setSettings(p => ({ ...p, low_stock_throttle_hours: e.target.value }))} style={{ width: 80, padding: '8px 12px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', textAlign: 'center' }} />
         </div>
-        <Toggle label="Food Court Daily Summary Auto-Send" k="daily_summary_enabled" note="Automatically send consolidated daily summary at configured closing time" />
+        <Toggle label={isMultiVendor ? "Food Court Daily Summary Auto-Send" : "Canteen Daily Summary Auto-Send"} k="daily_summary_enabled" note={isMultiVendor ? "Automatically send consolidated daily summary at configured closing time" : "Automatically send daily summary at configured closing time"} />
         <div style={{ padding: '12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ color: '#f9fafb', fontSize: 14 }}>Negative Feedback Threshold</div>
@@ -825,7 +825,7 @@ export default function CrmNotifications({ userRole, isFeaturePermitted }) {
         {activeTab === 'broadcasts' && <BroadcastsTab />}
         {activeTab === 'feedback' && <FeedbackTab />}
         {activeTab === 'logs' && <LogsTab />}
-        {activeTab === 'settings' && <SettingsTab />}
+        {activeTab === 'settings' && <SettingsTab isMultiVendor={isMultiVendor} />}
       </div>
     </div>
   );
