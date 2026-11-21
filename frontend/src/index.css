@@ -3859,6 +3859,7 @@ input:checked + .slider:before {
   margin-bottom: 16px;
 }
 .attendance-date-input {
+  min-width: 155px;
   padding: 9px 14px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
@@ -4528,6 +4529,7 @@ input:checked + .slider:before {
 }
 
 .header-date-input {
+  min-width: 155px;
   background-color: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
@@ -4538,9 +4540,47 @@ input:checked + .slider:before {
   outline: none;
 }
 
-.header-date-input::-webkit-calendar-picker-indicator {
-  filter: invert(1);
+/* Universal Date/Time Input Baseline Dimensions */
+input[type="date"],
+input[type="datetime-local"],
+input[type="month"] {
+  min-width: 155px;
+}
+
+/* Universal Date/Time Picker Indicator (Theme Violet Color & Clear High-Contrast Visibility) */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="week"]::-webkit-calendar-picker-indicator,
+.attendance-date-input::-webkit-calendar-picker-indicator,
+.header-date-input::-webkit-calendar-picker-indicator,
+.form-control::-webkit-calendar-picker-indicator,
+.form-input::-webkit-calendar-picker-indicator,
+.hr-form-group input::-webkit-calendar-picker-indicator {
   cursor: pointer;
+  border-radius: 5px;
+  padding: 3px 6px;
+  filter: invert(75%) sepia(45%) saturate(1800%) hue-rotate(215deg) brightness(125%) contrast(105%) !important;
+  background-color: rgba(138, 75, 241, 0.20) !important;
+  opacity: 0.95;
+  transition: all 0.2s ease-in-out;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="month"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover,
+input[type="week"]::-webkit-calendar-picker-indicator:hover,
+.attendance-date-input::-webkit-calendar-picker-indicator:hover,
+.header-date-input::-webkit-calendar-picker-indicator:hover,
+.form-control::-webkit-calendar-picker-indicator:hover,
+.form-input::-webkit-calendar-picker-indicator:hover,
+.hr-form-group input::-webkit-calendar-picker-indicator:hover {
+  filter: invert(90%) sepia(55%) saturate(2200%) hue-rotate(215deg) brightness(140%) contrast(110%) !important;
+  background-color: rgba(138, 75, 241, 0.38) !important;
+  transform: scale(1.06);
+  opacity: 1;
 }
 
 /* Print Utility Helpers */

@@ -8783,7 +8783,7 @@ function App() {
                     <div className="view-header-bar" style={{ flexWrap: 'wrap', gap: '15px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <label style={{ fontWeight: 600 }}>Roster Week starting (Monday):</label>
-                        <input type="date" value={selectedRosterWeek} onChange={e => setSelectedRosterWeek(e.target.value)} onBlur={handleRosterWeekBlur} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                        <input type="date" value={selectedRosterWeek} onChange={e => setSelectedRosterWeek(e.target.value)} onBlur={handleRosterWeekBlur} style={{ padding: '8px 12px', minWidth: '155px', borderRadius: '6px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
 
                       </div>
                     </div>
@@ -12693,7 +12693,7 @@ function App() {
                   <div className="view-header-bar" style={{ flexWrap: 'wrap', gap: '15px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <label style={{ fontWeight: 600 }}>Roster Week starting (Monday):</label>
-                      <input type="date" value={selectedRosterWeek} onChange={e => setSelectedRosterWeek(e.target.value)} onBlur={handleRosterWeekBlur} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                      <input type="date" value={selectedRosterWeek} onChange={e => setSelectedRosterWeek(e.target.value)} onBlur={handleRosterWeekBlur} style={{ padding: '8px 12px', minWidth: '155px', borderRadius: '6px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
                     </div>
                     <button className="btn btn-success" onClick={handleSaveRoster}>💾 Save Weekly Roster</button>
                   </div>
@@ -12823,7 +12823,7 @@ function App() {
                   <div className="view-header-bar" style={{ flexWrap: 'wrap', gap: '15px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <label style={{ fontWeight: 600 }}>Select Date:</label>
-                      <input type="date" value={selectedAttendanceDate} onChange={e => setSelectedAttendanceDate(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
+                      <input type="date" value={selectedAttendanceDate} onChange={e => setSelectedAttendanceDate(e.target.value)} style={{ padding: '8px 12px', minWidth: '155px', borderRadius: '6px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-app)', color: 'var(--text-main)' }} />
                       {holidays.find(h => (h.holiday_date || h.date || '').split('T')[0] === selectedAttendanceDate) && (
                         <span style={{ backgroundColor: 'rgba(220, 53, 69, 0.1)', color: '#dc3545', padding: '6px 12px', borderRadius: '4px', fontWeight: '600', border: '1px solid rgba(220,53,69,0.3)', fontSize: '13px' }}>
                           🔴 {holidays.find(h => (h.holiday_date || h.date || '').split('T')[0] === selectedAttendanceDate).name}
@@ -14091,10 +14091,10 @@ function App() {
                   <div className="report-section">
                     <div className="panel-card-header" style={{ display: 'flex', alignItems: 'center', gap: '15px', background: 'var(--bg-card)', padding: '15px 20px', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
                       <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px', color: '#fff' }}>
-                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="#a78bfa" strokeWidth="2" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
                         Reconciliation Date:
                       </h3>
-                      <input type="date" value={reconDate} onChange={e => { setReconDate(e.target.value); fetchReconciliation(e.target.value); }} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-dark)', color: 'var(--text-light)', fontSize: '1rem', fontWeight: 'bold', outline: 'none' }} />
+                      <input type="date" value={reconDate} onChange={e => { setReconDate(e.target.value); fetchReconciliation(e.target.value); }} style={{ padding: '8px 12px', minWidth: '160px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-dark)', color: 'var(--text-light)', fontSize: '1rem', fontWeight: 'bold', outline: 'none' }} />
                     </div>
 
                     {/* Reconciliation Tender Rule Policy Banner */}
