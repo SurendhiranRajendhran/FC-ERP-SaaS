@@ -6685,13 +6685,18 @@ function App() {
       return;
     }
     try {
+      const authToken = token || localStorage.getItem('token');
       const res = await fetch(`${API_BASE}/coupons/validate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {})
+        },
         body: JSON.stringify({
           code: couponCode,
           subtotal: cartSubtotal,
-          vendor_id: user.vendor_id,
+          vendor_id: user?.vendor_id,
+          tenant_id: user?.tenant_id,
           cart_items: cart.map(i => ({ vendor_id: i.vendor_id || null, subtotal: i.price * i.quantity }))
         })
       });

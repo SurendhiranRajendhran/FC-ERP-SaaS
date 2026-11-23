@@ -335,26 +335,57 @@ async function runStartupMigrations() {
       }
     }
 
-    // 3. Ensure coupons table has vendor_id column
+    // 3. Ensure coupons table has tenant_id, vendor_id columns and tenant-scoped unique index
     const [cTables] = await conn.query("SHOW TABLES LIKE 'coupons'");
     if (cTables.length > 0) {
+      const [tCols] = await conn.query("SHOW COLUMNS FROM coupons LIKE 'tenant_id'");
+      if (tCols.length === 0) {
+        await conn.query("ALTER TABLE coupons ADD COLUMN tenant_id INT NOT NULL DEFAULT 1 AFTER id, ADD KEY (tenant_id)");
+        console.log("Migration: Added tenant_id column and index to coupons table.");
+      }
+
       const [vCols] = await conn.query("SHOW COLUMNS FROM coupons LIKE 'vendor_id'");
       if (vCols.length === 0) {
         await conn.query("ALTER TABLE coupons ADD COLUMN vendor_id INT NULL DEFAULT NULL AFTER min_order_amount, ADD KEY (vendor_id)");
         console.log("Migration: Added vendor_id column and index to coupons table.");
       }
+
+      // Backfill tenant_id for coupons linked to a vendor
+      await conn.query(`
+        UPDATE coupons c 
+        JOIN vendors v ON c.vendor_id = v.id 
+        SET c.tenant_id = v.tenant_id 
+        WHERE c.vendor_id IS NOT NULL AND (c.tenant_id IS NULL OR c.tenant_id = 1)
+      `);
+
+      // Drop global unique constraint on code if it exists
+      const [codeIndexes] = await conn.query("SHOW KEYS FROM coupons WHERE Key_name = 'code' AND Non_unique = 0");
+      if (codeIndexes.length > 0) {
+        await conn.query("ALTER TABLE coupons DROP INDEX code");
+        console.log("Migration: Dropped global unique index 'code' from coupons table.");
+      }
+
+      // Ensure composite unique key on (tenant_id, code)
+      const [tenantCodeIndexes] = await conn.query("SHOW KEYS FROM coupons WHERE Key_name = 'unique_tenant_code'");
+      if (tenantCodeIndexes.length === 0) {
+        await conn.query("ALTER TABLE coupons ADD UNIQUE KEY unique_tenant_code (tenant_id, code)");
+        console.log("Migration: Added composite unique key (tenant_id, code) to coupons table.");
+      }
     } else {
       await conn.query(`
         CREATE TABLE IF NOT EXISTS coupons (
           id INT AUTO_INCREMENT PRIMARY KEY,
-          code VARCHAR(50) NOT NULL UNIQUE,
+          tenant_id INT NOT NULL DEFAULT 1,
+          code VARCHAR(50) NOT NULL,
           discount_type ENUM('Percentage', 'Fixed') NOT NULL,
           value DECIMAL(10,2) NOT NULL,
           min_order_amount DECIMAL(10,2) DEFAULT 0.00,
           vendor_id INT NULL DEFAULT NULL,
           is_active TINYINT(1) DEFAULT 1,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          KEY (vendor_id)
+          KEY (tenant_id),
+          KEY (vendor_id),
+          UNIQUE KEY unique_tenant_code (tenant_id, code)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
       console.log("Migration: Created coupons table.");
@@ -6831,7 +6862,29 @@ app.post('/api/coupons/validate', async (req, res) => {
   }
 
   try {
-    const [rows] = await pool.query('SELECT * FROM coupons WHERE code = ? AND is_active = 1', [code]);
+    // Resolve target tenant ID for data isolation
+    let targetTenantId = req.user?.tenant_id || req.body.tenant_id;
+    if (!targetTenantId && vendor_id && vendor_id !== 'null' && vendor_id !== 'all') {
+      const [vRows] = await pool.query('SELECT tenant_id FROM vendors WHERE id = ?', [vendor_id]);
+      if (vRows.length > 0) targetTenantId = vRows[0].tenant_id;
+    }
+    if (!targetTenantId && cart_items && Array.isArray(cart_items) && cart_items.length > 0) {
+      const itemWithVendor = cart_items.find(ci => ci.vendor_id);
+      if (itemWithVendor) {
+        const [vRows] = await pool.query('SELECT tenant_id FROM vendors WHERE id = ?', [itemWithVendor.vendor_id]);
+        if (vRows.length > 0) targetTenantId = vRows[0].tenant_id;
+      }
+    }
+
+    let query = 'SELECT * FROM coupons WHERE code = ? AND is_active = 1';
+    let params = [code];
+
+    if (targetTenantId) {
+      query += ' AND tenant_id = ?';
+      params.push(targetTenantId);
+    }
+
+    const [rows] = await pool.query(query, params);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Invalid or inactive coupon code.' });
     }
@@ -6904,23 +6957,31 @@ app.post('/api/coupons/validate', async (req, res) => {
   }
 });
 
-// Get all coupons (Scoped by vendor)
+// Get all coupons (Scoped by tenant and vendor)
 app.get('/api/coupons', async (req, res) => {
   try {
+    const isSuperAdmin = req.user.role === 'Super Admin';
+    const tenantId = isSuperAdmin ? (req.query.tenant_id || req.user.tenant_id) : req.user.tenant_id;
+
     let targetVendorId = req.user.vendor_id;
     // Central Admin can fetch specific vendor's coupons or all
     if (!targetVendorId && req.query.vendor_id) {
       targetVendorId = req.query.vendor_id;
     }
 
-    let query = 'SELECT * FROM coupons';
+    let query = 'SELECT * FROM coupons WHERE 1=1';
     let params = [];
 
+    if (!isSuperAdmin || tenantId) {
+      query += ' AND tenant_id = ?';
+      params.push(tenantId);
+    }
+
     if (targetVendorId && targetVendorId !== 'all' && targetVendorId !== 'null') {
-      query += ' WHERE vendor_id = ?';
+      query += ' AND vendor_id = ?';
       params.push(parseInt(targetVendorId));
     } else if (targetVendorId === 'null' || (!targetVendorId && req.query.vendor_id !== 'all')) {
-      query += ' WHERE vendor_id IS NULL';
+      query += ' AND vendor_id IS NULL';
     }
 
     query += ' ORDER BY created_at DESC';
@@ -6941,12 +7002,13 @@ app.post('/api/coupons', async (req, res) => {
     return res.status(400).json({ error: 'Code, discount type, and value are required.' });
   }
 
+  const tenantId = req.user.tenant_id;
   const vendorId = req.user.vendor_id || null; // Force creation under their own stall
 
   try {
     await pool.query(
-      'INSERT INTO coupons (code, discount_type, value, min_order_amount, is_active, vendor_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [code.toUpperCase(), discount_type, value, min_order_amount || 0, is_active ? 1 : 0, vendorId]
+      'INSERT INTO coupons (tenant_id, code, discount_type, value, min_order_amount, is_active, vendor_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [tenantId, code.toUpperCase(), discount_type, value, min_order_amount || 0, is_active ? 1 : 0, vendorId]
     );
     res.json({ success: true });
   } catch (error) {
@@ -6970,6 +7032,11 @@ app.put('/api/coupons/:id', async (req, res) => {
   try {
     let query = 'UPDATE coupons SET code = ?, discount_type = ?, value = ?, min_order_amount = ? WHERE id = ?';
     let params = [code.toUpperCase(), discount_type, value, min_order_amount || 0, req.params.id];
+
+    if (req.user.role !== 'Super Admin') {
+      query += ' AND tenant_id = ?';
+      params.push(req.user.tenant_id);
+    }
 
     if (vendorId) {
       query += ' AND vendor_id = ?';
@@ -7001,6 +7068,11 @@ app.put('/api/coupons/:id/status', async (req, res) => {
     let query = 'UPDATE coupons SET is_active = ? WHERE id = ?';
     let params = [is_active ? 1 : 0, req.params.id];
     
+    if (req.user.role !== 'Super Admin') {
+      query += ' AND tenant_id = ?';
+      params.push(req.user.tenant_id);
+    }
+
     if (vendorId) {
       query += ' AND vendor_id = ?';
       params.push(vendorId);
@@ -7027,6 +7099,11 @@ app.delete('/api/coupons/:id', async (req, res) => {
     let query = 'DELETE FROM coupons WHERE id = ?';
     let params = [req.params.id];
     
+    if (req.user.role !== 'Super Admin') {
+      query += ' AND tenant_id = ?';
+      params.push(req.user.tenant_id);
+    }
+
     if (vendorId) {
       query += ' AND vendor_id = ?';
       params.push(vendorId);
@@ -10973,8 +11050,7 @@ app.delete('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'),
     );
 
     await conn.query(
-      `DELETE c FROM coupons c
-       WHERE c.vendor_id IN (SELECT v.id FROM vendors v WHERE v.tenant_id = ?)`,
+      `DELETE FROM coupons WHERE tenant_id = ?`,
       [tenantId]
     );
 

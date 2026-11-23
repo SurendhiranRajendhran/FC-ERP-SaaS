@@ -20,19 +20,26 @@ async function migrate() {
     await connection.query(`
       CREATE TABLE IF NOT EXISTS coupons (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        code VARCHAR(50) NOT NULL UNIQUE,
+        tenant_id INT NOT NULL DEFAULT 1,
+        code VARCHAR(50) NOT NULL,
         discount_type ENUM('Percentage', 'Fixed') NOT NULL,
         value DECIMAL(10,2) NOT NULL,
         min_order_amount DECIMAL(10,2) DEFAULT 0.00,
         vendor_id INT NULL DEFAULT NULL,
         is_active TINYINT(1) DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        KEY (vendor_id)
+        KEY (tenant_id),
+        KEY (vendor_id),
+        UNIQUE KEY unique_tenant_code (tenant_id, code)
       ) ENGINE=InnoDB;
     `);
 
-    // Ensure vendor_id exists in coupons if table was created previously without it
+    // Ensure tenant_id and vendor_id exist in coupons if table was created previously without them
     const [couponCols] = await connection.query('DESCRIBE coupons');
+    if (!couponCols.some(col => col.Field === 'tenant_id')) {
+      await connection.query('ALTER TABLE coupons ADD COLUMN tenant_id INT NOT NULL DEFAULT 1 AFTER id, ADD KEY (tenant_id)');
+      console.log('✅ Added missing tenant_id column to coupons table.');
+    }
     if (!couponCols.some(col => col.Field === 'vendor_id')) {
       await connection.query('ALTER TABLE coupons ADD COLUMN vendor_id INT NULL DEFAULT NULL AFTER min_order_amount, ADD KEY (vendor_id)');
       console.log('✅ Added missing vendor_id column to coupons table.');
@@ -95,18 +102,7 @@ async function migrate() {
       console.log('✅ Added central_cancel_pin column to tenants table.');
     }
 
-    // 5. Seed default coupons if table is empty
-    const [existingCoupons] = await connection.query('SELECT COUNT(*) as count FROM coupons');
-    if (existingCoupons[0].count === 0) {
-      console.log('Seeding mock coupons...');
-      await connection.query(`
-        INSERT INTO coupons (code, discount_type, value, min_order_amount, is_active) VALUES
-        ('CAMPUS10', 'Percentage', 10.00, 0.00, 1),
-        ('FREECOFFEE', 'Fixed', 20.00, 100.00, 1),
-        ('SUPERCOMBO', 'Percentage', 15.00, 200.00, 1)
-      `);
-      console.log('✅ Sample coupons seeded.');
-    }
+
 
     console.log('\n🎉 POS Billing migration completed successfully!');
   } catch (err) {
