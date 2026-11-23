@@ -12320,18 +12320,13 @@ function App() {
               {/* ============ SUB-TAB: STALL MANAGERS (Central Admin Only) ============ */}
               {hrSubTab === 'stall-managers' && (!user?.vendor_id) && isFeaturePermitted('multi_vendor') && (
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <div>
-                      <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        👔 Independent Stall Managers
-                      </h3>
-                      <p style={{ margin: '4px 0 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                        Administrative heads of independent stalls. Stall Managers manage their own independent staff and are isolated from canteen payroll and daily attendance punches.
-                      </p>
-                    </div>
-                    <button className="btn btn-primary" onClick={() => { setActiveTab('vendors'); setVendorSubTab('profiles'); setShowVendorForm(true); }}>
-                      ➕ Onboard New Stall & Manager
-                    </button>
+                  <div style={{ marginBottom: '20px' }}>
+                    <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      👔 Independent Stall Managers
+                    </h3>
+                    <p style={{ margin: '4px 0 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      Administrative heads of independent stalls. Stall Managers manage their own independent staff and are isolated from canteen payroll and daily attendance punches.
+                    </p>
                   </div>
 
                   {/* Stall Managers Cards Grid */}
