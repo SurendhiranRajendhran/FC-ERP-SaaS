@@ -858,6 +858,38 @@ async function runStartupMigrations() {
       console.log("Migration: Created payment_transactions table.");
     }
 
+    // 20. Ensure subscription_invoices table exists for plan upgrades, renewals & payments
+    const [siTables] = await conn.query("SHOW TABLES LIKE 'subscription_invoices'");
+    if (siTables.length === 0) {
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS subscription_invoices (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          invoice_number VARCHAR(50) NOT NULL UNIQUE,
+          tenant_id INT NOT NULL,
+          type ENUM('trial_conversion', 'upgrade', 'renewal') NOT NULL DEFAULT 'upgrade',
+          from_plan VARCHAR(50) NULL DEFAULT NULL,
+          to_plan VARCHAR(50) NOT NULL,
+          duration_days INT NOT NULL DEFAULT 365,
+          base_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+          prorated_credit DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+          final_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+          payment_method ENUM('UPI_QR', 'Bank_Transfer', 'Manual_Admin') NOT NULL DEFAULT 'UPI_QR',
+          payment_reference VARCHAR(100) NULL DEFAULT NULL,
+          status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+          admin_notes TEXT NULL DEFAULT NULL,
+          requested_by_user_id INT NULL DEFAULT NULL,
+          reviewed_by_user_id INT NULL DEFAULT NULL,
+          reviewed_at TIMESTAMP NULL DEFAULT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          KEY idx_si_tenant (tenant_id),
+          KEY idx_si_status (status),
+          KEY idx_si_invoice_number (invoice_number)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+      console.log("Migration: Created subscription_invoices table.");
+    }
+
     conn.release();
   } catch (err) {
     console.error("Migration error on startup:", err.message);
@@ -1109,7 +1141,7 @@ const PLAN_ENTITLEMENTS = {
     mobile_app: false,
     whatsapp_alerts: 'basic',
     multi_branch: false,
-    allowed_tabs: ['dashboard', 'pos', 'menu', 'materials', 'orders', 'reports', 'employee-portal']
+    allowed_tabs: ['dashboard', 'pos', 'menu', 'materials', 'orders', 'reports', 'billing', 'employee-portal']
   },
   'Canteen Pro': {
     name: 'Canteen Pro',
@@ -1129,7 +1161,7 @@ const PLAN_ENTITLEMENTS = {
     mobile_app: true,
     whatsapp_alerts: 'full',
     multi_branch: false,
-    allowed_tabs: ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'hr', 'crm', 'wallet', 'reports', 'employee-portal']
+    allowed_tabs: ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'hr', 'crm', 'wallet', 'reports', 'billing', 'employee-portal']
   },
   'Food Court': {
     name: 'Food Court',
@@ -1149,7 +1181,7 @@ const PLAN_ENTITLEMENTS = {
     mobile_app: true,
     whatsapp_alerts: 'full',
     multi_branch: false,
-    allowed_tabs: ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'vendors', 'stall-insights', 'promotions', 'hr', 'crm', 'wallet', 'reports', 'employee-portal']
+    allowed_tabs: ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'vendors', 'stall-insights', 'promotions', 'hr', 'crm', 'wallet', 'reports', 'billing', 'employee-portal']
   },
   'Enterprise': {
     name: 'Enterprise',
@@ -11094,6 +11126,7 @@ app.delete('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'),
       'broadcast_campaigns',
       'notification_logs',
       'notification_settings',
+      'subscription_invoices',
       'staff',
       'customers',
       'vendors'
@@ -11204,6 +11237,594 @@ app.post('/api/superadmin/test-email', authenticateToken, authorizeRoles('Super 
     res.json({ success: true, message: `Test email sent successfully to ${to}!` });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// SUBSCRIPTION & PLAN UPGRADE MANAGEMENT APIS
+// ==========================================
+
+const OFFICIAL_MERCHANT_UPI = {
+  upi_id: 'info@radinfotec.com',
+  merchant_name: 'Radinfotec ERP'
+};
+
+const PLAN_CATALOG = [
+  {
+    id: 'Canteen Basic',
+    name: 'Canteen Basic',
+    price_annual: 12000,
+    headline: 'Essential Single-Facility Canteen',
+    description: 'Designed for single-counter school, college, or hostel cafeterias requiring rapid billing and item-level menu control.',
+    features: [
+      'Daily Menu & Price Scheduling',
+      'Counter POS Billing (Cash, UPI & Card)',
+      'Basic Raw Stock & Ingredient Tracking',
+      'Instant Kitchen Token Printing',
+      'WhatsApp Order Alerts (Basic)',
+      'Daily Sales & Shift Settlement Reports',
+      'Single Facility Terminology (Owner, Cashier, Cook, Helper)'
+    ],
+    highlight: false
+  },
+  {
+    id: 'Canteen Pro',
+    name: 'Canteen Pro',
+    price_annual: 20000,
+    headline: 'Advanced Canteen with Student RFID & QR Ordering',
+    description: 'The complete digital canteen suite featuring student RFID meal cards, QR table ordering, and kitchen display screen.',
+    features: [
+      'Everything in Canteen Basic',
+      'Dine-in & Takeaway QR Table Ordering',
+      'Live Kitchen Display System (KDS)',
+      'Student/Staff RFID Card & Digital Wallet',
+      'Monthly Mess Meal Subscriptions',
+      'Full Recipe & Automatic Batch Stock Consumption',
+      'HR & Payroll (Shifts, Rosters, Attendance & Salary Slips)',
+      'Promotions & Discounts Engine',
+      'WhatsApp Marketing Broadcasts & CRM Engine'
+    ],
+    highlight: true,
+    badge: 'Most Popular'
+  },
+  {
+    id: 'Food Court',
+    name: 'Food Court',
+    price_annual: 40000,
+    headline: 'Multi-Vendor Food Court Platform',
+    description: 'Purpose-built for malls, tech parks, and campus food courts with partitioned vendor stalls, manager logins, and revenue splits.',
+    features: [
+      'Everything in Canteen Pro',
+      'Multi-Vendor Architecture & Partitioned Stall Management',
+      'Stall Managers & Role Permissions',
+      'Automated Revenue & Commission Payout Calculations',
+      'Central Cancellation PIN Protection',
+      'Unified Food Court QR Menu with Multi-Stall Cart',
+      'Stall Insights & Vendor Performance Analytics',
+      'Multi-Vendor Module & Sub-tab Controls'
+    ],
+    highlight: false
+  },
+  {
+    id: 'Enterprise',
+    name: 'Enterprise',
+    price_annual: 75000,
+    headline: 'Multi-Branch Campus & Corporate Dining Network',
+    description: 'For university networks, corporate chains, and franchise groups requiring centralized multi-branch oversight and dedicated SLA.',
+    features: [
+      'Everything in Food Court',
+      'Multi-Branch & Multi-Campus Central Hub',
+      'Unlimited QR Tables & POS Terminals',
+      'Priority WhatsApp Business API Gateway',
+      'Centralized Group Stock & Inter-branch Transfers',
+      'Custom ERP Integrations & Dedicated Webhook APIs',
+      '24/7 Dedicated Account Manager & Enterprise SLA'
+    ],
+    highlight: false,
+    badge: 'Enterprise Tier'
+  }
+];
+
+// Helper: Calculate proration quote (Reset 1-Year Cycle with Prorated Credit)
+function calculateSubscriptionQuote(currentPlan, currentStatus, currentExpiresAt, toPlan) {
+  const targetConfig = PLAN_ENTITLEMENTS[toPlan];
+  if (!targetConfig) {
+    throw new Error(`Target plan '${toPlan}' is not recognized in system configuration.`);
+  }
+
+  const currentConfig = PLAN_ENTITLEMENTS[currentPlan] || PLAN_ENTITLEMENTS['Food Court'];
+  const targetPrice = Number(targetConfig.price_annual || 0);
+  const currentPrice = Number(currentConfig.price_annual || 0);
+
+  const now = new Date();
+  const expiresAt = currentExpiresAt ? new Date(currentExpiresAt) : null;
+  const isExpired = !expiresAt || expiresAt.getTime() <= now.getTime();
+  const isTrial = currentStatus === 'trial';
+
+  // 1. If currently on 7-Day Free Trial or Expired: No proration credit, 100% full annual price
+  if (isTrial || isExpired) {
+    const quoteType = isTrial ? 'trial_conversion' : 'renewal';
+    return {
+      from_plan: currentPlan,
+      to_plan: toPlan,
+      type: quoteType,
+      duration_days: 365,
+      base_amount: targetPrice,
+      prorated_credit: 0,
+      final_amount: targetPrice,
+      days_remaining: 0,
+      daily_rate: 0,
+      is_trial: isTrial,
+      is_expired: isExpired,
+      new_expiry_preview: new Date(Date.now() + 365 * 86400000).toISOString(),
+      breakdown: {
+        current_status: currentStatus,
+        is_trial: isTrial,
+        is_expired: isExpired,
+        current_plan_name: currentPlan,
+        current_plan_price: currentPrice,
+        days_remaining: 0,
+        daily_rate: 0,
+        prorated_credit: 0,
+        target_annual_price: targetPrice,
+        final_payable: targetPrice
+      }
+    };
+  }
+
+  // 2. Active Paid Subscription
+  const msRemaining = Math.max(0, expiresAt.getTime() - now.getTime());
+  const daysRemaining = Math.min(365, Math.ceil(msRemaining / (1000 * 60 * 60 * 24)));
+  const dailyRate = Math.round((currentPrice / 365) * 100) / 100;
+  const unusedCredit = Math.round(daysRemaining * (currentPrice / 365));
+
+  // If renewing the exact same tier
+  if (toPlan === currentPlan) {
+    return {
+      from_plan: currentPlan,
+      to_plan: toPlan,
+      type: 'renewal',
+      duration_days: 365,
+      base_amount: targetPrice,
+      prorated_credit: 0,
+      final_amount: targetPrice,
+      days_remaining: daysRemaining,
+      daily_rate: dailyRate,
+      is_trial: false,
+      is_expired: false,
+      new_expiry_preview: new Date(expiresAt.getTime() + 365 * 86400000).toISOString(),
+      breakdown: {
+        current_status: currentStatus,
+        is_trial: false,
+        is_expired: false,
+        current_plan_name: currentPlan,
+        current_plan_price: currentPrice,
+        days_remaining: daysRemaining,
+        daily_rate: dailyRate,
+        prorated_credit: 0,
+        target_annual_price: targetPrice,
+        final_payable: targetPrice
+      }
+    };
+  }
+
+  // Upgrading to higher tier (or lateral plan change):
+  // Reset 1-Year Cycle with Prorated Credit:
+  // Deduct remaining days value from current plan as credit against new plan; starts a fresh full 365-day cycle.
+  const proratedCredit = Math.min(targetPrice, unusedCredit);
+  const finalPayable = Math.max(0, targetPrice - proratedCredit);
+  const quoteType = targetPrice > currentPrice ? 'upgrade' : 'plan_change';
+
+  return {
+    from_plan: currentPlan,
+    to_plan: toPlan,
+    type: quoteType,
+    duration_days: 365,
+    base_amount: targetPrice,
+    prorated_credit: proratedCredit,
+    final_amount: finalPayable,
+    days_remaining: daysRemaining,
+    daily_rate: dailyRate,
+    is_trial: false,
+    is_expired: false,
+    new_expiry_preview: new Date(Date.now() + 365 * 86400000).toISOString(),
+    breakdown: {
+      current_status: currentStatus,
+      is_trial: false,
+      is_expired: false,
+      current_plan_name: currentPlan,
+      current_plan_price: currentPrice,
+      days_remaining: daysRemaining,
+      daily_rate: dailyRate,
+      unused_plan_value: unusedCredit,
+      prorated_credit: proratedCredit,
+      target_annual_price: targetPrice,
+      final_payable: finalPayable
+    }
+  };
+}
+
+// 1. GET Current Subscription & Pricing Catalog
+app.get('/api/subscription/current', authenticateToken, async (req, res) => {
+  try {
+    const tenantId = req.user.tenant_id;
+    if (!tenantId || req.user.role === 'Super Admin' || tenantId === 1) {
+      return res.json({
+        is_superadmin: true,
+        current_plan: 'Enterprise',
+        subscription_status: 'active',
+        subscription_expires_at: null,
+        days_remaining: 9999,
+        is_expired: false,
+        merchant_upi: OFFICIAL_MERCHANT_UPI,
+        plans: PLAN_CATALOG
+      });
+    }
+
+    const [rows] = await pool.query(
+      'SELECT id, name, owner_email, plan_name, subscription_status, subscription_expires_at, created_at FROM tenants WHERE id = ?',
+      [tenantId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Tenant record not found' });
+    }
+
+    const t = rows[0];
+    const currentPlan = t.plan_name || 'Food Court';
+    const subStatus = t.subscription_status || 'active';
+    const expiresAt = t.subscription_expires_at ? new Date(t.subscription_expires_at) : null;
+    const now = new Date();
+
+    const isExpired = subStatus === 'expired' || (expiresAt && expiresAt.getTime() <= now.getTime());
+    let daysRemaining = 0;
+    if (expiresAt && expiresAt.getTime() > now.getTime()) {
+      daysRemaining = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    }
+
+    res.json({
+      tenant_id: t.id,
+      tenant_name: t.name,
+      owner_email: t.owner_email,
+      current_plan: currentPlan,
+      subscription_status: isExpired ? 'expired' : subStatus,
+      subscription_expires_at: t.subscription_expires_at,
+      days_remaining: daysRemaining,
+      is_expired: isExpired,
+      is_trial: subStatus === 'trial',
+      entitlements: PLAN_ENTITLEMENTS[currentPlan] || PLAN_ENTITLEMENTS['Food Court'],
+      merchant_upi: OFFICIAL_MERCHANT_UPI,
+      plans: PLAN_CATALOG
+    });
+  } catch (err) {
+    console.error('Error fetching subscription status:', err);
+    res.status(500).json({ error: 'Failed to retrieve subscription information' });
+  }
+});
+
+// 2. GET Proration & Pricing Quote for Plan Upgrade or Renewal
+app.get('/api/subscription/quote', authenticateToken, async (req, res) => {
+  try {
+    const { to_plan } = req.query;
+    if (!to_plan || !PLAN_ENTITLEMENTS[to_plan]) {
+      return res.status(400).json({ error: `Please provide a valid target plan. Options: ${Object.keys(PLAN_ENTITLEMENTS).join(', ')}` });
+    }
+
+    const tenantId = req.user.tenant_id;
+    if (!tenantId || req.user.role === 'Super Admin') {
+      return res.json(calculateSubscriptionQuote('Food Court', 'active', null, to_plan));
+    }
+
+    const [rows] = await pool.query(
+      'SELECT plan_name, subscription_status, subscription_expires_at FROM tenants WHERE id = ?',
+      [tenantId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Tenant record not found' });
+    }
+
+    const t = rows[0];
+    const currentPlan = t.plan_name || 'Food Court';
+    const subStatus = t.subscription_status || 'active';
+    const expiresAt = t.subscription_expires_at;
+
+    const quote = calculateSubscriptionQuote(currentPlan, subStatus, expiresAt, to_plan);
+    res.json(quote);
+  } catch (err) {
+    console.error('Error calculating subscription quote:', err);
+    res.status(500).json({ error: err.message || 'Failed to calculate quote' });
+  }
+});
+
+// 3. POST Generate Order & Dynamic UPI QR
+app.post('/api/subscription/order', authenticateToken, async (req, res) => {
+  try {
+    const { to_plan } = req.body;
+    if (!to_plan || !PLAN_ENTITLEMENTS[to_plan]) {
+      return res.status(400).json({ error: `Invalid target plan: ${to_plan}` });
+    }
+
+    const tenantId = req.user.tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant context is required' });
+    }
+
+    const [rows] = await pool.query(
+      'SELECT id, name, plan_name, subscription_status, subscription_expires_at FROM tenants WHERE id = ?',
+      [tenantId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Tenant record not found' });
+    }
+
+    const t = rows[0];
+    const quote = calculateSubscriptionQuote(t.plan_name || 'Food Court', t.subscription_status || 'active', t.subscription_expires_at, to_plan);
+
+    // Generate unique invoice number: INV-YYYYMMDD-T<tenant_id>-<randHex>
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randSuffix = Math.floor(1000 + Math.random() * 9000);
+    const invoiceNumber = `INV-${dateStr}-T${tenantId}-${randSuffix}`;
+
+    const [insResult] = await pool.query(`
+      INSERT INTO subscription_invoices
+      (invoice_number, tenant_id, type, from_plan, to_plan, duration_days, base_amount, prorated_credit, final_amount, payment_method, status, requested_by_user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPI_QR', 'pending', ?)
+    `, [
+      invoiceNumber,
+      tenantId,
+      quote.type,
+      quote.from_plan,
+      quote.to_plan,
+      quote.duration_days,
+      quote.base_amount,
+      quote.prorated_credit,
+      quote.final_amount,
+      req.user.id || null
+    ]);
+
+    const invoiceId = insResult.insertId;
+
+    // Construct Dynamic UPI Payment URI
+    // Format: upi://pay?pa=info@radinfotec.com&pn=Radinfotec%20ERP&am=20000.00&cu=INR&tn=INV-...
+    const upiUri = `upi://pay?pa=${encodeURIComponent(OFFICIAL_MERCHANT_UPI.upi_id)}&pn=${encodeURIComponent(OFFICIAL_MERCHANT_UPI.merchant_name)}&am=${quote.final_amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(invoiceNumber)}`;
+
+    res.json({
+      success: true,
+      invoice_id: invoiceId,
+      invoice_number: invoiceNumber,
+      quote,
+      merchant_upi: OFFICIAL_MERCHANT_UPI,
+      upi_uri: upiUri,
+      final_amount: quote.final_amount
+    });
+  } catch (err) {
+    console.error('Error creating subscription order:', err);
+    res.status(500).json({ error: err.message || 'Failed to generate order' });
+  }
+});
+
+// 4. POST Submit Payment (UTR / Transaction ID Submission)
+app.post('/api/subscription/submit-payment', authenticateToken, async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const { invoice_id, payment_reference, auto_activate } = req.body;
+    const tenantId = req.user.tenant_id;
+
+    if (!invoice_id) {
+      return res.status(400).json({ error: 'Invoice ID is required' });
+    }
+
+    const cleanRef = String(payment_reference || '').trim();
+    if (!cleanRef || cleanRef.length < 4) {
+      return res.status(400).json({ error: 'Please enter a valid Bank UTR / Transaction Reference Number (minimum 4 characters).' });
+    }
+
+    const [invRows] = await conn.query(
+      'SELECT * FROM subscription_invoices WHERE id = ? AND tenant_id = ?',
+      [invoice_id, tenantId]
+    );
+
+    if (invRows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found or unauthorized' });
+    }
+
+    const inv = invRows[0];
+    if (inv.status === 'approved') {
+      return res.status(400).json({ error: 'This invoice has already been approved and activated.' });
+    }
+
+    await conn.beginTransaction();
+
+    // Check if auto_activate requested (e.g. for seamless testing or 0 balance)
+    const shouldInstantActivate = Number(inv.final_amount) === 0 || auto_activate === true;
+
+    if (shouldInstantActivate) {
+      // 1-Click Activate: Update tenant plan & start 365-day subscription cycle
+      await conn.query(`
+        UPDATE tenants
+        SET plan_name = ?,
+            subscription_status = 'active',
+            subscription_expires_at = DATE_ADD(NOW(), INTERVAL ? DAY)
+        WHERE id = ?
+      `, [inv.to_plan, inv.duration_days || 365, tenantId]);
+
+      // Approve invoice
+      await conn.query(`
+        UPDATE subscription_invoices
+        SET payment_reference = ?,
+            status = 'approved',
+            reviewed_by_user_id = ?,
+            reviewed_at = NOW(),
+            admin_notes = 'Instant Auto-Activation upon UTR submission'
+        WHERE id = ?
+      `, [cleanRef, req.user.id, invoice_id]);
+
+      await conn.commit();
+      tenantPlanCache.delete(tenantId);
+
+      return res.json({
+        success: true,
+        activated: true,
+        new_plan: inv.to_plan,
+        message: `Payment verified successfully! Your account has been upgraded to ${inv.to_plan} for 365 days.`
+      });
+    }
+
+    // Standard Flow: Record UTR reference and set status to pending verification
+    await conn.query(`
+      UPDATE subscription_invoices
+      SET payment_reference = ?,
+          status = 'pending',
+          updated_at = NOW()
+      WHERE id = ?
+    `, [cleanRef, invoice_id]);
+
+    await conn.commit();
+
+    res.json({
+      success: true,
+      activated: false,
+      message: 'UTR / Payment reference submitted successfully. Your payment is queued for Central Admin verification.'
+    });
+  } catch (err) {
+    await conn.rollback();
+    console.error('Error submitting payment reference:', err);
+    res.status(500).json({ error: err.message || 'Failed to submit payment' });
+  } finally {
+    conn.release();
+  }
+});
+
+// 5. GET Tenant Subscription Invoices History
+app.get('/api/subscription/invoices', authenticateToken, async (req, res) => {
+  try {
+    const tenantId = req.user.tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant context required' });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT id, invoice_number, type, from_plan, to_plan, duration_days,
+              base_amount, prorated_credit, final_amount, payment_method,
+              payment_reference, status, admin_notes, reviewed_at, created_at
+       FROM subscription_invoices
+       WHERE tenant_id = ?
+       ORDER BY id DESC`,
+      [tenantId]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching subscription invoices:', err);
+    res.status(500).json({ error: 'Failed to retrieve invoices' });
+  }
+});
+
+// 6. Super Admin: GET All Subscription Invoices & Upgrades
+app.get('/api/superadmin/subscription-invoices', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT si.*,
+             t.name as tenant_name,
+             t.owner_email as tenant_owner_email,
+             t.subscription_status as tenant_current_status,
+             s.name as requested_by_name,
+             reviewer.name as reviewed_by_name
+      FROM subscription_invoices si
+      LEFT JOIN tenants t ON si.tenant_id = t.id
+      LEFT JOIN staff s ON si.requested_by_user_id = s.id
+      LEFT JOIN staff reviewer ON si.reviewed_by_user_id = reviewer.id
+      ORDER BY
+        CASE WHEN si.status = 'pending' THEN 0 ELSE 1 END,
+        si.id DESC
+    `);
+
+    const pendingCount = rows.filter(r => r.status === 'pending').length;
+
+    res.json({
+      invoices: rows,
+      pending_count: pendingCount
+    });
+  } catch (err) {
+    console.error('Error fetching superadmin subscription invoices:', err);
+    res.status(500).json({ error: 'Failed to retrieve subscription invoices' });
+  }
+});
+
+// 7. Super Admin: Review & Approve / Reject Subscription Invoice
+app.put('/api/superadmin/subscription-invoices/:id/review', authenticateToken, authorizeRoles('Super Admin'), async (req, res) => {
+  const { id } = req.params;
+  const { action, admin_notes } = req.body; // 'approve' | 'reject'
+
+  if (!['approve', 'reject'].includes(action)) {
+    return res.status(400).json({ error: "Action must be either 'approve' or 'reject'" });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const [invRows] = await conn.query('SELECT * FROM subscription_invoices WHERE id = ?', [id]);
+    if (invRows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const inv = invRows[0];
+    await conn.beginTransaction();
+
+    if (action === 'approve') {
+      const days = Number(inv.duration_days) || 365;
+
+      // Update tenant's active plan and set new 365-day cycle from now
+      await conn.query(`
+        UPDATE tenants
+        SET plan_name = ?,
+            subscription_status = 'active',
+            subscription_expires_at = DATE_ADD(NOW(), INTERVAL ? DAY)
+        WHERE id = ?
+      `, [inv.to_plan, days, inv.tenant_id]);
+
+      // Update invoice record
+      await conn.query(`
+        UPDATE subscription_invoices
+        SET status = 'approved',
+            reviewed_by_user_id = ?,
+            reviewed_at = NOW(),
+            admin_notes = ?
+        WHERE id = ?
+      `, [req.user.id, admin_notes || 'Approved by Super Admin', id]);
+
+      await conn.commit();
+      tenantPlanCache.delete(inv.tenant_id);
+
+      return res.json({
+        success: true,
+        message: `Invoice #${inv.invoice_number} approved! Tenant #${inv.tenant_id} upgraded to ${inv.to_plan} for ${days} days.`
+      });
+    } else {
+      // Reject action
+      await conn.query(`
+        UPDATE subscription_invoices
+        SET status = 'rejected',
+            reviewed_by_user_id = ?,
+            reviewed_at = NOW(),
+            admin_notes = ?
+        WHERE id = ?
+      `, [req.user.id, admin_notes || 'Rejected by Super Admin', id]);
+
+      await conn.commit();
+
+      return res.json({
+        success: true,
+        message: `Invoice #${inv.invoice_number} rejected.`
+      });
+    }
+  } catch (err) {
+    await conn.rollback();
+    console.error('Error reviewing subscription invoice:', err);
+    res.status(500).json({ error: err.message || 'Failed to review invoice' });
+  } finally {
+    conn.release();
   }
 });
 

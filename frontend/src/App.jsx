@@ -5,6 +5,7 @@ import CrmNotifications from './CrmNotifications';
 import WalletManagement from './WalletManagement';
 import StallInsights from './StallInsights';
 import Promotions from './Promotions';
+import BillingSubscription from './BillingSubscription';
 import { formatISTDateTime, formatISTDate, formatISTTime, getISTTodayString } from './dateUtils';
 
 const API_BASE = '/api';
@@ -626,6 +627,17 @@ function SuperAdminDashboard({ user, onLogout }) {
   const [regSearchQuery, setRegSearchQuery] = useState('');
   const [viewingRegDetails, setViewingRegDetails] = useState(null);
 
+  // Subscriptions & Plan Upgrades state
+  const [subInvoices, setSubInvoices] = useState([]);
+  const [loadingSubInvoices, setLoadingSubInvoices] = useState(false);
+  const [pendingSubCount, setPendingSubCount] = useState(0);
+  const [subFilterStatus, setSubFilterStatus] = useState('all'); // 'all', 'pending', 'approved', 'rejected'
+  const [subSearchQuery, setSubSearchQuery] = useState('');
+  const [reviewingInvoice, setReviewingInvoice] = useState(null);
+  const [subReviewAction, setSubReviewAction] = useState('approve');
+  const [subAdminNotes, setSubAdminNotes] = useState('');
+  const [submittingSubReview, setSubmittingSubReview] = useState(false);
+
   const formatRegDate = (dateStr) => {
     if (!dateStr) return '—';
     try {
@@ -694,15 +706,78 @@ function SuperAdminDashboard({ user, onLogout }) {
     return true;
   });
 
+  const filteredSubInvoices = subInvoices.filter(inv => {
+    if (subFilterStatus !== 'all' && inv.status !== subFilterStatus) return false;
+    if (subSearchQuery.trim()) {
+      const q = subSearchQuery.toLowerCase();
+      const matchesNum = (inv.invoice_number || '').toLowerCase().includes(q);
+      const matchesTenant = (inv.tenant_name || '').toLowerCase().includes(q);
+      const matchesEmail = (inv.tenant_owner_email || '').toLowerCase().includes(q);
+      const matchesRef = (inv.payment_reference || '').toLowerCase().includes(q);
+      const matchesPlan = (inv.to_plan || '').toLowerCase().includes(q);
+      if (!matchesNum && !matchesTenant && !matchesEmail && !matchesRef && !matchesPlan) return false;
+    }
+    return true;
+  });
+
   useEffect(() => {
     fetchRegistrations();
+    fetchSubInvoices();
   }, []);
 
   useEffect(() => {
     if (activeTab === 'registrations') {
       fetchRegistrations();
+    } else if (activeTab === 'subscriptions') {
+      fetchSubInvoices();
     }
   }, [activeTab]);
+
+  const fetchSubInvoices = async () => {
+    setLoadingSubInvoices(true);
+    try {
+      const res = await originalFetch(`${API_BASE}/superadmin/subscription-invoices`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        cache: 'no-store'
+      });
+      const data = await res.json();
+      if (data && Array.isArray(data.invoices)) {
+        setSubInvoices(data.invoices);
+        setPendingSubCount(data.pending_count || 0);
+      }
+    } catch (err) {
+      console.error('Failed to fetch subscription invoices:', err);
+    } finally {
+      setLoadingSubInvoices(false);
+    }
+  };
+
+  const handleReviewSubInvoice = async (invoiceId, action, notes = '') => {
+    setSubmittingSubReview(true);
+    try {
+      const res = await originalFetch(`${API_BASE}/superadmin/subscription-invoices/${invoiceId}/review`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          action,
+          admin_notes: notes || (action === 'approve' ? 'Approved by Super Admin' : 'Rejected by Super Admin')
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to review invoice');
+      alert(data.message || `Invoice #${invoiceId} ${action}d successfully`);
+      setReviewingInvoice(null);
+      fetchSubInvoices();
+      fetchTenants();
+    } catch (err) {
+      alert(err.message || 'Error processing review');
+    } finally {
+      setSubmittingSubReview(false);
+    }
+  };
 
   const fetchRegistrations = async () => {
     setLoadingRegs(true);
@@ -1075,11 +1150,17 @@ function SuperAdminDashboard({ user, onLogout }) {
               </span>
             )}
           </li>
-          <li style={saStyles.navItem(false)}>
+          <li style={saStyles.navItem(activeTab === 'subscriptions')} onClick={() => setActiveTab('subscriptions')}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
-              <path d="M12 20v-6M6 20V10M18 20V4" />
+              <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+              <line x1="1" y1="10" x2="23" y2="10" />
             </svg>
-            Analytics (Soon)
+            Subscriptions
+            {pendingSubCount > 0 && (
+              <span style={{ marginLeft: 'auto', background: '#3b82f6', color: '#fff', padding: '2px 7px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 600 }}>
+                {pendingSubCount}
+              </span>
+            )}
           </li>
         </ul>
 
@@ -1103,8 +1184,16 @@ function SuperAdminDashboard({ user, onLogout }) {
       <div style={saStyles.main}>
         <div style={saStyles.topBar}>
           <div>
-            <h1 style={saStyles.topTitle}>Platform Overview</h1>
-            <p style={saStyles.topSub}>Manage all registered food courts and subscriptions</p>
+            <h1 style={saStyles.topTitle}>
+              {activeTab === 'foodCourts' && 'Multi-Facility Directory'}
+              {activeTab === 'registrations' && 'Pending Applications'}
+              {activeTab === 'subscriptions' && 'Plan Subscriptions & Upgrades'}
+            </h1>
+            <p style={saStyles.topSub}>
+              {activeTab === 'foodCourts' && 'Manage all registered food courts and subscriptions'}
+              {activeTab === 'registrations' && 'Review and provision new tenant databases'}
+              {activeTab === 'subscriptions' && 'Verify bank UTR transaction references and approve plan upgrade orders'}
+            </p>
           </div>
           <span style={saStyles.statusBadge}>
             Platform Status: <span style={{color: '#10b981', fontWeight: 700}}> Operational</span>
@@ -1872,6 +1961,287 @@ function SuperAdminDashboard({ user, onLogout }) {
               )}
             </div>
           </div>
+          )}
+
+          {/* ── SUBSCRIPTIONS & UPGRADES TAB ── */}
+          {activeTab === 'subscriptions' && (
+            <div>
+              {/* Stats Row */}
+              <div style={saStyles.statsRow}>
+                <div
+                  onClick={() => setSubFilterStatus('all')}
+                  style={{
+                    ...saStyles.statCard(subFilterStatus === 'all' ? '#8b5cf6' : 'rgba(255,255,255,0.1)'),
+                    cursor: 'pointer',
+                    background: subFilterStatus === 'all' ? '#171722' : '#111118'
+                  }}
+                >
+                  <span style={saStyles.statLabel}>Total Invoices</span>
+                  <span style={saStyles.statValue}>{subInvoices.length}</span>
+                </div>
+                <div
+                  onClick={() => setSubFilterStatus('pending')}
+                  style={{
+                    ...saStyles.statCard(subFilterStatus === 'pending' ? '#eab308' : '#eab308'),
+                    cursor: 'pointer',
+                    background: subFilterStatus === 'pending' ? '#1c1917' : '#111118'
+                  }}
+                >
+                  <span style={saStyles.statLabel}>Pending Review</span>
+                  <span style={{ ...saStyles.statValue, color: '#facc15' }}>{pendingSubCount}</span>
+                </div>
+                <div
+                  onClick={() => setSubFilterStatus('approved')}
+                  style={{
+                    ...saStyles.statCard(subFilterStatus === 'approved' ? '#10b981' : 'rgba(255,255,255,0.1)'),
+                    cursor: 'pointer',
+                    background: subFilterStatus === 'approved' ? '#062015' : '#111118'
+                  }}
+                >
+                  <span style={saStyles.statLabel}>Approved</span>
+                  <span style={{ ...saStyles.statValue, color: '#34d399' }}>
+                    {subInvoices.filter(i => i.status === 'approved').length}
+                  </span>
+                </div>
+                <div
+                  onClick={() => setSubFilterStatus('rejected')}
+                  style={{
+                    ...saStyles.statCard(subFilterStatus === 'rejected' ? '#ef4444' : 'rgba(255,255,255,0.1)'),
+                    cursor: 'pointer',
+                    background: subFilterStatus === 'rejected' ? '#200e0e' : '#111118'
+                  }}
+                >
+                  <span style={saStyles.statLabel}>Rejected</span>
+                  <span style={{ ...saStyles.statValue, color: '#f87171' }}>
+                    {subInvoices.filter(i => i.status === 'rejected').length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Invoices Table Card */}
+              <div style={saStyles.tableCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                  <h3 style={saStyles.tableTitle}>Subscription Orders & Upgrades</h3>
+                  
+                  {/* Search input */}
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      placeholder="Search invoice, tenant, UTR..."
+                      value={subSearchQuery}
+                      onChange={e => setSubSearchQuery(e.target.value)}
+                      style={{
+                        padding: '8px 14px',
+                        background: '#0a0a0f',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '8px',
+                        color: '#fff',
+                        fontSize: '0.85rem'
+                      }}
+                    />
+                    <button
+                      onClick={fetchSubInvoices}
+                      style={{
+                        padding: '8px 14px',
+                        background: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        color: '#cbd5e1',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '0.85rem'
+                      }}
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                {loadingSubInvoices ? (
+                  <div style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
+                    Loading subscription orders...
+                  </div>
+                ) : filteredSubInvoices.length === 0 ? (
+                  <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                    No subscription invoices match the filter criteria.
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          <th style={saStyles.th}>Invoice #</th>
+                          <th style={saStyles.th}>Facility / Tenant</th>
+                          <th style={saStyles.th}>Type & Plan</th>
+                          <th style={saStyles.th}>Amount</th>
+                          <th style={saStyles.th}>Bank UTR Reference</th>
+                          <th style={saStyles.th}>Status</th>
+                          <th style={{ ...saStyles.th, textAlign: 'right' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredSubInvoices.map(inv => {
+                          const statusBadge = getStatusBadgeStyle(inv.status);
+                          return (
+                            <tr key={inv.id} style={{ transition: 'background 0.15s' }}>
+                              <td style={saStyles.td}>
+                                <div style={{ fontWeight: 700, color: '#f8fafc', fontSize: '0.88rem' }}>
+                                  {inv.invoice_number}
+                                </div>
+                                <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
+                                  {formatISTDate(inv.created_at)}
+                                </div>
+                              </td>
+
+                              <td style={saStyles.td}>
+                                <div style={{ fontWeight: 600, color: '#e2e8f0', fontSize: '0.88rem' }}>
+                                  {inv.tenant_name || `Tenant #${inv.tenant_id}`}
+                                </div>
+                                <div style={{ fontSize: '0.76rem', color: '#94a3b8' }}>
+                                  {inv.tenant_owner_email || '—'}
+                                </div>
+                              </td>
+
+                              <td style={saStyles.td}>
+                                <span style={{
+                                  background: 'rgba(59, 130, 246, 0.15)',
+                                  color: '#60a5fa',
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600
+                                }}>
+                                  {inv.to_plan}
+                                </span>
+                                {inv.from_plan && inv.from_plan !== inv.to_plan && (
+                                  <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '3px' }}>
+                                    Upgraded from {inv.from_plan}
+                                  </div>
+                                )}
+                              </td>
+
+                              <td style={saStyles.td}>
+                                <div style={{ fontWeight: 700, color: '#fff' }}>
+                                  ₹{Number(inv.final_amount || 0).toLocaleString('en-IN')}
+                                </div>
+                                {Number(inv.prorated_credit) > 0 && (
+                                  <div style={{ fontSize: '0.72rem', color: '#34d399' }}>
+                                    Credit: -₹{Number(inv.prorated_credit).toLocaleString('en-IN')}
+                                  </div>
+                                )}
+                              </td>
+
+                              <td style={saStyles.td}>
+                                <span style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: '#cbd5e1' }}>
+                                  {inv.payment_reference || 'Pending Submission'}
+                                </span>
+                              </td>
+
+                              <td style={saStyles.td}>
+                                <span style={{
+                                  color: statusBadge.color,
+                                  background: statusBadge.bg,
+                                  border: `1px solid ${statusBadge.border}`,
+                                  padding: '3px 9px',
+                                  borderRadius: '12px',
+                                  fontSize: '0.76rem',
+                                  fontWeight: 600
+                                }}>
+                                  {statusBadge.label}
+                                </span>
+                              </td>
+
+                              <td style={{ ...saStyles.td, textAlign: 'right' }}>
+                                {inv.status === 'pending' ? (
+                                  <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                                    <button
+                                      onClick={() => handleReviewSubInvoice(inv.id, 'approve')}
+                                      disabled={submittingSubReview}
+                                      style={{
+                                        background: 'rgba(16,185,129,0.15)',
+                                        color: '#10b981',
+                                        border: '1px solid rgba(16,185,129,0.3)',
+                                        padding: '5px 12px',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 600
+                                      }}
+                                    >
+                                      ✓ Approve
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setReviewingInvoice(inv);
+                                        setSubReviewAction('reject');
+                                        setSubAdminNotes('');
+                                      }}
+                                      disabled={submittingSubReview}
+                                      style={{
+                                        background: 'rgba(239,68,68,0.15)',
+                                        color: '#ef4444',
+                                        border: '1px solid rgba(239,68,68,0.3)',
+                                        padding: '5px 10px',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 600
+                                      }}
+                                    >
+                                      ✕ Reject
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                                    {inv.status === 'approved' ? '✓ Activated' : '✕ Rejected'}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Modal for Super Admin to Reject / Enter Notes for Subscription */}
+          {reviewingInvoice && (
+            <div style={saStyles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setReviewingInvoice(null); }}>
+              <div style={saStyles.modal}>
+                <div style={saStyles.modalHeader}>
+                  <h2 style={saStyles.modalTitle}>Reject Subscription Invoice #{reviewingInvoice.invoice_number}</h2>
+                  <button style={saStyles.closeBtn} onClick={() => setReviewingInvoice(null)}>&times;</button>
+                </div>
+                <div style={saStyles.modalBody}>
+                  <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '14px' }}>
+                    Facility: <strong style={{ color: '#fff' }}>{reviewingInvoice.tenant_name}</strong> | Target: <strong style={{ color: '#60a5fa' }}>{reviewingInvoice.to_plan}</strong>
+                  </p>
+                  <div style={saStyles.formGroup}>
+                    <label style={saStyles.formLabel}>Rejection Reason / Admin Notes</label>
+                    <textarea
+                      rows="3"
+                      value={subAdminNotes}
+                      onChange={e => setSubAdminNotes(e.target.value)}
+                      placeholder="e.g. Invalid UTR reference number or payment not received in merchant account"
+                      style={{ ...saStyles.formInput, resize: 'vertical' }}
+                    />
+                  </div>
+                  <div style={saStyles.modalActions}>
+                    <button style={saStyles.cancelBtn} onClick={() => setReviewingInvoice(null)}>Cancel</button>
+                    <button
+                      style={{ ...saStyles.submitBtn(submittingSubReview), background: '#ef4444' }}
+                      disabled={submittingSubReview}
+                      onClick={() => handleReviewSubInvoice(reviewingInvoice.id, 'reject', subAdminNotes)}
+                    >
+                      {submittingSubReview ? 'Rejecting...' : 'Confirm Rejection'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
         </div>
@@ -3454,9 +3824,9 @@ function App() {
   // PLAN ENTITLEMENTS — Frontend Module Visibility (Option 2: Strict Hiding)
   // ==========================================
   const PLAN_ALLOWED_TABS = {
-    'Canteen Basic': ['dashboard', 'pos', 'menu', 'materials', 'orders', 'reports', 'employee-portal'],
-    'Canteen Pro': ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'employee-portal', 'hr', 'crm', 'wallet', 'reports', 'promotions'],
-    'Food Court': ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'employee-portal', 'stall-insights', 'vendors', 'promotions', 'hr', 'crm', 'wallet', 'reports'],
+    'Canteen Basic': ['dashboard', 'pos', 'menu', 'materials', 'orders', 'reports', 'billing', 'employee-portal'],
+    'Canteen Pro': ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'employee-portal', 'hr', 'crm', 'wallet', 'reports', 'promotions', 'billing'],
+    'Food Court': ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'employee-portal', 'stall-insights', 'vendors', 'promotions', 'hr', 'crm', 'wallet', 'reports', 'billing'],
     'Enterprise': ['*']
   };
 
@@ -3600,6 +3970,23 @@ function App() {
     setUser(null);
     resetPosState(); // Wipe cart and POS memory on logout
     setActiveTab('dashboard');
+  };
+
+  const refreshUserPlan = async () => {
+    try {
+      const res = await originalFetch(`${API_BASE}/auth/me`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.user) {
+          setUser(data.user);
+          localStorage.setItem('user', JSON.stringify(data.user));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to refresh user plan:', err);
+    }
   };
 
   // Listen for token expiry dispatched by the fetch interceptor
@@ -7768,6 +8155,18 @@ function App() {
               <span>Cards & Wallets</span>
             </div>
           )}
+          {!user.vendor_id && ['Owner', 'Manager'].includes(user.role) && isTabPermitted('billing') && (
+            <div
+              className={`menu-item ${activeTab === 'billing' ? 'active' : ''}`}
+              onClick={() => setActiveTab('billing')}
+            >
+              <svg className="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                <line x1="1" y1="10" x2="23" y2="10" />
+              </svg>
+              <span>Billing & Plans</span>
+            </div>
+          )}
 
         </nav>
  
@@ -7832,6 +8231,7 @@ function App() {
               {activeTab === 'crm' && 'Customer loyalty, broadcasts, feedback, and low-stock alerts'}
               {activeTab === 'wallet' && 'Manage RFID cards and prepaid wallets'}
               {activeTab === 'qr' && 'Generate table QR codes, monitor QR orders and manage self-ordering settings'}
+              {activeTab === 'billing' && 'Manage your annual SaaS plan, view proration credits, upgrade tiers, and track official tax invoices'}
             </p>
           </div>
           <div class="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -7847,6 +8247,105 @@ function App() {
             </button>
           </div>
         </header>
+
+        {/* Expiry Warning Banner */}
+        {user && user.role !== 'Super Admin' && !user.vendor_id && (() => {
+          const isExpired = user.subscription_status === 'expired' || (user.subscription_expires_at && new Date(user.subscription_expires_at) < new Date());
+          const isTrial = user.subscription_status === 'trial';
+          let daysLeft = 999;
+          if (user.subscription_expires_at) {
+            daysLeft = Math.ceil((new Date(user.subscription_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+          }
+
+          if (isExpired) {
+            return (
+              <div style={{
+                background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.3))',
+                border: '1px solid #ef4444',
+                borderRadius: '12px',
+                padding: '12px 18px',
+                margin: '16px 20px 0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px',
+                boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '1.4rem' }}>🚨</span>
+                  <div>
+                    <strong style={{ color: '#fff', fontSize: '0.92rem' }}>Subscription Expired:</strong>
+                    <span style={{ color: '#fca5a5', fontSize: '0.86rem', marginLeft: '6px' }}>
+                      Your plan has expired. Transaction creation and mutations are temporarily locked. Please renew or upgrade to continue without disruption.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveTab('billing')}
+                  style={{
+                    padding: '8px 18px',
+                    background: '#ef4444',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  Renew / Upgrade Now →
+                </button>
+              </div>
+            );
+          }
+
+          if (isTrial || (daysLeft <= 7 && daysLeft > 0)) {
+            return (
+              <div style={{
+                background: 'linear-gradient(90deg, rgba(234, 179, 8, 0.18), rgba(202, 138, 4, 0.25))',
+                border: '1px solid #eab308',
+                borderRadius: '12px',
+                padding: '12px 18px',
+                margin: '16px 20px 0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '1.4rem' }}>⏳</span>
+                  <div>
+                    <strong style={{ color: '#fff', fontSize: '0.92rem' }}>
+                      {isTrial ? `Free Trial: ${daysLeft > 0 ? `${daysLeft} days remaining` : 'Expiring today'}` : `Subscription Notice: Expires in ${daysLeft} days`}
+                    </strong>
+                    <span style={{ color: '#fde047', fontSize: '0.86rem', marginLeft: '6px' }}>
+                      Subscribe or upgrade to an annual plan to ensure uninterrupted POS billing, QR orders, and staff operations.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveTab('billing')}
+                  style={{
+                    padding: '8px 18px',
+                    background: '#eab308',
+                    color: '#000',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  Choose Plan & Upgrade →
+                </button>
+              </div>
+            );
+          }
+
+          return null;
+        })()}
 
         <div class="view-panel-container">
           
@@ -14671,6 +15170,15 @@ function App() {
           
           {activeTab === 'wallet' && (
             <WalletManagement userRole={user?.role} refreshCustomers={fetchCustomers} />
+          )}
+
+          {activeTab === 'billing' && (
+            <BillingSubscription
+              user={user}
+              currentPlan={currentPlan}
+              isFeaturePermitted={isFeaturePermitted}
+              onPlanUpdated={refreshUserPlan}
+            />
           )}
         </div>
       
