@@ -810,6 +810,8 @@ function SuperAdminDashboard({ user, onLogout }) {
   const [editing, setEditing] = useState(false);
   const [showAddPassword, setShowAddPassword] = useState(false);
   const [showEditPassword, setShowEditPassword] = useState(false);
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
+  const [showCustomPassword, setShowCustomPassword] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null); // holds the tenant object to delete
   const [deleting, setDeleting] = useState(false);
 
@@ -2142,7 +2144,41 @@ function SuperAdminDashboard({ user, onLogout }) {
                   </div>
                   <div style={{...saStyles.formGroup, flex: 1}}>
                     <label style={saStyles.formLabel}>Password</label>
-                    <input type="password" style={saStyles.formInput} value={integrationForm.smtp_pass || ''} onChange={e => setIntegrationForm({...integrationForm, smtp_pass: e.target.value})} placeholder="••••••••" />
+                    <div style={{ position: 'relative', width: '100%' }}>
+                      <input
+                        type={showSmtpPassword ? 'text' : 'password'}
+                        style={{...saStyles.formInput, paddingRight: '40px'}}
+                        value={integrationForm.smtp_pass || ''}
+                        onChange={e => setIntegrationForm({...integrationForm, smtp_pass: e.target.value})}
+                        placeholder="••••••••"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSmtpPassword(!showSmtpPassword)}
+                        style={{
+                          position: 'absolute',
+                          right: '10px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          color: '#64748b',
+                          display: 'flex',
+                          alignItems: 'center',
+                          zIndex: 2
+                        }}
+                        title={showSmtpPassword ? 'Hide password' : 'Show password'}
+                        aria-label={showSmtpPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showSmtpPassword ? (
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                        ) : (
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <div style={saStyles.formGroup}>
@@ -2260,15 +2296,43 @@ function SuperAdminDashboard({ user, onLogout }) {
                 </div>
                 <div style={saStyles.formGroup}>
                   <label style={saStyles.formLabel}>Assign Password</label>
-                  <input
-                    type="text"
-                    style={saStyles.formInput}
-                    value={customPassword}
-                    onChange={e => setCustomPassword(e.target.value)}
-                    placeholder="Enter password to assign (or leave empty to auto-generate)"
-                    onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
-                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
-                  />
+                  <div style={{ position: 'relative', width: '100%' }}>
+                    <input
+                      type={showCustomPassword ? 'text' : 'password'}
+                      style={{...saStyles.formInput, paddingRight: '40px'}}
+                      value={customPassword}
+                      onChange={e => setCustomPassword(e.target.value)}
+                      placeholder="Enter password to assign (or leave empty to auto-generate)"
+                      onFocus={e => { e.target.style.borderColor = '#8b5cf6'; }}
+                      onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomPassword(!showCustomPassword)}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        color: '#64748b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        zIndex: 2
+                      }}
+                      title={showCustomPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showCustomPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showCustomPassword ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
                 </>
               )}
@@ -3121,6 +3185,10 @@ function App() {
   const [costSplit, setCostSplit] = useState({ startDate: '', endDate: '', totalCost: '', method: 'Equal' });
   const [vendorSubTab, setVendorSubTab] = useState('profiles');
   const [showVendorForm, setShowVendorForm] = useState(false);
+  const [showVendorPassword, setShowVendorPassword] = useState(false);
+  const [showEditManagerPassword, setShowEditManagerPassword] = useState(false);
+  const [showStaffPassword, setShowStaffPassword] = useState(false);
+  const [showCancelPin, setShowCancelPin] = useState(false);
   const [perfMetric, setPerfMetric] = useState('revenue');
   const [commonExpensesList, setCommonExpensesList] = useState([]);
   const [commonExpenseForm, setCommonExpenseForm] = useState({ category: 'Electricity', description: '', amount: '', expense_date: getISTTodayString() });
@@ -11538,14 +11606,48 @@ function App() {
                               </div>
                               <div className="vendor-form-group">
                                 <label>Initial Password *</label>
-                                <input type="password" placeholder="Min 6 characters" value={formVendor.manager_password || ''} onChange={e => setFormVendor({ ...formVendor, manager_password: e.target.value })} />
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type={showVendorPassword ? 'text' : 'password'}
+                                    placeholder="Min 6 characters"
+                                    value={formVendor.manager_password || ''}
+                                    onChange={e => setFormVendor({ ...formVendor, manager_password: e.target.value })}
+                                    style={{ width: '100%', boxSizing: 'border-box', paddingRight: '38px' }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowVendorPassword(!showVendorPassword)}
+                                    style={{
+                                      position: 'absolute',
+                                      right: '10px',
+                                      top: '50%',
+                                      transform: 'translateY(-50%)',
+                                      background: 'none',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      padding: '4px',
+                                      color: '#64748b',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      zIndex: 2
+                                    }}
+                                    title={showVendorPassword ? 'Hide password' : 'Show password'}
+                                    aria-label={showVendorPassword ? 'Hide password' : 'Show password'}
+                                  >
+                                    {showVendorPassword ? (
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                    ) : (
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    )}
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>
                         )}
                       </div>
                       <div className="vendor-form-actions">
-                        <button className="vendor-form-cancel" onClick={() => { setShowVendorForm(false); setFormVendor({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00' }); }}>Cancel</button>
+                        <button className="vendor-form-cancel" onClick={() => { setShowVendorForm(false); setShowVendorPassword(false); setFormVendor({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00' }); }}>Cancel</button>
                         <button className="vendor-form-save" onClick={async () => {
                           if (!formVendor.name.trim()) { showToast('Stall name is required', 'error'); return; }
                           if (!formVendor.id) {
@@ -11632,6 +11734,7 @@ function App() {
 
                     {/* Add New Vendor Card */}
                     <div className="vendor-add-card" onClick={() => {
+                      setShowVendorPassword(false);
                       setFormVendor({ id: '', name: '', gstin: '', bank_account: '', contact: '', stall_number: '', commission_rate: '10.00', share_area: '10.00' });
                       setShowVendorForm(true);
                     }}>
@@ -12411,7 +12514,41 @@ function App() {
                               </div>
                               <div className="hr-form-group">
                                 <label>Password (for Login)</label>
-                                <input type="text" placeholder="Leave blank to keep unchanged" value={formStaff.password || ''} onChange={e => setFormStaff({ ...formStaff, password: e.target.value })} />
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type={showStaffPassword ? 'text' : 'password'}
+                                    placeholder="Leave blank to keep unchanged"
+                                    value={formStaff.password || ''}
+                                    onChange={e => setFormStaff({ ...formStaff, password: e.target.value })}
+                                    style={{ width: '100%', boxSizing: 'border-box', paddingRight: '38px' }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowStaffPassword(!showStaffPassword)}
+                                    style={{
+                                      position: 'absolute',
+                                      right: '10px',
+                                      top: '50%',
+                                      transform: 'translateY(-50%)',
+                                      background: 'none',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      padding: '4px',
+                                      color: '#64748b',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      zIndex: 2
+                                    }}
+                                    title={showStaffPassword ? 'Hide password' : 'Show password'}
+                                    aria-label={showStaffPassword ? 'Hide password' : 'Show password'}
+                                  >
+                                    {showStaffPassword ? (
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                    ) : (
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    )}
+                                  </button>
+                                </div>
                               </div>
                               <div className="hr-form-group">
                                 <label>Role *</label>
@@ -14644,19 +14781,47 @@ function App() {
                   </p>
                   <div className="form-group">
                     <label>Enter Manager PIN</label>
-                    <input
-                      type="password"
-                      autoFocus
-                      placeholder="****"
-                      value={cancelModal.pin}
-                      onChange={e => setCancelModal({ ...cancelModal, pin: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleVerifyCancelPin();
-                        }
-                      }}
-                      style={{ fontSize: '24px', letterSpacing: '5px', textAlign: 'center' }}
-                    />
+                    <div style={{ position: 'relative', width: '100%' }}>
+                      <input
+                        type={showCancelPin ? 'text' : 'password'}
+                        autoFocus
+                        placeholder="****"
+                        value={cancelModal.pin}
+                        onChange={e => setCancelModal({ ...cancelModal, pin: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleVerifyCancelPin();
+                          }
+                        }}
+                        style={{ fontSize: '24px', letterSpacing: '5px', textAlign: 'center', width: '100%', boxSizing: 'border-box', paddingRight: '45px' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowCancelPin(!showCancelPin)}
+                        style={{
+                          position: 'absolute',
+                          right: '12px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          color: '#64748b',
+                          display: 'flex',
+                          alignItems: 'center',
+                          zIndex: 2
+                        }}
+                        title={showCancelPin ? 'Hide PIN' : 'Show PIN'}
+                        aria-label={showCancelPin ? 'Hide PIN' : 'Show PIN'}
+                      >
+                        {showCancelPin ? (
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                        ) : (
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        )}
+                      </button>
+                    </div>
                   </div>
                   <div className="form-actions" style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                     <button className="btn btn-outline-primary" onClick={() => setCancelModal({ show: false, orderId: null, tokenNumber: null, pin: '', reason: '', step: 1 })}>Abort</button>
@@ -16455,12 +16620,41 @@ function App() {
                   </div>
                   <div className="hr-form-group" style={{ gridColumn: '1 / -1' }}>
                     <label>Reset Password (Optional)</label>
-                    <input
-                      type="text"
-                      value={formEditManager.new_password}
-                      onChange={e => setFormEditManager({ ...formEditManager, new_password: e.target.value })}
-                      placeholder="Leave blank to keep existing password"
-                    />
+                    <div style={{ position: 'relative', width: '100%' }}>
+                      <input
+                        type={showEditManagerPassword ? 'text' : 'password'}
+                        value={formEditManager.new_password}
+                        onChange={e => setFormEditManager({ ...formEditManager, new_password: e.target.value })}
+                        placeholder="Leave blank to keep existing password"
+                        style={{ width: '100%', boxSizing: 'border-box', paddingRight: '38px' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowEditManagerPassword(!showEditManagerPassword)}
+                        style={{
+                          position: 'absolute',
+                          right: '10px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          color: '#64748b',
+                          display: 'flex',
+                          alignItems: 'center',
+                          zIndex: 2
+                        }}
+                        title={showEditManagerPassword ? 'Hide password' : 'Show password'}
+                        aria-label={showEditManagerPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showEditManagerPassword ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
