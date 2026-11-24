@@ -3978,15 +3978,19 @@ function App() {
     }
   }, [user, activeTab, currentPlan]);
 
-  // Auto-set Cashier / Staff select value only for Billing Staff (locked UI).
-  // Owner/Manager must manually pick from the dropdown every time.
+  // Auto-set Cashier / Staff select value:
+  // - For Canteen Basic tenants: Auto-lock to the Owner's ID (solo-operator plan without HR/staff).
+  // - For Billing Staff logins: Auto-lock to the logged-in billing staff member's ID.
+  // - For Canteen Pro / Multi-Vendor owners: Clear and require selecting from created staff.
   useEffect(() => {
-    if (user && user.role === 'Billing Staff') {
+    if (currentPlan === 'Canteen Basic') {
+      setPosCashierId(user?.id ? String(user.id) : '');
+    } else if (user && user.role === 'Billing Staff') {
       setPosCashierId(String(user.id));
     } else {
       setPosCashierId('');
     }
-  }, [user]);
+  }, [user, currentPlan]);
   // Wipe cart, discounts, RFID, and checkout state on user/session boundaries
   const resetPosState = () => {
     setCart([]);
@@ -7437,7 +7441,7 @@ function App() {
 
     // Dynamic UPI QR Interception for POS Counter
     if (posPaymentMode === 'UPI' && payableTotal > 0) {
-      if (!posCashierId && user?.role !== 'Billing Staff') {
+      if (!posCashierId && user?.role !== 'Billing Staff' && currentPlan !== 'Canteen Basic') {
         showToast('Please select a cashier / billing staff.', 'error');
         setIsPosCheckoutLoading(false);
         return;
@@ -7542,7 +7546,11 @@ function App() {
         setShowSplitModal(false);
         setPosPaymentMode('Cash'); // Reset payment mode to hide split configure button
         setPosCustomerId(''); // reset
-        if (user.role !== 'Billing Staff') setPosCashierId(''); // reset only for Owner/Manager
+        if (currentPlan === 'Canteen Basic') {
+          setPosCashierId(user?.id ? String(user.id) : '');
+        } else if (user.role !== 'Billing Staff') {
+          setPosCashierId(''); // reset only for Owner/Manager in Pro/Enterprise
+        }
         setPosIsUpsold(false); // reset
         setRfidScanInput('');
         setRfidCustomerInfo(null);
@@ -7615,7 +7623,11 @@ function App() {
         setShowSplitModal(false);
         setPosPaymentMode('Cash');
         setPosCustomerId('');
-        if (user.role !== 'Billing Staff') setPosCashierId('');
+        if (currentPlan === 'Canteen Basic') {
+          setPosCashierId(user?.id ? String(user.id) : '');
+        } else if (user.role !== 'Billing Staff') {
+          setPosCashierId('');
+        }
         setPosIsUpsold(false);
         setRfidScanInput('');
         setRfidCustomerInfo(null);
@@ -10770,32 +10782,46 @@ function App() {
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <div className="hr-form-group" style={{ flex: 1, marginBottom: 0 }}>
                           <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Cashier / Staff *</label>
-                          {user.role === 'Billing Staff' ? (
+                          {currentPlan === 'Canteen Basic' ? (
+                            <div 
+                              style={{ width: '100%', padding: '4px 8px', height: '28px', fontSize: '11px', display: 'flex', alignItems: 'center', background: 'var(--bg-sidebar)', border: '1px solid var(--border-light)', borderRadius: '6px', color: 'var(--text-main)', fontWeight: 600 }}
+                              title="Owner is automatically locked and assigned as cashier in Canteen Basic plan"
+                            >
+                              🔒 {user.name} ({formatRoleLabel(user.role)})
+                            </div>
+                          ) : user.role === 'Billing Staff' ? (
                             <div 
                               style={{ width: '100%', padding: '4px 8px', height: '28px', fontSize: '11px', display: 'flex', alignItems: 'center', background: 'var(--bg-sidebar)', border: '1px solid var(--border-light)', borderRadius: '6px', color: 'var(--text-main)', fontWeight: 600 }}
                             >
                               🔒 {user.name}
                             </div>
                           ) : (
-                            <select 
-                              required
-                              className="input-field input-xs" 
-                              value={posCashierId}
-                              onChange={(e) => setPosCashierId(e.target.value)}
-                              style={{ width: '100%', padding: '4px 8px', height: '28px', fontSize: '11px' }}
-                            >
-                              <option value="">-- Select Cashier --</option>
-                              {staff.filter(s => {
-                                const isCashierRole = s.role === 'Billing Staff' || s.role === 'Manager' || s.role === 'Owner';
-                                if (user.vendor_id) {
-                                  return isCashierRole;
-                                } else {
-                                  return isCashierRole && !s.vendor_id;
-                                }
-                              }).map(s => (
-                                <option key={s.id} value={s.id}>{s.name} ({formatRoleLabel(s.role)})</option>
-                              ))}
-                            </select>
+                            <>
+                              <select 
+                                required
+                                className="input-field input-xs" 
+                                value={posCashierId}
+                                onChange={(e) => setPosCashierId(e.target.value)}
+                                style={{ width: '100%', padding: '4px 8px', height: '28px', fontSize: '11px' }}
+                              >
+                                <option value="">-- Select Cashier --</option>
+                                {staff.filter(s => {
+                                  const isCashierRole = s.role === 'Billing Staff' || s.role === 'Manager' || s.role === 'Owner';
+                                  if (user.vendor_id) {
+                                    return isCashierRole;
+                                  } else {
+                                    return isCashierRole && !s.vendor_id;
+                                  }
+                                }).map(s => (
+                                  <option key={s.id} value={s.id}>{s.name} ({formatRoleLabel(s.role)})</option>
+                                ))}
+                              </select>
+                              {staff.filter(s => s.role === 'Billing Staff' && (!user.vendor_id ? !s.vendor_id : true)).length === 0 && (
+                                <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '3px' }}>
+                                  ⚠️ No billing staff found. Add cashiers under HR &amp; Payroll.
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '14px' }}>
