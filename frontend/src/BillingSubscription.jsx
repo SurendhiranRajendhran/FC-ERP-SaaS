@@ -87,30 +87,6 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
       const data = await res.json();
       if (res.ok) {
         setQuote(data);
-        // Automatically create pending order so QR code is ready immediately
-        createOrder(plan.name, data);
-      } else {
-        setQuoteError(data.error || 'Failed to calculate upgrade quote');
-      }
-    } catch (err) {
-      setQuoteError('Network error while calculating quote');
-    } finally {
-      setLoadingQuote(false);
-    }
-  };
-
-  const createOrder = async (planName, quoteData) => {
-    try {
-      const res = await fetch('/api/subscription/order', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ to_plan: planName })
-      });
-      const data = await res.json();
-      if (res.ok) {
         setOrderData(data);
         if (data.upi_uri) {
           const qrUrl = await QRCode.toDataURL(data.upi_uri, {
@@ -121,16 +97,19 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
           setQrDataUrl(qrUrl);
         }
       } else {
-        setPaymentError(data.error || 'Failed to generate order invoice');
+        setQuoteError(data.error || 'Failed to calculate upgrade quote');
       }
     } catch (err) {
-      setPaymentError('Failed to initialize payment gateway');
+      setQuoteError('Network error while calculating quote');
+    } finally {
+      setLoadingQuote(false);
     }
   };
 
-  const handleSubmitPayment = async (instantActivate = false) => {
+  const handleSubmitPayment = async () => {
     const cleanRef = (paymentReference || '').trim();
-    if (!cleanRef && !instantActivate && Number(orderData?.final_amount) > 0) {
+    const amountDue = Number(quote?.final_amount ?? orderData?.final_amount ?? 0);
+    if (!cleanRef && amountDue > 0) {
       setPaymentError('Please enter your 12-digit UTR / Bank Transaction Reference Number');
       return;
     }
@@ -146,9 +125,9 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          invoice_id: orderData?.invoice_id,
-          payment_reference: cleanRef || (instantActivate ? 'DEMO-INSTANT-' + Date.now() : 'UNCONFIRMED'),
-          auto_activate: instantActivate
+          to_plan: targetPlan?.name,
+          invoice_number: quote?.invoice_number || orderData?.invoice_number,
+          payment_reference: cleanRef
         })
       });
 
@@ -821,7 +800,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                 {/* Action Buttons */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <button
-                    onClick={() => handleSubmitPayment(false)}
+                    onClick={handleSubmitPayment}
                     disabled={submittingPayment}
                     style={{
                       width: '100%',
@@ -837,24 +816,6 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                     }}
                   >
                     {submittingPayment ? 'Submitting Reference...' : 'Submit Payment for Admin Verification'}
-                  </button>
-
-                  <button
-                    onClick={() => handleSubmitPayment(true)}
-                    disabled={submittingPayment}
-                    style={{
-                      width: '100%',
-                      padding: '10px 16px',
-                      background: 'rgba(59, 130, 246, 0.15)',
-                      color: '#60a5fa',
-                      border: '1px solid rgba(59, 130, 246, 0.4)',
-                      borderRadius: '10px',
-                      fontWeight: 600,
-                      fontSize: '0.85rem',
-                      cursor: submittingPayment ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    ⚡ Instant 1-Click Activation (Demo / Test)
                   </button>
                 </div>
               </div>

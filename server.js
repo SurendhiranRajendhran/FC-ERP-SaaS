@@ -10970,7 +10970,7 @@ app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), as
     }
 
     // Handle subscription expiry: explicit duration_days takes priority
-    if (duration_days !== undefined && duration_days !== null && duration_days !== '') {
+    if (duration_days !== undefined && duration_days !== null && duration_days !== '' && !isNaN(parseInt(duration_days, 10))) {
       const days = parseInt(duration_days, 10);
       if (days === 0) {
         // 0 means unlimited / no expiration
@@ -10978,18 +10978,6 @@ app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), as
       } else if (days > 0) {
         tenantUpdateSql += ', subscription_expires_at = DATE_ADD(NOW(), INTERVAL ? DAY)';
         tenantParams.push(days);
-      }
-    } else if (subscription_status === 'active') {
-      // Auto-extend: if status is being changed to 'active' and no explicit duration was provided,
-      // check if the current expiry is in the past or the previous status was trial/expired — auto-extend by 365 days
-      const [currentTenant] = await conn.query('SELECT subscription_status, subscription_expires_at FROM tenants WHERE id = ?', [id]);
-      if (currentTenant.length > 0) {
-        const prevStatus = currentTenant[0].subscription_status;
-        const prevExpiry = currentTenant[0].subscription_expires_at;
-        const isExpiredDate = prevExpiry && new Date(prevExpiry) < new Date();
-        if (prevStatus === 'trial' || prevStatus === 'expired' || isExpiredDate) {
-          tenantUpdateSql += ', subscription_expires_at = DATE_ADD(NOW(), INTERVAL 365 DAY)';
-        }
       }
     }
 
@@ -11512,7 +11500,11 @@ app.get('/api/subscription/quote', authenticateToken, async (req, res) => {
 
     const tenantId = req.user.tenant_id;
     if (!tenantId || req.user.role === 'Super Admin') {
-      return res.json(calculateSubscriptionQuote('Food Court', 'active', null, to_plan));
+      const q = calculateSubscriptionQuote('Food Court', 'active', null, to_plan);
+      return res.json({
+        ...q,
+        merchant_upi: OFFICIAL_MERCHANT_UPI
+      });
     }
 
     const [rows] = await pool.query(
@@ -11530,14 +11522,27 @@ app.get('/api/subscription/quote', authenticateToken, async (req, res) => {
     const expiresAt = t.subscription_expires_at;
 
     const quote = calculateSubscriptionQuote(currentPlan, subStatus, expiresAt, to_plan);
-    res.json(quote);
+
+    // Generate in-memory preview invoice number and dynamic UPI QR URI without inserting into DB
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randSuffix = Math.floor(1000 + Math.random() * 9000);
+    const invoiceNumber = `INV-${dateStr}-T${tenantId}-${randSuffix}`;
+    const upiUri = `upi://pay?pa=${encodeURIComponent(OFFICIAL_MERCHANT_UPI.upi_id)}&pn=${encodeURIComponent(OFFICIAL_MERCHANT_UPI.merchant_name)}&am=${quote.final_amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(invoiceNumber)}`;
+
+    res.json({
+      ...quote,
+      invoice_number: invoiceNumber,
+      merchant_upi: OFFICIAL_MERCHANT_UPI,
+      upi_uri: upiUri,
+      final_amount: quote.final_amount
+    });
   } catch (err) {
     console.error('Error calculating subscription quote:', err);
     res.status(500).json({ error: err.message || 'Failed to calculate quote' });
   }
 });
 
-// 3. POST Generate Order & Dynamic UPI QR
+// 3. POST Generate Order & Dynamic UPI QR (In-memory quote generator, no premature DB insert)
 app.post('/api/subscription/order', authenticateToken, async (req, res) => {
   try {
     const { to_plan } = req.body;
@@ -11562,37 +11567,13 @@ app.post('/api/subscription/order', authenticateToken, async (req, res) => {
     const t = rows[0];
     const quote = calculateSubscriptionQuote(t.plan_name || 'Food Court', t.subscription_status || 'active', t.subscription_expires_at, to_plan);
 
-    // Generate unique invoice number: INV-YYYYMMDD-T<tenant_id>-<randHex>
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const randSuffix = Math.floor(1000 + Math.random() * 9000);
     const invoiceNumber = `INV-${dateStr}-T${tenantId}-${randSuffix}`;
-
-    const [insResult] = await pool.query(`
-      INSERT INTO subscription_invoices
-      (invoice_number, tenant_id, type, from_plan, to_plan, duration_days, base_amount, prorated_credit, final_amount, payment_method, status, requested_by_user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPI_QR', 'pending', ?)
-    `, [
-      invoiceNumber,
-      tenantId,
-      quote.type,
-      quote.from_plan,
-      quote.to_plan,
-      quote.duration_days,
-      quote.base_amount,
-      quote.prorated_credit,
-      quote.final_amount,
-      req.user.id || null
-    ]);
-
-    const invoiceId = insResult.insertId;
-
-    // Construct Dynamic UPI Payment URI
-    // Format: upi://pay?pa=info@radinfotec.com&pn=Radinfotec%20ERP&am=20000.00&cu=INR&tn=INV-...
     const upiUri = `upi://pay?pa=${encodeURIComponent(OFFICIAL_MERCHANT_UPI.upi_id)}&pn=${encodeURIComponent(OFFICIAL_MERCHANT_UPI.merchant_name)}&am=${quote.final_amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(invoiceNumber)}`;
 
     res.json({
       success: true,
-      invoice_id: invoiceId,
       invoice_number: invoiceNumber,
       quote,
       merchant_upi: OFFICIAL_MERCHANT_UPI,
@@ -11600,20 +11581,20 @@ app.post('/api/subscription/order', authenticateToken, async (req, res) => {
       final_amount: quote.final_amount
     });
   } catch (err) {
-    console.error('Error creating subscription order:', err);
-    res.status(500).json({ error: err.message || 'Failed to generate order' });
+    console.error('Error creating subscription order quote:', err);
+    res.status(500).json({ error: err.message || 'Failed to generate order quote' });
   }
 });
 
-// 4. POST Submit Payment (UTR / Transaction ID Submission)
+// 4. POST Submit Payment (Creates invoice and records UTR ONLY when user submits payment)
 app.post('/api/subscription/submit-payment', authenticateToken, async (req, res) => {
   const conn = await pool.getConnection();
   try {
-    const { invoice_id, payment_reference, auto_activate } = req.body;
+    const { to_plan, invoice_number, invoice_id, payment_reference } = req.body;
     const tenantId = req.user.tenant_id;
 
-    if (!invoice_id) {
-      return res.status(400).json({ error: 'Invoice ID is required' });
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant context is required' });
     }
 
     const cleanRef = String(payment_reference || '').trim();
@@ -11621,45 +11602,80 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
       return res.status(400).json({ error: 'Please enter a valid Bank UTR / Transaction Reference Number (minimum 4 characters).' });
     }
 
-    const [invRows] = await conn.query(
-      'SELECT * FROM subscription_invoices WHERE id = ? AND tenant_id = ?',
-      [invoice_id, tenantId]
+    const [rows] = await conn.query(
+      'SELECT id, name, plan_name, subscription_status, subscription_expires_at FROM tenants WHERE id = ?',
+      [tenantId]
     );
 
-    if (invRows.length === 0) {
-      return res.status(404).json({ error: 'Invoice not found or unauthorized' });
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Tenant record not found' });
     }
 
-    const inv = invRows[0];
-    if (inv.status === 'approved') {
-      return res.status(400).json({ error: 'This invoice has already been approved and activated.' });
+    const t = rows[0];
+    const targetPlan = to_plan || 'Canteen Pro';
+    if (!PLAN_ENTITLEMENTS[targetPlan]) {
+      return res.status(400).json({ error: `Invalid target plan: ${targetPlan}` });
     }
+
+    const quote = calculateSubscriptionQuote(t.plan_name || 'Food Court', t.subscription_status || 'active', t.subscription_expires_at, targetPlan);
+
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randSuffix = Math.floor(1000 + Math.random() * 9000);
+    const finalInvoiceNumber = (invoice_number && invoice_number.startsWith('INV-')) ? invoice_number : `INV-${dateStr}-T${tenantId}-${randSuffix}`;
 
     await conn.beginTransaction();
 
-    // Check if auto_activate requested (e.g. for seamless testing or 0 balance)
-    const shouldInstantActivate = Number(inv.final_amount) === 0 || auto_activate === true;
+    let finalInvoiceId = invoice_id;
 
-    if (shouldInstantActivate) {
-      // 1-Click Activate: Update tenant plan & start 365-day subscription cycle
+    if (invoice_id) {
+      // Existing invoice flow: Update reference and status
+      await conn.query(`
+        UPDATE subscription_invoices
+        SET payment_reference = ?,
+            status = 'pending',
+            updated_at = NOW()
+        WHERE id = ? AND tenant_id = ?
+      `, [cleanRef, invoice_id, tenantId]);
+    } else {
+      // Deferred creation flow: Insert invoice ONLY NOW upon payment submission
+      const [insResult] = await conn.query(`
+        INSERT INTO subscription_invoices
+        (invoice_number, tenant_id, type, from_plan, to_plan, duration_days, base_amount, prorated_credit, final_amount, payment_method, payment_reference, status, requested_by_user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPI_QR', ?, 'pending', ?)
+      `, [
+        finalInvoiceNumber,
+        tenantId,
+        quote.type,
+        quote.from_plan,
+        quote.to_plan,
+        quote.duration_days,
+        quote.base_amount,
+        quote.prorated_credit,
+        quote.final_amount,
+        cleanRef,
+        req.user.id || null
+      ]);
+      finalInvoiceId = insResult.insertId;
+    }
+
+    // Auto-activate ONLY if 100% prorated credit covered the entire target price (final_amount === 0)
+    if (Number(quote.final_amount) === 0) {
       await conn.query(`
         UPDATE tenants
         SET plan_name = ?,
             subscription_status = 'active',
             subscription_expires_at = DATE_ADD(NOW(), INTERVAL ? DAY)
         WHERE id = ?
-      `, [inv.to_plan, inv.duration_days || 365, tenantId]);
+      `, [quote.to_plan, quote.duration_days || 365, tenantId]);
 
-      // Approve invoice
       await conn.query(`
         UPDATE subscription_invoices
-        SET payment_reference = ?,
-            status = 'approved',
+        SET status = 'approved',
             reviewed_by_user_id = ?,
             reviewed_at = NOW(),
-            admin_notes = 'Instant Auto-Activation upon UTR submission'
+            admin_notes = 'Auto-activated (100% Prorated Credit Applied)'
         WHERE id = ?
-      `, [cleanRef, req.user.id, invoice_id]);
+      `, [req.user.id, finalInvoiceId]);
 
       await conn.commit();
       tenantPlanCache.delete(tenantId);
@@ -11667,25 +11683,20 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
       return res.json({
         success: true,
         activated: true,
-        new_plan: inv.to_plan,
-        message: `Payment verified successfully! Your account has been upgraded to ${inv.to_plan} for 365 days.`
+        invoice_id: finalInvoiceId,
+        invoice_number: finalInvoiceNumber,
+        new_plan: quote.to_plan,
+        message: `Plan upgraded successfully to ${quote.to_plan} for 365 days.`
       });
     }
-
-    // Standard Flow: Record UTR reference and set status to pending verification
-    await conn.query(`
-      UPDATE subscription_invoices
-      SET payment_reference = ?,
-          status = 'pending',
-          updated_at = NOW()
-      WHERE id = ?
-    `, [cleanRef, invoice_id]);
 
     await conn.commit();
 
     res.json({
       success: true,
       activated: false,
+      invoice_id: finalInvoiceId,
+      invoice_number: finalInvoiceNumber,
       message: 'UTR / Payment reference submitted successfully. Your payment is queued for Central Admin verification.'
     });
   } catch (err) {

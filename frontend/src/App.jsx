@@ -948,7 +948,7 @@ function SuperAdminDashboard({ user, onLogout }) {
       is_active: t.is_active === 1 || t.is_active === true,
       plan_name: t.plan_name || t.plan || 'Food Court',
       subscription_status: t.subscription_status || 'active',
-      duration_days: '7',
+      duration_days: null,
       current_expires_at: t.subscription_expires_at || null
     });
     setShowEditModal(true);
@@ -2382,17 +2382,10 @@ function SuperAdminDashboard({ user, onLogout }) {
                   <select 
                     style={saStyles.formInput} 
                     value={editFormParams.subscription_status || 'active'}
-                    onChange={e => {
-                      const newStatus = e.target.value;
-                      setEditFormParams({
-                        ...editFormParams, 
-                        subscription_status: newStatus,
-                        duration_days: editFormParams.duration_days || (newStatus === 'trial' ? '7' : '30')
-                      });
-                    }}
+                    onChange={e => setEditFormParams({ ...editFormParams, subscription_status: e.target.value })}
                   >
-                    <option value="active">Active</option>
                     <option value="trial">7-Day Free Trial</option>
+                    <option value="active">Active (Paid)</option>
                     <option value="expired">Expired</option>
                     <option value="suspended">Suspended</option>
                   </select>
@@ -2400,13 +2393,13 @@ function SuperAdminDashboard({ user, onLogout }) {
 
                 {/* Subscription Expiry & Duration Configuration */}
                 <div style={{
-                  padding: '12px 14px',
+                  padding: '14px 16px',
                   background: 'rgba(255, 255, 255, 0.03)',
                   border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '8px',
+                  borderRadius: '10px',
                   marginBottom: '16px'
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Current Expiry:</span>
                     <span style={{ fontSize: '0.82rem', fontWeight: 600, color: (() => {
                       if (!editFormParams.current_expires_at) return '#10b981';
@@ -2415,23 +2408,113 @@ function SuperAdminDashboard({ user, onLogout }) {
                       {editFormParams.current_expires_at ? (
                         <>
                           {formatISTDate(editFormParams.current_expires_at, { year: 'numeric', month: 'short', day: 'numeric' })}
-                          {new Date(editFormParams.current_expires_at) < new Date() ? ' (Expired ⚠️)' : ''}
+                          {new Date(editFormParams.current_expires_at) < new Date() ? ' (Expired ⚠️)' : (() => {
+                            const days = Math.ceil((new Date(editFormParams.current_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                            return ` (${days > 0 ? `${days} days left` : 'Expiring today'})`;
+                          })()}
                         </>
                       ) : '♾️ Unlimited / No Expiry'}
                     </span>
                   </div>
 
-                  <div style={{ ...saStyles.formGroup, marginBottom: 0 }}>
-                    <label style={{ ...saStyles.formLabel, fontSize: '0.78rem' }}>Extend / Set Validity</label>
-                    <select
-                      style={{ ...saStyles.formInput, fontSize: '0.85rem' }}
-                      value={editFormParams.duration_days}
-                      onChange={e => setEditFormParams({ ...editFormParams, duration_days: e.target.value })}
-                    >
-                      <option value="7">+ 7 Days</option>
-                      <option value="30">+ 30 Days</option>
-                    </select>
+                  <div style={{ marginBottom: '8px' }}>
+                    <label style={{ ...saStyles.formLabel, fontSize: '0.78rem', marginBottom: '8px', display: 'block' }}>
+                      Extend Validity (Optional):
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => setEditFormParams({ ...editFormParams, duration_days: 7 })}
+                        style={{
+                          padding: '6px 12px',
+                          background: editFormParams.duration_days === 7 ? '#8b5cf6' : 'rgba(255, 255, 255, 0.07)',
+                          color: '#fff',
+                          border: editFormParams.duration_days === 7 ? '1px solid #a78bfa' : '1px solid rgba(255, 255, 255, 0.12)',
+                          borderRadius: '6px',
+                          fontSize: '0.8rem',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        + 7 Days
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditFormParams({ ...editFormParams, duration_days: 30 })}
+                        style={{
+                          padding: '6px 12px',
+                          background: editFormParams.duration_days === 30 ? '#8b5cf6' : 'rgba(255, 255, 255, 0.07)',
+                          color: '#fff',
+                          border: editFormParams.duration_days === 30 ? '1px solid #a78bfa' : '1px solid rgba(255, 255, 255, 0.12)',
+                          borderRadius: '6px',
+                          fontSize: '0.8rem',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        + 30 Days
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditFormParams({ ...editFormParams, duration_days: 365 })}
+                        style={{
+                          padding: '6px 12px',
+                          background: editFormParams.duration_days === 365 ? '#8b5cf6' : 'rgba(255, 255, 255, 0.07)',
+                          color: '#fff',
+                          border: editFormParams.duration_days === 365 ? '1px solid #a78bfa' : '1px solid rgba(255, 255, 255, 0.12)',
+                          borderRadius: '6px',
+                          fontSize: '0.8rem',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        + 365 Days (1 Yr)
+                      </button>
+                      {editFormParams.duration_days && (
+                        <button
+                          type="button"
+                          onClick={() => setEditFormParams({ ...editFormParams, duration_days: null })}
+                          style={{
+                            padding: '6px 10px',
+                            background: 'rgba(239, 68, 68, 0.15)',
+                            color: '#f87171',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            borderRadius: '6px',
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          ✕ Clear / Keep Current
+                        </button>
+                      )}
+                    </div>
                   </div>
+
+                  {editFormParams.duration_days ? (
+                    <div style={{
+                      marginTop: '10px',
+                      padding: '8px 12px',
+                      background: 'rgba(16, 185, 129, 0.12)',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                      borderRadius: '6px',
+                      fontSize: '0.8rem',
+                      color: '#34d399',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <span>⚡</span>
+                      <span>
+                        Extending validity by <strong>+{editFormParams.duration_days} Days</strong> from today.
+                        New expiry: <strong>{formatISTDate(new Date(Date.now() + editFormParams.duration_days * 86400000))}</strong>
+                      </span>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#64748b' }}>
+                      Current expiry date will remain unchanged on save unless an extension button is clicked.
+                    </div>
+                  )}
                 </div>
                 <div style={saStyles.formGroup}>
                   <label style={{display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', ...saStyles.formLabel}}>
