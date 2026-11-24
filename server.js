@@ -11918,7 +11918,7 @@ if (shouldRunCronAndMigrations) {
 
       // Find staff who have a shift that ended BEFORE now, and who don't have attendance today
       const [absentCandidates] = await pool.query(`
-        SELECT s.id as staff_id, s.vendor_id, sh.end_time, sh.id as shift_id, t.id as tenant_id
+        SELECT s.id as staff_id, s.vendor_id, sh.end_time, sh.id as shift_id, s.tenant_id
         FROM shift_roster sr
         JOIN shifts sh ON sr.shift_id = sh.id
         JOIN staff s ON sr.staff_id = s.id
@@ -11945,9 +11945,9 @@ if (shouldRunCronAndMigrations) {
         if (holidayRows.length === 0) {
           // Mark absent
           await pool.query(
-            `INSERT IGNORE INTO attendance (staff_id, attendance_date, check_in, check_out, shift_id, status, notes)
-             VALUES (?, ?, ?, NULL, ?, 'Absent', 'Auto-marked: No check-in recorded by end of shift')`,
-            [c.staff_id, dateStr, formatLocalTimestamp(new Date()), c.shift_id]
+            `INSERT IGNORE INTO attendance (staff_id, attendance_date, check_in, check_out, shift_id, status, notes, tenant_id)
+             VALUES (?, ?, ?, NULL, ?, 'Absent', 'Auto-marked: No check-in recorded by end of shift', ?)`,
+            [c.staff_id, dateStr, formatLocalTimestamp(new Date()), c.shift_id, c.tenant_id]
           );
         }
       }
