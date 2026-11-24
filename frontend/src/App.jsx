@@ -3907,7 +3907,7 @@ function App() {
   // PLAN ENTITLEMENTS — Frontend Module Visibility (Option 2: Strict Hiding)
   // ==========================================
   const PLAN_ALLOWED_TABS = {
-    'Canteen Basic': ['dashboard', 'pos', 'menu', 'materials', 'orders', 'reports', 'billing', 'employee-portal'],
+    'Canteen Basic': ['dashboard', 'pos', 'menu', 'materials', 'orders', 'billing', 'employee-portal'],
     'Canteen Pro': ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'employee-portal', 'hr', 'crm', 'wallet', 'reports', 'promotions', 'billing'],
     'Food Court': ['dashboard', 'pos', 'menu', 'materials', 'recipes', 'logs', 'kds', 'qr', 'orders', 'employee-portal', 'stall-insights', 'vendors', 'promotions', 'hr', 'crm', 'wallet', 'reports', 'billing'],
     'Enterprise': ['*']
@@ -3991,6 +3991,24 @@ function App() {
       setPosCashierId('');
     }
   }, [user, currentPlan]);
+
+  // Reset non-applicable discount options, customer selections, and payment modes in Canteen Basic
+  useEffect(() => {
+    if (currentPlan === 'Canteen Basic') {
+      if (['Loyalty', 'Coupon', 'StaffMeal'].includes(discountType)) {
+        setDiscountType('None');
+        setDiscountAmount(0);
+        setDiscountValue(0);
+        setDiscountReference('');
+      }
+      if (posPaymentMode === 'Credit' || posPaymentMode === 'RFID Wallet') {
+        setPosPaymentMode('Cash');
+      }
+      if (posCustomerId) {
+        setPosCustomerId('');
+      }
+    }
+  }, [currentPlan, discountType, posPaymentMode, posCustomerId]);
   // Wipe cart, discounts, RFID, and checkout state on user/session boundaries
   const resetPosState = () => {
     setCart([]);
@@ -10591,34 +10609,36 @@ function App() {
                     {cart.length > 0 && (
                       <div className="pos-discount-panel" style={{ marginTop: '12px', padding: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
                         <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-                          {/* Loyalty Redemption - First position */}
-                          <button 
-                            type="button"
-                            className={`btn btn-xs ${discountType === 'Loyalty' ? 'btn-primary' : 'btn-secondary-outline'}`}
-                            onClick={() => { setDiscountType(discountType === 'Loyalty' ? 'None' : 'Loyalty'); setDiscountAmount(0); setLoyaltyRedeemPoints(''); setLoyaltyCustomerInfo(null); }}
-                            style={{ whiteSpace: 'nowrap', background: discountType === 'Loyalty' ? 'linear-gradient(135deg,#f59e0b,#d97706)' : undefined, borderColor: discountType !== 'Loyalty' ? '#f59e0b55' : undefined, color: discountType !== 'Loyalty' ? '#f59e0b' : undefined }}
-                            title="Redeem customer loyalty points as a discount"
-                          >
-                            ⭐ Loyalty
-                          </button>
-                          <button 
-                            type="button"
-                            className={`btn btn-xs ${discountType === 'Coupon' ? 'btn-primary' : 'btn-secondary-outline'}`}
-                            onClick={() => { setDiscountType(discountType === 'Coupon' ? 'None' : 'Coupon'); setDiscountAmount(0); }}
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
-                            Promo Code
-                          </button>
-
-
-                          <button 
-                            type="button"
-                            className={`btn btn-xs ${discountType === 'StaffMeal' ? 'btn-primary' : 'btn-secondary-outline'}`}
-                            onClick={() => { setDiscountType(discountType === 'StaffMeal' ? 'None' : 'StaffMeal'); setDiscountAmount(0); }}
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
-                            Staff Meal
-                          </button>
+                          {currentPlan !== 'Canteen Basic' && (
+                            <>
+                              {/* Loyalty Redemption - First position */}
+                              <button 
+                                type="button"
+                                className={`btn btn-xs ${discountType === 'Loyalty' ? 'btn-primary' : 'btn-secondary-outline'}`}
+                                onClick={() => { setDiscountType(discountType === 'Loyalty' ? 'None' : 'Loyalty'); setDiscountAmount(0); setLoyaltyRedeemPoints(''); setLoyaltyCustomerInfo(null); }}
+                                style={{ whiteSpace: 'nowrap', background: discountType === 'Loyalty' ? 'linear-gradient(135deg,#f59e0b,#d97706)' : undefined, borderColor: discountType !== 'Loyalty' ? '#f59e0b55' : undefined, color: discountType !== 'Loyalty' ? '#f59e0b' : undefined }}
+                                title="Redeem customer loyalty points as a discount"
+                              >
+                                ⭐ Loyalty
+                              </button>
+                              <button 
+                                type="button"
+                                className={`btn btn-xs ${discountType === 'Coupon' ? 'btn-primary' : 'btn-secondary-outline'}`}
+                                onClick={() => { setDiscountType(discountType === 'Coupon' ? 'None' : 'Coupon'); setDiscountAmount(0); }}
+                                style={{ whiteSpace: 'nowrap' }}
+                              >
+                                Promo Code
+                              </button>
+                              <button 
+                                type="button"
+                                className={`btn btn-xs ${discountType === 'StaffMeal' ? 'btn-primary' : 'btn-secondary-outline'}`}
+                                onClick={() => { setDiscountType(discountType === 'StaffMeal' ? 'None' : 'StaffMeal'); setDiscountAmount(0); }}
+                                style={{ whiteSpace: 'nowrap' }}
+                              >
+                                Staff Meal
+                              </button>
+                            </>
+                          )}
                           <button 
                             type="button"
                             className={`btn btn-xs ${discountType === 'Percentage' ? 'btn-primary' : 'btn-secondary-outline'}`}
@@ -10730,55 +10750,57 @@ function App() {
 
                     {/* POS Metadata & Cashier Section */}
                     <div className="pos-metadata-section" style={{ marginTop: '12px', padding: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                      <div className="hr-form-group" style={{ marginBottom: '8px' }}>
-                        {posPaymentMode === 'Credit' ? (
-                          <>
-                            <label style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 600 }}>💳 Credit Customer *</label>
-                            <div style={{ position: 'relative', height: '28px' }}>
-                              <select 
-                                required
-                                className="input-field input-xs" 
-                                value={posCustomerId}
-                                onChange={(e) => { setPosCustomerId(e.target.value); e.target.blur(); }}
-                                onFocus={(e) => e.target.size = 5}
-                                onBlur={(e) => e.target.size = 1}
-                                style={{ width: '100%', padding: '4px 8px', fontSize: '11px', position: 'absolute', top: 0, left: 0, zIndex: 50, background: '#111827', border: '1px solid #f59e0b', borderRadius: '4px' }}
-                              >
-                                <option value="">-- Select Credit Customer (Required) --</option>
-                                {creditCustomers.map(c => (
-                                  <option key={c.id} value={c.id}>
-                                    {c.name} ({c.phone}{c.organization ? ` | ${c.organization}` : ''} | Due: ₹{parseFloat(c.outstanding || 0).toFixed(2)}{parseFloat(c.credit_limit || 0) > 0 ? ` | Limit: ₹${parseFloat(c.credit_limit).toFixed(2)}` : ''})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            {creditCustomers.length === 0 && (
-                              <div style={{ fontSize: '10px', color: '#ef4444', marginTop: '4px' }}>
-                                No credit customers registered yet. Add one in MIS Reports → Credits.
+                      {currentPlan !== 'Canteen Basic' && (
+                        <div className="hr-form-group" style={{ marginBottom: '8px' }}>
+                          {posPaymentMode === 'Credit' ? (
+                            <>
+                              <label style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 600 }}>💳 Credit Customer *</label>
+                              <div style={{ position: 'relative', height: '28px' }}>
+                                <select 
+                                  required
+                                  className="input-field input-xs" 
+                                  value={posCustomerId}
+                                  onChange={(e) => { setPosCustomerId(e.target.value); e.target.blur(); }}
+                                  onFocus={(e) => e.target.size = 5}
+                                  onBlur={(e) => e.target.size = 1}
+                                  style={{ width: '100%', padding: '4px 8px', fontSize: '11px', position: 'absolute', top: 0, left: 0, zIndex: 50, background: '#111827', border: '1px solid #f59e0b', borderRadius: '4px' }}
+                                >
+                                  <option value="">-- Select Credit Customer (Required) --</option>
+                                  {creditCustomers.map(c => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.name} ({c.phone}{c.organization ? ` | ${c.organization}` : ''} | Due: ₹{parseFloat(c.outstanding || 0).toFixed(2)}{parseFloat(c.credit_limit || 0) > 0 ? ` | Limit: ₹${parseFloat(c.credit_limit).toFixed(2)}` : ''})
+                                    </option>
+                                  ))}
+                                </select>
                               </div>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>⭐ Loyalty Customer</label>
-                            <div style={{ position: 'relative', height: '28px' }}>
-                              <select 
-                                className="input-field input-xs" 
-                                value={posCustomerId}
-                                onChange={(e) => { setPosCustomerId(e.target.value); e.target.blur(); }}
-                                onFocus={(e) => e.target.size = 5}
-                                onBlur={(e) => e.target.size = 1}
-                                style={{ width: '100%', padding: '4px 8px', fontSize: '11px', position: 'absolute', top: 0, left: 0, zIndex: 50, background: '#111827', border: '1px solid var(--border-color)', borderRadius: '4px' }}
-                              >
-                                <option value="">-- Guest Order (No Loyalty) --</option>
-                                {customers.map(c => (
-                                  <option key={c.id} value={c.id}>{c.name} ({c.phone} - {c.loyalty_points} pts)</option>
-                                ))}
-                              </select>
-                            </div>
-                          </>
-                        )}
-                      </div>
+                              {creditCustomers.length === 0 && (
+                                <div style={{ fontSize: '10px', color: '#ef4444', marginTop: '4px' }}>
+                                  No credit customers registered yet. Add one in MIS Reports → Credits.
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>⭐ Loyalty Customer</label>
+                              <div style={{ position: 'relative', height: '28px' }}>
+                                <select 
+                                  className="input-field input-xs" 
+                                  value={posCustomerId}
+                                  onChange={(e) => { setPosCustomerId(e.target.value); e.target.blur(); }}
+                                  onFocus={(e) => e.target.size = 5}
+                                  onBlur={(e) => e.target.size = 1}
+                                  style={{ width: '100%', padding: '4px 8px', fontSize: '11px', position: 'absolute', top: 0, left: 0, zIndex: 50, background: '#111827', border: '1px solid var(--border-color)', borderRadius: '4px' }}
+                                >
+                                  <option value="">-- Guest Order (No Loyalty) --</option>
+                                  {customers.map(c => (
+                                    <option key={c.id} value={c.id}>{c.name} ({c.phone} - {c.loyalty_points} pts)</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <div className="hr-form-group" style={{ flex: 1, marginBottom: 0 }}>
                           <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Cashier / Staff *</label>
@@ -10841,7 +10863,11 @@ function App() {
                       <label>Select Payment Mode</label>
                       <div className="payment-grid">
                         {['Cash', 'UPI', 'Card', 'Credit', 'RFID Wallet', 'Split']
-                          .filter(mode => mode !== 'RFID Wallet' || isFeaturePermitted('rfid_wallet'))
+                          .filter(mode => {
+                            if (mode === 'RFID Wallet') return isFeaturePermitted('rfid_wallet');
+                            if (mode === 'Credit') return currentPlan !== 'Canteen Basic';
+                            return true;
+                          })
                           .map((mode, idx) => (
                           <button
                             key={idx}
@@ -14456,7 +14482,7 @@ function App() {
           {/* ==========================================
                2.12 MIS REPORTS VIEW
                ========================================== */}
-          {activeTab === 'reports' && (
+          {activeTab === 'reports' && isTabPermitted('reports') && (
             <div className="view-panel active">
               <div className="view-header-bar no-print">
                 <h2>MIS, Reports & Analytics</h2>
