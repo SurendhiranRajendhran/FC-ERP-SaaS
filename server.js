@@ -11470,6 +11470,16 @@ app.get('/api/subscription/current', authenticateToken, async (req, res) => {
       daysRemaining = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     }
 
+    // Check for any active pending subscription invoice awaiting Super Admin review
+    const [pendingInvoices] = await pool.query(
+      `SELECT id, invoice_number, type, from_plan, to_plan, base_amount, prorated_credit, final_amount, payment_reference, created_at
+       FROM subscription_invoices
+       WHERE tenant_id = ? AND status = 'pending'
+       ORDER BY id DESC LIMIT 1`,
+      [tenantId]
+    );
+    const pendingInvoice = pendingInvoices.length > 0 ? pendingInvoices[0] : null;
+
     res.json({
       tenant_id: t.id,
       tenant_name: t.name,
@@ -11482,7 +11492,9 @@ app.get('/api/subscription/current', authenticateToken, async (req, res) => {
       is_trial: subStatus === 'trial',
       entitlements: PLAN_ENTITLEMENTS[currentPlan] || PLAN_ENTITLEMENTS['Food Court'],
       merchant_upi: OFFICIAL_MERCHANT_UPI,
-      plans: PLAN_CATALOG
+      plans: PLAN_CATALOG,
+      pending_invoice: pendingInvoice,
+      has_pending: Boolean(pendingInvoice)
     });
   } catch (err) {
     console.error('Error fetching subscription status:', err);
@@ -11555,6 +11567,22 @@ app.post('/api/subscription/order', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Tenant context is required' });
     }
 
+    // Guard: Prevent order generation while an existing request is pending Super Admin review
+    const [existingPending] = await pool.query(
+      `SELECT id, invoice_number, to_plan
+       FROM subscription_invoices
+       WHERE tenant_id = ? AND status = 'pending'
+       ORDER BY id DESC LIMIT 1`,
+      [tenantId]
+    );
+
+    if (existingPending.length > 0) {
+      const p = existingPending[0];
+      return res.status(400).json({
+        error: `You already have a payment request (${p.invoice_number} for ${p.to_plan}) pending Super Admin verification. You cannot submit another request until the existing one is approved or rejected.`
+      });
+    }
+
     const [rows] = await pool.query(
       'SELECT id, name, plan_name, subscription_status, subscription_expires_at FROM tenants WHERE id = ?',
       [tenantId]
@@ -11615,6 +11643,21 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
     const targetPlan = to_plan || 'Canteen Pro';
     if (!PLAN_ENTITLEMENTS[targetPlan]) {
       return res.status(400).json({ error: `Invalid target plan: ${targetPlan}` });
+    }
+
+    // Guard: Prevent duplicate submissions while an existing request is pending Super Admin review
+    const [existingPending] = await conn.query(
+      `SELECT id, invoice_number, to_plan, payment_reference, created_at
+       FROM subscription_invoices
+       WHERE tenant_id = ? AND status = 'pending'`,
+      [tenantId]
+    );
+
+    if (existingPending.length > 0) {
+      const p = existingPending[0];
+      return res.status(400).json({
+        error: `You already have a payment request (${p.invoice_number} for ${p.to_plan}) pending Super Admin verification. You cannot submit another request until the existing one is approved or rejected.`
+      });
     }
 
     const quote = calculateSubscriptionQuote(t.plan_name || 'Food Court', t.subscription_status || 'active', t.subscription_expires_at, targetPlan);

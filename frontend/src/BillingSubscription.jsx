@@ -69,6 +69,11 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
   };
 
   const handleOpenUpgrade = async (plan) => {
+    if (hasPendingRequest) {
+      alert(`You already have a payment verification request (${pendingInvoice?.invoice_number} for ${pendingInvoice?.to_plan}) pending Super Admin review. You cannot submit another request until the existing one is approved or rejected.`);
+      return;
+    }
+
     setTargetPlan(plan);
     setShowCheckoutModal(true);
     setQuote(null);
@@ -107,6 +112,11 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
   };
 
   const handleSubmitPayment = async () => {
+    if (hasPendingRequest) {
+      setPaymentError(`A payment verification request (${pendingInvoice?.invoice_number}) is already pending Super Admin review.`);
+      return;
+    }
+
     const cleanRef = (paymentReference || '').trim();
     const amountDue = Number(quote?.final_amount ?? orderData?.final_amount ?? 0);
     if (!cleanRef && amountDue > 0) {
@@ -229,6 +239,8 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
   const subStatus = subscriptionInfo?.subscription_status || 'active';
   const daysRemaining = subscriptionInfo?.days_remaining !== undefined ? subscriptionInfo.days_remaining : 365;
   const expiresAt = subscriptionInfo?.subscription_expires_at;
+  const pendingInvoice = subscriptionInfo?.pending_invoice || invoices.find(inv => inv.status === 'pending') || null;
+  const hasPendingRequest = Boolean(pendingInvoice);
 
   return (
     <div className="view-panel active" style={{ padding: '24px 28px', maxWidth: '1400px', margin: '0 auto' }}>
@@ -321,7 +333,34 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start', justifyContent: 'center' }}>
-            {subStatus === 'trial' || subStatus === 'expired' || daysRemaining <= 30 ? (
+            {hasPendingRequest ? (
+              <div style={{ width: '100%' }}>
+                <button
+                  disabled={true}
+                  style={{
+                    width: '100%',
+                    padding: '12px 18px',
+                    background: 'rgba(245, 158, 11, 0.15)',
+                    color: '#fbbf24',
+                    border: '1px solid rgba(245, 158, 11, 0.4)',
+                    borderRadius: '10px',
+                    fontWeight: 700,
+                    fontSize: '0.9rem',
+                    cursor: 'not-allowed',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <span>⏳</span>
+                  <span>Verification in Progress</span>
+                </button>
+                <div style={{ fontSize: '0.75rem', color: '#fbbf24', marginTop: '6px', textAlign: 'center' }}>
+                  Awaiting Super Admin approval
+                </div>
+              </div>
+            ) : subStatus === 'trial' || subStatus === 'expired' || daysRemaining <= 30 ? (
               <button
                 onClick={() => {
                   const target = plans.find(p => p.name === currentPlanName) || plans[1];
@@ -371,6 +410,45 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
           </div>
 
         </div>
+
+        {/* Pending Verification Notice Banner */}
+        {hasPendingRequest && (
+          <div style={{
+            marginTop: '20px',
+            padding: '14px 18px',
+            background: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.35)',
+            borderRadius: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '1.6rem' }}>⏳</span>
+              <div>
+                <strong style={{ color: '#fbbf24', fontSize: '0.92rem' }}>
+                  Payment Verification Pending Approval ({pendingInvoice.to_plan}):
+                </strong>
+                <div style={{ color: '#cbd5e1', fontSize: '0.84rem', marginTop: '3px' }}>
+                  Invoice <strong>{pendingInvoice.invoice_number}</strong> with UTR <strong>{pendingInvoice.payment_reference}</strong> was submitted on {formatISTDateTime(pendingInvoice.created_at)} and is currently being reviewed by Super Admin.
+                </div>
+              </div>
+            </div>
+            <span style={{
+              fontSize: '0.8rem',
+              background: 'rgba(245, 158, 11, 0.2)',
+              color: '#fbbf24',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontWeight: 700,
+              border: '1px solid rgba(245, 158, 11, 0.3)'
+            }}>
+              🔒 New Requests Locked
+            </span>
+          </div>
+        )}
       </div>
 
       {/* 3. Four-Tier Plan Grid */}
@@ -463,7 +541,24 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                 </div>
 
                 <div>
-                  {isCurrent ? (
+                  {hasPendingRequest ? (
+                    <button
+                      disabled={true}
+                      style={{
+                        width: '100%',
+                        padding: '10px 16px',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        color: '#94a3b8',
+                        borderRadius: '8px',
+                        fontWeight: 600,
+                        fontSize: '0.85rem',
+                        cursor: 'not-allowed'
+                      }}
+                    >
+                      Pending Verification
+                    </button>
+                  ) : isCurrent ? (
                     <button
                       onClick={() => handleOpenUpgrade(p)}
                       style={{
