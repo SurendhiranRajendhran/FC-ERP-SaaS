@@ -108,11 +108,18 @@ export default function HomePage() {
         }
         .fc-hero-center {
           max-width: 980px;
+          width: 100%;
+          min-width: 0;
           margin: 0 auto 38px;
           display: flex;
           flex-direction: column;
           align-items: center;
           text-align: center;
+        }
+        @media (max-width: 768px) {
+          .fc-hero {
+            padding: 108px 16px 40px;
+          }
         }
         .fc-hero-badge {
           display: inline-flex;
@@ -321,7 +328,17 @@ export default function HomePage() {
         .fc-section {
           padding: 104px 5%;
           max-width: 1280px;
+          width: 100%;
+          min-width: 0;
           margin: 0 auto;
+        }
+        @media (max-width: 768px) {
+          .fc-section {
+            padding: 56px 16px;
+          }
+          .fc-section-head {
+            margin-bottom: 36px;
+          }
         }
         .fc-section-head {
           text-align: center;
@@ -686,10 +703,16 @@ export default function HomePage() {
           border-radius: 22px;
           padding: 38px 32px;
           box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+          max-width: 100%;
+          min-width: 0;
         }
         @media (max-width: 768px) {
           .fc-matrix-container {
-            padding: 24px 16px;
+            margin-top: 44px;
+            padding: 22px 14px;
+          }
+          .fc-card {
+            padding: 22px 18px;
           }
         }
         .fc-matrix-header {
@@ -706,6 +729,8 @@ export default function HomePage() {
           font-size: 0.95rem;
         }
         .fc-matrix-scroll {
+          width: 100%;
+          max-width: 100%;
           overflow-x: auto;
           -webkit-overflow-scrolling: touch;
         }

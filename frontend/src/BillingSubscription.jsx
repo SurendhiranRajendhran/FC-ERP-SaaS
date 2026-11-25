@@ -336,7 +336,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
   };
 
   return (
-    <div className="view-panel active" style={{ padding: '24px 28px', maxWidth: '1400px', margin: '0 auto' }}>
+    <div className="view-panel active module-shell" style={{ maxWidth: '1400px', margin: '0 auto' }}>
       
       {/* 1. Header with Breadcrumbs & Live Status */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>

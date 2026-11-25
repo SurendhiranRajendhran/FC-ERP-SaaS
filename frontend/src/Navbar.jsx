@@ -174,11 +174,31 @@ export default function Navbar() {
           display: none;
         }
         @media (max-width: 880px) {
+          .fc-nav {
+            padding: 0 16px;
+          }
+          .fc-nav-logo {
+            white-space: nowrap;
+            font-size: 1.2rem;
+            gap: 8px;
+            flex-shrink: 0;
+          }
           .fc-nav-links {
             display: none;
           }
+          .fc-nav-actions {
+            gap: 8px;
+            flex-shrink: 0;
+          }
+          .fc-nav-actions .fc-btn-signin,
+          .fc-nav-actions .fc-btn-register {
+            display: none;
+          }
           .fc-hamburger {
-            display: block;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
           }
           .fc-mobile-drawer {
             display: flex;
@@ -187,13 +207,15 @@ export default function Navbar() {
             top: 76px;
             left: 0;
             right: 0;
+            max-height: calc(100vh - 76px);
+            overflow-y: auto;
             background: rgba(9, 13, 22, 0.96);
             backdrop-filter: blur(25px);
             -webkit-backdrop-filter: blur(25px);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             padding: 24px;
             gap: 16px;
-            z-index: 999;
+            z-index: 1100;
             animation: fcDrawerSlide 0.25s ease-out forwards;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
           }

@@ -270,6 +270,48 @@ export default function SignUpPage() {
           background: rgba(255, 255, 255, 0.12);
           color: #ffffff;
         }
+        @media (max-width: 600px) {
+          .fc-signup-navbar {
+            padding: 0 14px;
+            height: 66px;
+          }
+          .fc-signup-brand {
+            gap: 8px;
+            font-size: 1.1rem;
+            white-space: nowrap;
+            flex-shrink: 0;
+          }
+          .fc-signup-brand img {
+            width: 30px;
+            height: 30px;
+          }
+          .fc-signup-nav-right {
+            gap: 8px;
+            flex-wrap: nowrap;
+            flex-shrink: 0;
+          }
+          .fc-nav-back-link {
+            white-space: nowrap;
+            font-size: 0.85rem;
+          }
+          .fc-nav-signin-btn {
+            white-space: nowrap;
+            padding: 6px 12px;
+            font-size: 0.84rem;
+          }
+        }
+        @media (max-width: 480px) {
+          .fc-nav-back-link span:last-child {
+            display: none;
+          }
+          .fc-nav-back-link {
+            padding: 6px 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            font-size: 0.95rem;
+          }
+        }
 
         /* Main Container */
         .fc-signup-main {
@@ -278,6 +320,12 @@ export default function SignUpPage() {
           width: 100%;
           margin: 0 auto;
           padding: 40px 24px 70px;
+          min-width: 0;
+        }
+        @media (max-width: 600px) {
+          .fc-signup-main {
+            padding: 24px 14px 48px;
+          }
         }
         .fc-signup-heading {
           text-align: center;

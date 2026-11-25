@@ -636,6 +636,11 @@ function SuperAdminDashboard({ user, onLogout }) {
 
   // Tabs
   const [activeTab, setActiveTab] = useState('foodCourts');
+  const [saMobileNavOpen, setSaMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    setSaMobileNavOpen(false);
+  }, [activeTab]);
 
   // Registrations state
   const [registrations, setRegistrations] = useState([]);
@@ -1079,9 +1084,7 @@ function SuperAdminDashboard({ user, onLogout }) {
 
   /* ── Inline styles scoped to Super Admin only ── */
   const saStyles = {
-    container: { display: 'flex', height: '100vh', background: '#0a0a0f', color: '#e2e8f0', fontFamily: "'Inter', 'Segoe UI', sans-serif", overflow: 'hidden' },
-    sidebar: { width: '260px', background: '#111118', borderRight: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', flexShrink: 0 },
-    sidebarLogo: { padding: '28px 24px', display: 'flex', alignItems: 'center', gap: '12px' },
+    sidebarLogo: { padding: '24px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' },
     logoTitle: { fontSize: '1.1rem', fontWeight: 700, letterSpacing: '1.5px', color: '#f1f5f9', margin: 0 },
     logoSub: { fontSize: '0.7rem', color: '#64748b', margin: 0, letterSpacing: '0.5px' },
     navList: { listStyle: 'none', padding: '12px 16px', margin: 0, flex: 1 },
@@ -1097,35 +1100,29 @@ function SuperAdminDashboard({ user, onLogout }) {
     profileName: { fontSize: '0.85rem', fontWeight: 600, color: '#f1f5f9', margin: 0 },
     profileRole: { fontSize: '0.72rem', color: '#64748b', margin: 0 },
     logoutBtn: { width: '100%', padding: '8px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', borderRadius: '8px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 500, transition: 'all 0.2s' },
-    main: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
-    topBar: { padding: '20px 32px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
     topTitle: { fontSize: '1.5rem', fontWeight: 700, color: '#f1f5f9', margin: 0 },
     topSub: { fontSize: '0.85rem', color: '#64748b', margin: '4px 0 0 0' },
-    statusBadge: { background: '#111118', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.85rem', color: '#94a3b8' },
-    content: { flex: 1, padding: '28px 32px', overflowY: 'auto' },
-    statsRow: { display: 'flex', gap: '20px', marginBottom: '28px' },
+    statusBadge: { background: '#111118', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.85rem', color: '#94a3b8', whiteSpace: 'nowrap' },
     statCard: (borderColor) => ({
-      flex: 1, background: '#111118', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', padding: '24px', borderLeft: `4px solid ${borderColor}`, display: 'flex', flexDirection: 'column',
+      flex: 1, minWidth: 0, background: '#111118', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', padding: '20px', borderLeft: `4px solid ${borderColor}`, display: 'flex', flexDirection: 'column',
     }),
     statLabel: { fontSize: '0.78rem', fontWeight: 700, color: '#64748b', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' },
-    statValue: { fontSize: '2.4rem', fontWeight: 800, color: '#f1f5f9' },
-    tableCard: { background: '#111118', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', padding: '24px' },
-    tableHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
+    statValue: { fontSize: '2.1rem', fontWeight: 800, color: '#f1f5f9' },
     tableTitle: { fontSize: '1.1rem', fontWeight: 700, color: '#f1f5f9', margin: 0 },
     addBtn: { padding: '10px 22px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 600, transition: 'all 0.2s', boxShadow: '0 4px 15px rgba(139,92,246,0.3)' },
-    th: { textAlign: 'left', padding: '12px 16px', fontSize: '0.78rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.5px', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+    th: { textAlign: 'left', padding: '12px 16px', fontSize: '0.78rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.5px', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', whiteSpace: 'nowrap' },
     td: { padding: '14px 16px', fontSize: '0.88rem', borderBottom: '1px solid rgba(255,255,255,0.04)' },
     // Modal styles
-    overlay: { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-    modal: { background: '#16161e', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', width: '100%', maxWidth: '460px', boxShadow: '0 25px 50px rgba(0,0,0,0.5)' },
-    modalHeader: { padding: '24px 28px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+    overlay: { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px' },
+    modal: { background: '#16161e', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', width: '100%', maxWidth: '460px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.5)' },
+    modalHeader: { padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
     modalTitle: { fontSize: '1.15rem', fontWeight: 700, color: '#f1f5f9', margin: 0 },
     closeBtn: { background: 'none', border: 'none', color: '#94a3b8', fontSize: '1.5rem', cursor: 'pointer', padding: '4px', lineHeight: 1 },
-    modalBody: { padding: '24px 28px' },
+    modalBody: { padding: '20px 24px' },
     formGroup: { marginBottom: '18px' },
     formLabel: { display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#94a3b8', marginBottom: '6px' },
     formInput: { width: '100%', padding: '10px 14px', background: '#0a0a0f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#f1f5f9', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box', transition: 'border-color 0.2s' },
-    modalActions: { display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' },
+    modalActions: { display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px', flexWrap: 'wrap' },
     cancelBtn: { padding: '10px 20px', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', borderRadius: '8px', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 500 },
     submitBtn: (disabled) => ({
       padding: '10px 24px', background: disabled ? '#4c3a7a' : 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: '#fff', border: 'none', borderRadius: '8px', cursor: disabled ? 'not-allowed' : 'pointer', fontSize: '0.88rem', fontWeight: 600, opacity: disabled ? 0.6 : 1,
@@ -1133,28 +1130,45 @@ function SuperAdminDashboard({ user, onLogout }) {
   };
 
   return (
-    <div style={saStyles.container}>
+    <div className="sa-shell">
+      {saMobileNavOpen && (
+        <div
+          className="sa-mobile-backdrop"
+          onClick={() => setSaMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
       {/* ── SIDEBAR ── */}
-      <aside style={saStyles.sidebar}>
+      <aside className={`sa-sidebar ${saMobileNavOpen ? 'mobile-open' : ''}`}>
         <div style={saStyles.sidebarLogo}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2" width="30" height="30">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-          </svg>
-          <div>
-            <p style={{...saStyles.logoTitle, display: 'flex', alignItems: 'center', gap: '6px', margin: 0}}>
-              ERP
-              <span style={{ 
-                fontSize: '0.65rem', 
-                backgroundColor: 'rgba(139, 92, 246, 0.2)', 
-                color: '#c4b5fd', 
-                padding: '2px 6px', 
-                borderRadius: '12px', 
-                fontWeight: '600',
-                letterSpacing: '0.5px'
-              }}>v1.1.4</span>
-            </p>
-            <p style={saStyles.logoSub}>SaaS Control Panel</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2" width="30" height="30" style={{ flexShrink: 0 }}>
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+            </svg>
+            <div>
+              <p style={{...saStyles.logoTitle, display: 'flex', alignItems: 'center', gap: '6px', margin: 0}}>
+                ERP
+                <span style={{ 
+                  fontSize: '0.65rem', 
+                  backgroundColor: 'rgba(139, 92, 246, 0.2)', 
+                  color: '#c4b5fd', 
+                  padding: '2px 6px', 
+                  borderRadius: '12px', 
+                  fontWeight: '600',
+                  letterSpacing: '0.5px'
+                }}>v1.1.4</span>
+              </p>
+              <p style={saStyles.logoSub}>SaaS Control Panel</p>
+            </div>
           </div>
+          <button
+            type="button"
+            className="sa-sidebar-close"
+            aria-label="Close Super Admin Menu"
+            onClick={() => setSaMobileNavOpen(false)}
+          >
+            ✕
+          </button>
         </div>
 
         <ul style={saStyles.navList}>
@@ -1198,7 +1212,7 @@ function SuperAdminDashboard({ user, onLogout }) {
               <p style={saStyles.profileRole}>Super Admin</p>
             </div>
           </div>
-          <button style={saStyles.logoutBtn} onClick={onLogout}
+          <button style={saStyles.logoutBtn} onClick={() => { setSaMobileNavOpen(false); onLogout(); }}
             onMouseEnter={e => { e.target.style.background = 'rgba(239,68,68,0.18)'; }}
             onMouseLeave={e => { e.target.style.background = 'rgba(239,68,68,0.08)'; }}>
             Logout
@@ -1207,29 +1221,39 @@ function SuperAdminDashboard({ user, onLogout }) {
       </aside>
 
       {/* ── MAIN CONTENT ── */}
-      <div style={saStyles.main}>
-        <div style={saStyles.topBar}>
-          <div>
-            <h1 style={saStyles.topTitle}>
-              {activeTab === 'foodCourts' && 'Multi-Facility Directory'}
-              {activeTab === 'registrations' && 'Pending Applications'}
-              {activeTab === 'subscriptions' && 'Plan Subscriptions & Upgrades'}
-            </h1>
-            <p style={saStyles.topSub}>
-              {activeTab === 'foodCourts' && 'Manage all registered food courts and subscriptions'}
-              {activeTab === 'registrations' && 'Review and provision new tenant databases'}
-              {activeTab === 'subscriptions' && 'Verify bank UTR transaction references and approve plan upgrade orders'}
-            </p>
+      <div className="sa-main">
+        <div className="sa-topbar">
+          <div className="sa-topbar-left">
+            <button
+              type="button"
+              className="sa-hamburger"
+              aria-label="Open Super Admin Menu"
+              onClick={() => setSaMobileNavOpen(true)}
+            >
+              ☰
+            </button>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={saStyles.topTitle}>
+                {activeTab === 'foodCourts' && 'Multi-Facility Directory'}
+                {activeTab === 'registrations' && 'Pending Applications'}
+                {activeTab === 'subscriptions' && 'Plan Subscriptions & Upgrades'}
+              </h1>
+              <p style={saStyles.topSub}>
+                {activeTab === 'foodCourts' && 'Manage all registered food courts and subscriptions'}
+                {activeTab === 'registrations' && 'Review and provision new tenant databases'}
+                {activeTab === 'subscriptions' && 'Verify bank UTR transaction references and approve plan upgrade orders'}
+              </p>
+            </div>
           </div>
           <span style={saStyles.statusBadge}>
             Platform Status: <span style={{color: '#10b981', fontWeight: 700}}> Operational</span>
           </span>
         </div>
 
-        <div style={saStyles.content}>
+        <div className="sa-content">
           {activeTab === 'foodCourts' && (<>
           {/* Stats Row */}
-          <div style={saStyles.statsRow}>
+          <div className="sa-stats-row">
             <div style={saStyles.statCard('#8b5cf6')}>
               <span style={saStyles.statLabel}>Total Food Courts</span>
               <span style={saStyles.statValue}>{tenants.length}</span>
@@ -1245,10 +1269,10 @@ function SuperAdminDashboard({ user, onLogout }) {
           </div>
 
           {/* Food Courts Table */}
-          <div style={saStyles.tableCard}>
-            <div style={saStyles.tableHeader}>
+          <div className="sa-table-card">
+            <div className="sa-table-header">
               <h3 style={saStyles.tableTitle}>Registered Food Courts</h3>
-              <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
+              <div style={{display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap'}}>
                 <button 
                   type="button"
                   onClick={() => openIntegrationsModal({ id: 1, name: 'System / Super Admin' })}
@@ -1265,7 +1289,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                     alignItems: 'center',
                     gap: '6px'
                   }}>
-                  ?? System SMTP Settings
+                  ⚙️ System SMTP Settings
                 </button>
                 <button style={saStyles.addBtn} onClick={() => setShowAddModal(true)}
                 onMouseEnter={e => { e.target.style.transform = 'translateY(-1px)'; e.target.style.boxShadow = '0 6px 20px rgba(139,92,246,0.4)'; }}
@@ -1433,7 +1457,7 @@ function SuperAdminDashboard({ user, onLogout }) {
           {activeTab === 'registrations' && (
           <div>
             {/* Stats Row with Clickable Filter Badges */}
-            <div style={saStyles.statsRow}>
+            <div className="sa-stats-row">
               <div
                 onClick={() => setRegFilterStatus('all')}
                 style={{
@@ -1509,7 +1533,7 @@ function SuperAdminDashboard({ user, onLogout }) {
               </div>
             </div>
 
-            <div style={saStyles.tableCard}>
+            <div className="sa-table-card">
               {/* Header and Controls */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
@@ -1601,7 +1625,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                   </div>
 
                   {/* Search Input */}
-                  <div style={{ position: 'relative', minWidth: '260px', flex: '1 1 260px', maxWidth: '420px' }}>
+                  <div style={{ position: 'relative', minWidth: 0, width: '100%', flex: '1 1 220px', maxWidth: '420px' }}>
                     <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b', fontSize: '0.85rem' }}>
                       🔍
                     </span>
@@ -1993,7 +2017,7 @@ function SuperAdminDashboard({ user, onLogout }) {
           {activeTab === 'subscriptions' && (
             <div>
               {/* Stats Row */}
-              <div style={saStyles.statsRow}>
+              <div className="sa-stats-row">
                 <div
                   onClick={() => setSubFilterStatus('all')}
                   style={{
@@ -2045,18 +2069,20 @@ function SuperAdminDashboard({ user, onLogout }) {
               </div>
 
               {/* Invoices Table Card */}
-              <div style={saStyles.tableCard}>
+              <div className="sa-table-card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
                   <h3 style={saStyles.tableTitle}>Subscription Orders & Upgrades</h3>
                   
                   {/* Search input */}
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', flex: '1 1 240px', maxWidth: '100%' }}>
                     <input
                       type="text"
                       placeholder="Search invoice, tenant, UTR..."
                       value={subSearchQuery}
                       onChange={e => setSubSearchQuery(e.target.value)}
                       style={{
+                        flex: '1 1 180px',
+                        minWidth: 0,
                         padding: '8px 14px',
                         background: '#0a0a0f',
                         border: '1px solid rgba(255,255,255,0.1)',
@@ -3466,22 +3492,22 @@ function QRManagementPanel({ user }) {
 
   return (
     <div className="view-panel active">
-      <div className="view-header-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="view-header-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <h3>📱 QR Self-Ordering Management</h3>
-        <a href={baseUrl} target="_blank" rel="noopener noreferrer" style={{ background: 'var(--accent-primary)', color: '#fff', padding: '0.5rem 1rem', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold' }}>
+        <a href={baseUrl} target="_blank" rel="noopener noreferrer" style={{ background: 'var(--accent-primary)', color: '#fff', padding: '0.5rem 1rem', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
           Preview Customer Menu →
         </a>
       </div>
 
       {/* Config Section */}
       <div className="qr-admin-config" style={{ display: 'flex', gap: '1rem', padding: '1rem', background: 'var(--panel-bg)', borderRadius: '8px', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <div style={{ flex: 1, minWidth: '200px' }}>
+        <div style={{ flex: '1 1 160px', minWidth: 0 }}>
           <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--text-color-secondary)' }}>Number of Tables</label>
-          <input type="number" min="1" max="100" value={tableCount} onChange={e => handleTableCountChange(e.target.value)} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)' }} />
+          <input type="number" min="1" max="100" value={tableCount} onChange={e => handleTableCountChange(e.target.value)} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', boxSizing: 'border-box' }} />
         </div>
-        <div style={{ flex: 3, minWidth: '300px' }}>
+        <div style={{ flex: '3 1 240px', minWidth: 0, width: '100%' }}>
           <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--text-color-secondary)' }}>Base Menu URL</label>
-          <input type="text" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)' }} />
+          <input type="text" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-color)', boxSizing: 'border-box' }} />
         </div>
         <button onClick={downloadAll} style={{ padding: '0.5rem 1.2rem', background: 'var(--accent-success)', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           ⬇ Download All QR Codes
@@ -3489,7 +3515,7 @@ function QRManagementPanel({ user }) {
       </div>
 
       {/* QR Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(145px, 100%), 1fr))', gap: '1rem', marginBottom: '2rem' }}>
         {qrImages.map(q => (
           <div key={q.table} style={{ background: 'var(--panel-bg)', borderRadius: '8px', padding: '1rem', textAlign: 'center', border: '1px solid var(--border-color)' }}>
             <img src={q.dataUrl} alt={`Table ${q.table} QR`} style={{ width: '100%', borderRadius: '4px' }} />
@@ -3544,6 +3570,11 @@ function App() {
   // Navigation & Tabs
   const [activeTab, setActiveTab] = useState('dashboard');
   const [inventorySubTab, setInventorySubTab] = useState('materials');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [activeTab]);
 
   // Runtimes and Clock
 
@@ -8057,27 +8088,44 @@ function App() {
 
   return (
     <div className="app-container">
+      {mobileNavOpen && (
+        <div
+          className="mobile-sidebar-backdrop"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
       {/* 1. SIDEBAR MENU */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${mobileNavOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-logo">
-          <svg className="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-          </svg>
-          <div className="logo-text">
-            <h1 style={{ display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
-              ERP
-              <span style={{ 
-                fontSize: '0.65rem', 
-                backgroundColor: 'rgba(59, 130, 246, 0.2)', 
-                color: '#60a5fa', 
-                padding: '2px 6px', 
-                borderRadius: '12px', 
-                fontWeight: '600',
-                letterSpacing: '0.5px'
-              }}>v1.1.4</span>
-            </h1>
-            <span style={{ marginTop: '2px', display: 'block' }}>Canteen ERP</span>
+          <div className="sidebar-logo-brand">
+            <svg className="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+            <div className="logo-text">
+              <h1 style={{ display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                ERP
+                <span style={{ 
+                  fontSize: '0.65rem', 
+                  backgroundColor: 'rgba(59, 130, 246, 0.2)', 
+                  color: '#60a5fa', 
+                  padding: '2px 6px', 
+                  borderRadius: '12px', 
+                  fontWeight: '600',
+                  letterSpacing: '0.5px'
+                }}>v1.1.4</span>
+              </h1>
+              <span style={{ marginTop: '2px', display: 'block' }}>Canteen ERP</span>
+            </div>
           </div>
+          <button
+            type="button"
+            className="sidebar-close-btn"
+            aria-label="Close Navigation Menu"
+            onClick={() => setMobileNavOpen(false)}
+          >
+            ✕
+          </button>
         </div>
 
         <nav className="sidebar-menu">
@@ -8336,11 +8384,11 @@ function App() {
                   {currentPlan}
                 </span>
               </div>
-              <button onClick={handleOpenMyProfile} style={{ width: '100%', padding: '6px 12px', marginBottom: '6px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#60a5fa', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s' }}>
+              <button onClick={() => { setMobileNavOpen(false); handleOpenMyProfile(); }} style={{ width: '100%', padding: '6px 12px', marginBottom: '6px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#60a5fa', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s' }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
                 Edit My Profile
               </button>
-              <button onClick={handleLogout} style={{ width: '100%', padding: '6px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s' }}>
+              <button onClick={() => { setMobileNavOpen(false); handleLogout(); }} style={{ width: '100%', padding: '6px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s' }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                 Logout
               </button>
@@ -8350,30 +8398,40 @@ function App() {
       </aside>
  
       {/* 2. MAIN VIEW CONTAINER */}
-      <main class="main-content">
-        <header class="top-bar">
-          <div class="top-bar-left">
-            <h2>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Control</h2>
-            <p>
-              {activeTab === 'dashboard' && 'Canteen operational statistics and daily alerts'}
-              {activeTab === 'pos' && 'High-speed touch screen checkout console'}
-              {activeTab === 'menu' && 'Manage prices, GST rules and daily dish toggles'}
-              {activeTab === 'materials' && 'Raw ingredient ledgers and stock levels'}
-              {activeTab === 'recipes' && 'Recipe formulations for automated deduction'}
-              {activeTab === 'logs' && 'Audit trail for all inventory changes'}
-              {activeTab === 'kds' && 'Real-time kitchen order board with live tracking'}
-              {activeTab === 'orders' && 'Historical sales transactions and itemized orders'}
-              {activeTab === 'stall-insights' && 'View your orders, expenses, and performance metrics'}
-              {activeTab === 'vendors' && 'Manage registered stalls, split shared costs and view payout settlements'}
-              {activeTab === 'hr' && 'Manage staff directory, define shifts, schedule roster, track attendance & leaves, calculate payroll and meals'}
-                            {activeTab === 'reports' && 'Advanced analytics, daily sales, vendor settlements, and P&L ledger'}
-              {activeTab === 'crm' && 'Customer loyalty, broadcasts, feedback, and low-stock alerts'}
-              {activeTab === 'wallet' && 'Manage RFID cards and prepaid wallets'}
-              {activeTab === 'qr' && 'Generate table QR codes, monitor QR orders and manage self-ordering settings'}
-              {activeTab === 'billing' && 'Manage your annual SaaS plan, view proration credits, upgrade tiers, and track official tax invoices'}
-            </p>
+      <main className="main-content">
+        <header className="top-bar">
+          <div className="top-bar-left">
+            <button
+              type="button"
+              className="mobile-menu-btn"
+              aria-label="Open Navigation Menu"
+              onClick={() => setMobileNavOpen(true)}
+            >
+              ☰
+            </button>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <h2>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Control</h2>
+              <p>
+                {activeTab === 'dashboard' && 'Canteen operational statistics and daily alerts'}
+                {activeTab === 'pos' && 'High-speed touch screen checkout console'}
+                {activeTab === 'menu' && 'Manage prices, GST rules and daily dish toggles'}
+                {activeTab === 'materials' && 'Raw ingredient ledgers and stock levels'}
+                {activeTab === 'recipes' && 'Recipe formulations for automated deduction'}
+                {activeTab === 'logs' && 'Audit trail for all inventory changes'}
+                {activeTab === 'kds' && 'Real-time kitchen order board with live tracking'}
+                {activeTab === 'orders' && 'Historical sales transactions and itemized orders'}
+                {activeTab === 'stall-insights' && 'View your orders, expenses, and performance metrics'}
+                {activeTab === 'vendors' && 'Manage registered stalls, split shared costs and view payout settlements'}
+                {activeTab === 'hr' && 'Manage staff directory, define shifts, schedule roster, track attendance & leaves, calculate payroll and meals'}
+                {activeTab === 'reports' && 'Advanced analytics, daily sales, vendor settlements, and P&L ledger'}
+                {activeTab === 'crm' && 'Customer loyalty, broadcasts, feedback, and low-stock alerts'}
+                {activeTab === 'wallet' && 'Manage RFID cards and prepaid wallets'}
+                {activeTab === 'qr' && 'Generate table QR codes, monitor QR orders and manage self-ordering settings'}
+                {activeTab === 'billing' && 'Manage your annual SaaS plan, view proration credits, upgrade tiers, and track official tax invoices'}
+              </p>
+            </div>
           </div>
-          <div class="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div class="tenant-selector">
               <span class="tenant-badge">
                 {!isFeaturePermitted('multi_vendor')
@@ -8957,7 +9015,7 @@ function App() {
                     <div style={{ fontSize: '0.85rem' }}>No credit purchases or repayment records have been logged for this customer yet.</div>
                   </div>
                 ) : (
-                  <div style={{ border: '1px solid var(--border-light)', borderRadius: '10px', overflow: 'hidden', background: 'var(--bg-surface)' }}>
+                  <div style={{ border: '1px solid var(--border-light)', borderRadius: '10px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', background: 'var(--bg-surface)' }}>
                     <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
                       <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#181d30' }}>
                         <tr style={{ borderBottom: '2px solid var(--border-light)' }}>
@@ -9346,7 +9404,7 @@ function App() {
                     
                     <div className="attendance-layout" style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
                       {/* Left Column: Working Schedule & My Check-in Desk */}
-                      <div style={{ flex: 1, minWidth: '380px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                      <div style={{ flex: '1 1 300px', minWidth: 0, maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: '18px' }}>
                         {/* 1. Working Schedule / Active Shift Duty Section */}
                         {(() => {
                           const scheduleInfo = getStaffWorkingSchedule(selectedAttendanceDate);
@@ -9460,8 +9518,9 @@ function App() {
                       </div>
 
                       {/* Right: Attendance history table */}
-                      <div style={{ flex: 2, minWidth: '600px' }}>
+                      <div style={{ flex: '2 1 460px', minWidth: 0, maxWidth: '100%' }}>
                         <h4 style={{ margin: '0 0 15px 0' }}>📋 My Attendance Ledger</h4>
+                        <div className="table-container">
                         <table className="data-table">
                           <thead>
                             <tr>
@@ -9521,6 +9580,7 @@ function App() {
                             )}
                           </tbody>
                         </table>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -10032,7 +10092,7 @@ function App() {
                               </div>
 
                               {/* Month Navigation Controls */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                 <button
                                   className="btn btn-outline-primary btn-small"
                                   onClick={() => setCurrentCalendarMonth(new Date())}
@@ -10049,7 +10109,7 @@ function App() {
                                   >
                                     ‹
                                   </button>
-                                  <span style={{ fontWeight: 700, minWidth: '140px', textAlign: 'center', fontSize: '0.95rem', color: 'var(--text-light)' }}>
+                                  <span style={{ fontWeight: 700, minWidth: '120px', textAlign: 'center', fontSize: '0.95rem', color: 'var(--text-light)' }}>
                                     {currentCalendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
                                   </span>
                                   <button
@@ -10102,7 +10162,8 @@ function App() {
                           </div>
 
                           {/* Main Calendar View Container */}
-                          <div style={{ border: '1px solid var(--border-light)', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 14px rgba(0,0,0,0.12)', backgroundColor: 'var(--bg-app)' }}>
+                          <div className="calendar-grid-container" style={{ border: '1px solid var(--border-light)', borderRadius: '12px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', boxShadow: '0 4px 14px rgba(0,0,0,0.12)', backgroundColor: 'var(--bg-app)' }}>
+                            <div style={{ minWidth: '540px' }}>
                             {/* Day Name Header Row */}
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', backgroundColor: 'var(--bg-surface)', borderBottom: '2px solid var(--border-light)' }}>
                               {[
@@ -10134,6 +10195,7 @@ function App() {
 
                             {/* Calendar Days Body */}
                             <div>{rows}</div>
+                            </div>
                           </div>
 
                           {/* Legend & Schedule Notes */}
@@ -11197,7 +11259,7 @@ function App() {
                         onChange={(e) => setMaterialSearch(e.target.value)}
                       />
                     </div>
-                    <div style={{display: 'flex', gap: 10}}>
+                    <div style={{display: 'flex', gap: 10, flexWrap: 'wrap'}}>
                       <button className="btn btn-success" onClick={handleOpenPurchaseEntry}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style={{width: 18, height: 18, marginRight: 6}}>
                           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -11515,8 +11577,8 @@ function App() {
 
           {activeTab === 'orders' && (
             <div className="view-panel active">
-              <div className="view-header-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div className="view-header-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <h3>Historical Sales Orders</h3>
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                     ({pastOrders.length} {pastOrders.length === 1 ? 'order' : 'orders'} recorded)
@@ -13774,7 +13836,7 @@ function App() {
                   <div className="attendance-layout" style={{ display: 'flex', gap: '20px', marginTop: '20px', flexWrap: 'wrap' }}>
                     {/* Left: Quick checkin for today */}
                     {selectedAttendanceDate === getISTTodayString() && (
-                      <div style={{ flex: 1, minWidth: '400px', background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div style={{ flex: '1 1 300px', minWidth: 0, maxWidth: '100%', background: 'rgba(255,255,255,0.02)', padding: '18px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                         <h4 style={{ margin: '0 0 15px 0' }}>🍳 Today's Quick Check-in Desk</h4>
                         <div className="quick-checkin-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {staff.filter(s => s.is_active === 1 && s.exclude_from_attendance !== 1 && s.role !== 'Owner').map(member => {
@@ -13826,8 +13888,9 @@ function App() {
                     )}
 
                     {/* Right: Attendance history table */}
-                    <div style={{ flex: 2, minWidth: '600px' }}>
+                    <div style={{ flex: '2 1 460px', minWidth: 0, maxWidth: '100%' }}>
                       <h4 style={{ margin: '0 0 15px 0' }}>📋 Attendance Ledger Records</h4>
+                      <div className="table-container">
                       <table className="data-table">
                         <thead>
                           <tr>
@@ -13893,6 +13956,7 @@ function App() {
                           )}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -14290,12 +14354,12 @@ function App() {
               {hrSubTab === 'performance' && (
                 <div>
                   <div className="view-header-bar" style={{ flexWrap: 'wrap', gap: '15px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', width: '100%' }}>
                       <label style={{ fontWeight: 600 }}>Start Date:</label>
                       <input type="date" className="attendance-date-input" value={perfStartDate} onChange={e => setPerfStartDate(e.target.value)} />
                       <label style={{ fontWeight: 600 }}>End Date:</label>
                       <input type="date" className="attendance-date-input" value={perfEndDate} onChange={e => setPerfEndDate(e.target.value)} />
-                      <button className="btn btn-primary" onClick={() => fetchStaffPerformance(perfStartDate, perfEndDate)} style={{ height: '38px' }}>🔄 Load Performance</button>
+                      <button className="btn btn-primary" onClick={() => fetchStaffPerformance(perfStartDate, perfEndDate)}>🔄 Load Performance</button>
                     </div>
                   </div>
 
@@ -14391,9 +14455,9 @@ function App() {
 
               {/* ============ SUB-TAB: HOLIDAY CALENDAR ============ */}
               {hrSubTab === 'holidays' && (
-                <div className="holidays-section" style={{ padding: '20px' }}>
+                <div className="holidays-section" style={{ padding: '6px 0' }}>
                   <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                       <span className="badge badge-primary" style={{ fontSize: '0.8rem', padding: '4px 10px' }}>
                         {user?.vendor_id ? `🏪 ${vendors.find(v => v.id === user.vendor_id)?.name || `Stall #${user.vendor_id}`}` : (isFeaturePermitted('multi_vendor') ? '🏢 Central Canteen' : '🏢 Canteen')}
                       </span>
@@ -14405,10 +14469,10 @@ function App() {
                       🔒 Holidays configured here apply {user?.vendor_id ? `strictly to ${vendors.find(v => v.id === user.vendor_id)?.name || 'this stall'}'s staff` : (isFeaturePermitted('multi_vendor') ? 'strictly to Central Canteen staff only.' : 'to all canteen staff.')}
                     </span>
                   </div>
-                  <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                  <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                       <button className="btn btn-outline-primary" onClick={() => setCurrentCalendarMonth(new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() - 1, 1))}>&lt; Prev</button>
-                      <h3 style={{ margin: 0, minWidth: '150px', textAlign: 'center' }}>
+                      <h3 style={{ margin: 0, minWidth: '130px', textAlign: 'center' }}>
                         {currentCalendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
                       </h3>
                       <button className="btn btn-outline-primary" onClick={() => setCurrentCalendarMonth(new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() + 1, 1))}>Next &gt;</button>
@@ -14489,7 +14553,7 @@ function App() {
                       }
                       
                       return (
-                        <div style={{ border: '1px solid var(--border-light)', borderRadius: '8px', overflow: 'hidden' }}>
+                        <div style={{ border: '1px solid var(--border-light)', borderRadius: '8px', minWidth: '520px' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', backgroundColor: 'var(--bg-light)', borderBottom: '1px solid var(--border-light)' }}>
                             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
                               <div key={d} style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: 'var(--text-muted)' }}>{d}</div>
@@ -15118,18 +15182,21 @@ function App() {
                                 background: idx === 0 ? 'rgba(99, 102, 241, 0.05)' : 'var(--bg-card)',
                                 position: 'relative'
                               }}>
-                                {idx === 0 && <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.75rem', background: 'var(--accent-primary)', color: '#fff', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>OFFICIAL RECORD</span>}
-                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                  <strong>{formatISTTime(rec.created_at)}</strong> • Submitted by: <strong style={{color:'var(--text-light)'}}>{rec.submitted_by_name || 'Unknown User'}</strong>
-                                  {rec.submitted_by_role && (
-                                    <span style={{ marginLeft: '6px', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.08)', color: 'var(--text-light)' }}>
-                                      {rec.submitted_by_role === 'Manager' && isFeaturePermitted('multi_vendor')
-                                        ? (rec.vendor_name ? `Stall Manager (${rec.vendor_name})` : 'Stall Manager')
-                                        : formatRoleLabel(rec.submitted_by_role)}
-                                    </span>
-                                  )}
+                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                                  <div>
+                                    <strong>{formatISTTime(rec.created_at)}</strong> • Submitted by: <strong style={{color:'var(--text-light)'}}>{rec.submitted_by_name || 'Unknown User'}</strong>
+                                    {rec.submitted_by_role && (
+                                      <span style={{ marginLeft: '6px', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.08)', color: 'var(--text-light)' }}>
+                                        {rec.submitted_by_role === 'Manager' && isFeaturePermitted('multi_vendor')
+                                          ? (rec.vendor_name ? `Stall Manager (${rec.vendor_name})` : 'Stall Manager')
+                                          : formatRoleLabel(rec.submitted_by_role)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {idx === 0 && <span style={{ fontSize: '0.72rem', background: 'var(--accent-primary)', color: '#fff', padding: '3px 9px', borderRadius: '12px', fontWeight: 'bold', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>OFFICIAL RECORD</span>}
                                 </div>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem', marginBottom: '10px' }}>
+                                <div className="responsive-scroll-x" style={{ marginBottom: '10px' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
                                   <thead>
                                     <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
                                       <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)', fontWeight: 600 }}>Mode</th>
@@ -15158,6 +15225,7 @@ function App() {
                                     })}
                                   </tbody>
                                 </table>
+                                </div>
                                 <div className={rec.discrepancy >= 0 ? 'text-success' : 'text-danger'} style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
                                   Discrepancy: ₹{Number(rec.discrepancy).toFixed(2)} {rec.discrepancy > 0 ? '(Excess)' : rec.discrepancy < 0 ? '(Shortage)' : '(Balanced)'}
                                 </div>
@@ -15845,7 +15913,7 @@ function App() {
               <button className="close-btn" onClick={() => setSupplierViewModal({ show: false, data: null })}>&times;</button>
             </div>
             <div className="modal-body" style={{ padding: '20px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+              <div className="crm-grid-2">
                 <div><strong>Name:</strong> {supplierViewModal.data.name}</div>
                 <div><strong>Contact Person:</strong> {supplierViewModal.data.contact_person || '-'}</div>
                 <div><strong>Phone:</strong> {supplierViewModal.data.phone || '-'}</div>
@@ -15858,9 +15926,9 @@ function App() {
                     ₹{parseFloat(supplierViewModal.data.outstanding_balance || 0).toFixed(2)}
                   </span>
                 </div>
-                <div style={{ gridColumn: 'span 2' }}><strong>Address:</strong> {supplierViewModal.data.address || '-'}</div>
-                <div style={{ gridColumn: 'span 2' }}><strong>Category:</strong> {supplierViewModal.data.items_supplied || '-'}</div>
-                <div style={{ gridColumn: 'span 2' }}><strong>Delivery Schedule:</strong> {supplierViewModal.data.delivery_schedule || '-'}</div>
+                <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {supplierViewModal.data.address || '-'}</div>
+                <div style={{ gridColumn: '1 / -1' }}><strong>Category:</strong> {supplierViewModal.data.items_supplied || '-'}</div>
+                <div style={{ gridColumn: '1 / -1' }}><strong>Delivery Schedule:</strong> {supplierViewModal.data.delivery_schedule || '-'}</div>
               </div>
             </div>
             <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -15938,6 +16006,7 @@ function App() {
             </div>
             <div className="modal-body" style={{ padding: '20px' }}>
               {supplierPayModal.pendingBills.length > 0 ? (
+                <div className="responsive-scroll-x">
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -15985,11 +16054,12 @@ function App() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               ) : (
                 <div className="empty-state">No pending bills found for this supplier.</div>
               )}
             </div>
-            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
               <div style={{ fontSize: '1.2rem', fontWeight: '600' }}>
                 Total Selected: ₹{
                   supplierPayModal.pendingBills
@@ -17039,7 +17109,8 @@ function App() {
 
               {/* Existing child items */}
               {comboModal.childItems.length > 0 && (
-                <table className="data-table" style={{ marginBottom: '15px' }}>
+                <div className="responsive-scroll-x" style={{ marginBottom: '15px' }}>
+                <table className="data-table">
                   <thead>
                     <tr>
                       <th>Child Item</th>
@@ -17076,10 +17147,11 @@ function App() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
 
               {/* Add new child item */}
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '15px' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '15px' }}>
                 <select 
                   id="combo-add-child-select"
                   className="input-field"

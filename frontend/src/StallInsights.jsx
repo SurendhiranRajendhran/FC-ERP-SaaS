@@ -248,7 +248,7 @@ function StallInsights({ user }) {
               background: 'linear-gradient(135deg, rgba(239,68,68,0.1), rgba(239,68,68,0.05))',
               border: '1px solid rgba(239,68,68,0.3)',
               borderRadius: '10px', padding: '16px 20px', marginBottom: '20px',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'
             }}>
               <div>
                 <span style={{ color: '#fca5a5', fontSize: '0.85rem' }}>Total Unsettled Amount</span>
@@ -260,6 +260,7 @@ function StallInsights({ user }) {
             </div>
           )}
 
+          <div className="responsive-scroll-x">
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'rgba(139,92,246,0.05)' }}>
@@ -318,6 +319,7 @@ function StallInsights({ user }) {
               </tfoot>
             )}
           </table>
+          </div>
         </div>
       );
     }
@@ -332,6 +334,7 @@ function StallInsights({ user }) {
             Amount owed <strong style={{color:'#a78bfa'}}>to your stall</strong> from orders placed via Central POS / QR system.
           </p>
         )}
+        <div className="responsive-scroll-x">
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'rgba(139,92,246,0.05)' }}>
@@ -373,6 +376,7 @@ function StallInsights({ user }) {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     );
   };
@@ -417,6 +421,7 @@ function StallInsights({ user }) {
             </div>
           </div>
 
+          <div className="responsive-scroll-x">
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'rgba(139,92,246,0.05)' }}>
@@ -475,6 +480,7 @@ function StallInsights({ user }) {
               </tfoot>
             )}
           </table>
+          </div>
         </div>
       );
     }
@@ -486,7 +492,7 @@ function StallInsights({ user }) {
         <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '15px' }}>
           Amount owed <strong style={{color:'#a78bfa'}}>to your stall</strong> from digital payment transactions (Credit, RFID Wallet).
         </p>
-        <div style={{ background: '#16161e', borderRadius: '8px', overflow: 'hidden' }}>
+        <div style={{ background: '#16161e', borderRadius: '8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.05)', textAlign: 'left' }}>
@@ -553,7 +559,7 @@ function StallInsights({ user }) {
         </div>
       </div>
 
-      <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+      <div style={{ maxHeight: '250px', overflowY: 'auto', overflowX: 'auto', WebkitOverflowScrolling: 'touch', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 1, backgroundColor: '#1e1e24' }}>
             <tr style={{ background: 'rgba(139,92,246,0.05)' }}>
@@ -692,12 +698,12 @@ function StallInsights({ user }) {
 
       return (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
             <h3 style={{ color: '#e2e8f0', margin: 0 }}>
               📈 My Performance — <span style={{ color: '#a78bfa' }}>{summary.name || 'My Stall'}</span>
               {summary.stall_number && <span style={{ color: '#64748b', fontSize: '0.85rem', marginLeft: '8px' }}>Stall #{summary.stall_number}</span>}
             </h3>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
               <input type="date" className="form-control" style={{ width: 'auto', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} value={performanceStartDate} onChange={(e) => setPerformanceStartDate(e.target.value)} />
               <span style={{ color: '#94a3b8' }}>to</span>
               <input type="date" className="form-control" style={{ width: 'auto', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} value={performanceEndDate} onChange={(e) => setPerformanceEndDate(e.target.value)} />
@@ -720,6 +726,7 @@ function StallInsights({ user }) {
     return (
       <div>
         <h3 style={{ color: '#e2e8f0', marginBottom: '15px' }}>📈 All Vendor Performance Analytics</h3>
+        <div className="responsive-scroll-x">
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'rgba(139,92,246,0.05)' }}>
@@ -746,34 +753,35 @@ function StallInsights({ user }) {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     );
   };
 
   return (
-    <div className="module-container" style={{ padding: '20px', color: '#e2e8f0' }}>
-      <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '20px', color: '#f8fafc' }}>
+    <div className="module-container module-shell" style={{ color: '#e2e8f0' }}>
+      <h2 style={{ fontSize: '1.4rem', fontWeight: 600, marginBottom: '16px', color: '#f8fafc' }}>
         Stall Insights
       </h2>
       
       {/* Sub-tab navigation */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>
-        <button onClick={() => setActiveSubTab('central_orders')} style={tabStyle('central_orders')}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%' }}>
+        <button onClick={() => setActiveSubTab('central_orders')} style={{ ...tabStyle('central_orders'), whiteSpace: 'nowrap', flexShrink: 0 }}>
           Central Orders
         </button>
-        <button onClick={() => setActiveSubTab('digital_receivables')} style={tabStyle('digital_receivables')}>
+        <button onClick={() => setActiveSubTab('digital_receivables')} style={{ ...tabStyle('digital_receivables'), whiteSpace: 'nowrap', flexShrink: 0 }}>
           Digital Receivables
         </button>
-        <button onClick={() => setActiveSubTab('common_expenses')} style={tabStyle('common_expenses')}>
+        <button onClick={() => setActiveSubTab('common_expenses')} style={{ ...tabStyle('common_expenses'), whiteSpace: 'nowrap', flexShrink: 0 }}>
           Common Expenses
         </button>
-        <button onClick={() => setActiveSubTab('my_performance')} style={tabStyle('my_performance')}>
+        <button onClick={() => setActiveSubTab('my_performance')} style={{ ...tabStyle('my_performance'), whiteSpace: 'nowrap', flexShrink: 0 }}>
           My Performance
         </button>
       </div>
 
       {/* Content Area */}
-      <div style={{ background: '#1e1e24', padding: '24px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ background: '#1e1e24', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', minWidth: 0, maxWidth: '100%' }}>
         {activeSubTab === 'central_orders' && renderCentralOrders()}
         {activeSubTab === 'digital_receivables' && renderDigitalReceivables()}
         {activeSubTab === 'common_expenses' && renderCommonExpenses()}

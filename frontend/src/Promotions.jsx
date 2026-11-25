@@ -260,7 +260,7 @@ function Promotions({ user, isFeaturePermitted }) {
       </div>
 
       {/* Sub-tab Navigation */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '22px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '12px' }}>
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '22px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '12px', flexWrap: 'wrap' }}>
         <button
           type="button"
           className={`btn ${activeSubTab === 'coupons' ? 'btn-primary' : 'btn-outline-primary'}`}
@@ -302,7 +302,7 @@ function Promotions({ user, isFeaturePermitted }) {
       {/* ========================================================= */}
       {activeSubTab === 'coupons' && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
             <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#f8fafc', margin: 0 }}>
               {user.vendor_id ? 'My Stall Promo Codes' : (isMultiVendor ? 'Central Food Court Promo Codes' : 'Canteen Promo Codes')}
             </h3>

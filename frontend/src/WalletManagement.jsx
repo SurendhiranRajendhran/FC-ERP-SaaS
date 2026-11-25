@@ -102,20 +102,20 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0f172a', padding: '24px 28px', fontFamily: "'Inter',sans-serif" }}>
-      <div style={{ marginBottom: 28 }}>
-        <h2 style={{ color: '#fff', fontSize: 26, fontWeight: 800, margin: '0 0 4px' }}>💳 RFID & Prepaid Wallets</h2>
+    <div className="module-shell" style={{ background: '#0f172a', fontFamily: "'Inter',sans-serif" }}>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 800, margin: '0 0 4px' }}>💳 RFID & Prepaid Wallets</h2>
         <p style={{ color: '#6b7280', fontSize: 14, margin: 0 }}>Issue RFID cards and recharge prepaid wallets.</p>
       </div>
 
       {msg && <div style={{ padding: '12px 16px', borderRadius: 8, background: msg.startsWith('✅') ? '#10b98122' : '#ef444422', color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 14, marginBottom: 16 }}>{msg}</div>}
 
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Search customer name or phone..." style={{ flex: 1, maxWidth: 400, padding: '10px 16px', background: '#1f2937', border: '1px solid #374151', borderRadius: 8, color: '#fff' }} />
-        <button onClick={() => setShowRegister(true)} style={{ padding: '10px 20px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>+ Register Customer</button>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Search customer name or phone..." style={{ flex: '1 1 200px', minWidth: 0, maxWidth: 400, padding: '10px 16px', background: '#1f2937', border: '1px solid #374151', borderRadius: 8, color: '#fff' }} />
+        <button onClick={() => setShowRegister(true)} style={{ padding: '10px 20px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>+ Register Customer</button>
       </div>
 
-      <div style={{ background: '#1f2937', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ background: '#1f2937', borderRadius: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: '#111827' }}>
@@ -145,8 +145,8 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
 
       {/* RFID Modal */}
       {showRfid && (
-        <div style={{ position: 'fixed', inset: 0, background: '#000000aa', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#1f2937', padding: 24, borderRadius: 12, width: 400 }}>
+        <div style={{ position: 'fixed', inset: 0, background: '#000000aa', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+          <div style={{ background: '#1f2937', padding: 24, borderRadius: 12, width: '100%', maxWidth: 400, maxHeight: '90vh', overflowY: 'auto' }}>
             <h3 style={{ color: '#fff', marginTop: 0 }}>Scan RFID Card</h3>
             <p style={{ color: '#9ca3af', fontSize: 13 }}>Click the input below and tap the card on the reader for <b>{selected.name}</b>.</p>
             <form onSubmit={handleAssignRfid}>
@@ -162,8 +162,8 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
 
       {/* Topup Modal */}
       {showTopup && (
-        <div style={{ position: 'fixed', inset: 0, background: '#000000aa', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#1f2937', padding: 24, borderRadius: 12, width: 400 }}>
+        <div style={{ position: 'fixed', inset: 0, background: '#000000aa', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+          <div style={{ background: '#1f2937', padding: 24, borderRadius: 12, width: '100%', maxWidth: 400, maxHeight: '90vh', overflowY: 'auto' }}>
             <h3 style={{ color: '#fff', marginTop: 0 }}>Prepaid Wallet Top-up</h3>
             <p style={{ color: '#9ca3af', fontSize: 13 }}>Adding funds to <b>{selected.name}</b>'s prepaid wallet.</p>
             
@@ -202,7 +202,7 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
       {/* Ledger Modal */}
       {showHistory && (
         <div style={{ position: 'fixed', inset: 0, background: '#000000aa', zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }}>
-          <div style={{ background: '#111827', width: 450, height: '100%', overflow: 'auto', padding: 24, borderLeft: '1px solid #374151' }}>
+          <div style={{ background: '#111827', width: '100%', maxWidth: 450, height: '100%', overflow: 'auto', padding: 20, borderLeft: '1px solid #374151', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
               <h3 style={{ color: '#fff', margin: 0 }}>📜 {selected?.name}'s Ledger</h3>
               <button onClick={() => setShowHistory(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: 20, cursor: 'pointer' }}>✕</button>
@@ -246,8 +246,8 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
     
       {/* Register Customer Modal */}
       {showRegister && (
-        <div style={{ position: 'fixed', inset: 0, background: '#000000aa', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#1f2937', padding: 24, borderRadius: 12, width: 400 }}>
+        <div style={{ position: 'fixed', inset: 0, background: '#000000aa', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+          <div style={{ background: '#1f2937', padding: 24, borderRadius: 12, width: '100%', maxWidth: 400, maxHeight: '90vh', overflowY: 'auto' }}>
             <h3 style={{ color: '#fff', marginTop: 0 }}>Register New Customer</h3>
             <form onSubmit={handleRegisterCustomer}>
               <div style={{ marginBottom: 16 }}>
@@ -266,12 +266,12 @@ export default function WalletManagement({ userRole, refreshCustomers }) {
                 <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Email (Optional)</label>
                 <input type="email" value={registerForm.email} onChange={e=>setRegisterForm(p=>({...p, email: e.target.value}))} style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box' }} />
               </div>
-              <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-                <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 150px', minWidth: 0 }}>
                   <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Initial Top-Up (₹)</label>
                   <input type="number" min="0" step="1" placeholder="e.g. 1000" value={registerForm.initial_topup} onChange={e=>setRegisterForm(p=>({...p, initial_topup: e.target.value}))} style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box' }} />
                 </div>
-                <div style={{ width: 110 }}>
+                <div style={{ flex: '1 1 110px', minWidth: 0 }}>
                   <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Payment Mode</label>
                   <select value={registerForm.payment_mode} onChange={e=>setRegisterForm(p=>({...p, payment_mode: e.target.value}))} style={{ width: '100%', padding: '10px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', boxSizing: 'border-box', outline: 'none' }}>
                     <option value="Cash">Cash</option>

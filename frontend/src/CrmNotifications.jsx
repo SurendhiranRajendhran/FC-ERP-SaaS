@@ -80,9 +80,9 @@ function OverviewTab({ isMultiVendor }) {
       </div>
 
       {/* Low stock + daily summary row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div className="crm-grid-2">
         {/* Low Stock */}
-        <div style={{ background: '#1f2937', borderRadius: 12, padding: 20 }}>
+        <div style={{ background: '#1f2937', borderRadius: 12, padding: 20, minWidth: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%' }}>
           <h3 style={{ color: '#ef4444', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}><span>⚠️</span> {isMultiVendor ? 'Central Canteen Low Stock' : 'Low Stock Ingredients'}</h3>
           <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 12px' }}>{isMultiVendor ? 'Ingredients in Central Canteen needing reorder (Stall stock is managed on Stall Dashboards)' : 'Ingredients needing reorder'}</p>
           {data?.low_stock_items?.length === 0
@@ -97,7 +97,7 @@ function OverviewTab({ isMultiVendor }) {
         </div>
 
         {/* Daily Summary */}
-        <div style={{ background: '#1f2937', borderRadius: 12, padding: 20 }}>
+        <div style={{ background: '#1f2937', borderRadius: 12, padding: 20, minWidth: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%' }}>
           <h3 style={{ color: '#10b981', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}><span>📊</span> {isMultiVendor ? 'Food Court Daily Summary' : 'Canteen Daily Summary'}</h3>
           <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 14px' }}>{isMultiVendor ? 'Send consolidated food court summary (total revenue, orders, cash, and stall breakdown) to owner.' : 'Send daily canteen summary (total revenue, orders, cash) to owner.'}</p>
           <button id="crm-send-daily-summary" onClick={sendSummary} disabled={summaryLoading} style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 700, cursor: 'pointer', width: '100%' }}>
@@ -108,7 +108,7 @@ function OverviewTab({ isMultiVendor }) {
       </div>
 
       {/* Recent notification logs */}
-      <div style={{ background: '#1f2937', borderRadius: 12, padding: 20 }}>
+      <div style={{ background: '#1f2937', borderRadius: 12, padding: 20, minWidth: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%' }}>
         <h3 style={{ color: '#d1d5db', margin: '0 0 12px' }}>🕐 Recent Notifications</h3>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
@@ -196,14 +196,14 @@ function LoyaltyTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Search customer name or phone..." style={{ flex: 1, padding: '10px 16px', background: '#1f2937', border: '1px solid #374151', borderRadius: 8, color: '#fff', fontSize: 14 }} />
         <span style={{ color: '#6b7280', fontSize: 13 }}>{total} customers</span>
       </div>
 
       {msg && <div style={{ padding: 12, borderRadius: 8, background: msg.startsWith('✅') ? '#10b98122' : '#ef444422', color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13 }}>{msg}</div>}
 
-      <div style={{ background: '#1f2937', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ background: '#1f2937', borderRadius: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: '#111827' }}>
@@ -238,8 +238,8 @@ function LoyaltyTab() {
 
       {/* Edit Customer Modal */}
       {edit.show && (
-        <div style={{ position: 'fixed', inset: 0, background: '#00000088', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#1f2937', borderRadius: 16, padding: 28, width: 440, border: '1px solid #374151' }}>
+        <div style={{ position: 'fixed', inset: 0, background: '#00000088', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+          <div style={{ background: '#1f2937', borderRadius: 16, padding: 20, width: '100%', maxWidth: 440, maxHeight: '90vh', overflowY: 'auto', border: '1px solid #374151', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h3 style={{ color: '#fff', margin: 0 }}>✏️ Edit Customer Profile</h3>
               <button onClick={() => setEdit({ show: false, data: {} })} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: 20, cursor: 'pointer' }}>✕</button>
@@ -249,7 +249,7 @@ function LoyaltyTab() {
                 <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Customer Name *</label>
                 <input value={edit.data.name} onChange={e => setEdit(p => ({ ...p, data: { ...p.data, name: e.target.value } }))} style={inputStyle} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div className="crm-grid-2">
                 <div>
                   <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Phone</label>
                   <input value={edit.data.phone} onChange={e => setEdit(p => ({ ...p, data: { ...p.data, phone: e.target.value } }))} placeholder="e.g. 9876543210" style={inputStyle} />
@@ -281,7 +281,7 @@ function LoyaltyTab() {
       {/* History drawer */}
       {selected && (
         <div style={{ position: 'fixed', inset: 0, background: '#00000088', zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }}>
-          <div style={{ background: '#111827', width: 400, height: '100%', overflow: 'auto', padding: 24 }}>
+          <div style={{ background: '#111827', width: '100%', maxWidth: 400, height: '100%', overflow: 'auto', padding: 20, boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h3 style={{ color: '#fff', margin: 0 }}>⭐ {selected.name}'s Points History</h3>
               <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: 20, cursor: 'pointer' }}>✕</button>
@@ -390,7 +390,7 @@ function BroadcastsTab() {
       {showForm && (
         <div style={{ background: '#1f2937', borderRadius: 12, padding: 24, border: '1px solid #374151' }}>
           <h4 style={{ color: '#fff', marginTop: 0 }}>Create Broadcast</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div className="crm-grid-2">
             <div>
               <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Campaign Name *</label>
               <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} style={{ width: '100%', padding: '10px 14px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box' }} />
@@ -425,7 +425,7 @@ function BroadcastsTab() {
         </div>
       )}
 
-      <div style={{ background: '#1f2937', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ background: '#1f2937', borderRadius: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: '#111827' }}>
@@ -465,8 +465,8 @@ function BroadcastsTab() {
 
       {/* Recipients report modal */}
       {recipients.show && (
-        <div style={{ position: 'fixed', inset: 0, background: '#00000088', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#1f2937', borderRadius: 16, padding: 24, width: 600, maxHeight: '80vh', overflow: 'auto' }}>
+        <div style={{ position: 'fixed', inset: 0, background: '#00000088', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+          <div style={{ background: '#1f2937', borderRadius: 16, padding: 20, width: '100%', maxWidth: 600, maxHeight: '85vh', overflowY: 'auto', overflowX: 'auto', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
               <h3 style={{ color: '#fff', margin: 0 }}>📊 Delivery Report: {recipients.campaignName}</h3>
               <button onClick={() => setRecipients({ show: false, data: [], campaignName: '' })} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: 20, cursor: 'pointer' }}>✕</button>
@@ -540,7 +540,7 @@ function FeedbackTab() {
         <span style={{ color: '#6b7280', fontSize: 13 }}>{total} records</span>
       </div>
 
-      <div style={{ background: '#1f2937', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ background: '#1f2937', borderRadius: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%' }}>
         <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
@@ -615,7 +615,7 @@ function LogsTab() {
         <span style={{ color: '#6b7280', fontSize: 13 }}>{total} records</span>
       </div>
 
-      <div style={{ background: '#1f2937', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ background: '#1f2937', borderRadius: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead><tr style={{ background: '#111827' }}>
             {['Date/Time','Type','Channel','Recipient','Message','Status'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 14px', color: '#6b7280', fontWeight: 600 }}>{h}</th>)}
@@ -730,7 +730,7 @@ function SettingsTab({ userRole, isMultiVendor }) {
       {testMsg && <div style={{ padding: 12, borderRadius: 8, background: testMsg.startsWith('✅') ? '#10b98122' : '#ef444422', color: testMsg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13, marginBottom: 16 }}>{testMsg}</div>}
 
       <Section title="Owner Alert Config" icon="👤">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div className="crm-grid-2">
           <Field label="Owner WhatsApp Number" k="owner_whatsapp" placeholder="+91XXXXXXXXXX" />
           <Field label="Owner Email" k="owner_email" placeholder="owner@example.com" />
           <div>
@@ -741,7 +741,7 @@ function SettingsTab({ userRole, isMultiVendor }) {
       </Section>
 
       <Section title="Loyalty Program" icon="⭐">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
+        <div className="crm-grid-3" style={{ marginBottom: 16 }}>
           <div>
             <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 4 }}>Points per ₹100 spent</label>
             <input type="number" step="0.5" value={settings.loyalty_points_per_100 || 1} onChange={e => setSettings(p => ({ ...p, loyalty_points_per_100: e.target.value }))} style={{ width: '100%', padding: '10px 14px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box' }} />
@@ -799,7 +799,7 @@ export default function CrmNotifications({ userRole, isFeaturePermitted }) {
   ].filter(t => !userRole || t.roles.includes(userRole));
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0f172a', padding: '24px 28px', fontFamily: "'Inter',sans-serif" }}>
+    <div className="module-shell" style={{ background: '#0f172a', fontFamily: "'Inter',sans-serif" }}>
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
         <h2 style={{ color: '#fff', fontSize: 26, fontWeight: 800, margin: '0 0 4px' }}>🔔 CRM & Notifications Engine</h2>
