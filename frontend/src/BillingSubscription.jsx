@@ -108,7 +108,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
           setQrDataUrl(qrUrl);
         }
       } else {
-        setQuoteError(data.error || 'Failed to calculate upgrade quote');
+        setQuoteError(data.error || 'Failed to calculate plan quote');
       }
     } catch (err) {
       setQuoteError('Network error while calculating quote');
@@ -856,7 +856,11 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
             </button>
 
             <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fff', margin: '0 0 6px 0' }}>
-              {quote?.type === 'renewal' ? 'Renew Subscription' : `Upgrade to ${targetPlan.name}`}
+              {quote?.type === 'renewal'
+                ? 'Renew Subscription'
+                : (quote?.type === 'downgrade' || quote?.type === 'plan_change' || (subStatus !== 'trial' && targetPlan.price_annual < currentPlanPrice))
+                  ? `Switch to ${targetPlan.name}`
+                  : `Upgrade to ${targetPlan.name}`}
             </h3>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0 0 20px 0' }}>
               Transparent Proration Engine: Deducting unused days value from your current plan.
@@ -924,72 +928,81 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                   </div>
                 </div>
 
-                {/* Dynamic UPI QR Section */}
-                <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '14px', padding: '20px', textAlign: 'center', marginBottom: '20px' }}>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    Scan with any UPI App (GPay, PhonePe, Paytm, BHIM)
-                  </span>
+                {Number(quote?.final_amount ?? 0) > 0 ? (
+                  <>
+                    {/* Dynamic UPI QR Section */}
+                    <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '14px', padding: '20px', textAlign: 'center', marginBottom: '20px' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Scan with any UPI App (GPay, PhonePe, Paytm, BHIM)
+                      </span>
 
-                  <div style={{ margin: '14px 0', display: 'flex', justifyContent: 'center' }}>
-                    {qrDataUrl ? (
-                      <div style={{ padding: '8px', background: '#fff', borderRadius: '12px', display: 'inline-block' }}>
-                        <img src={qrDataUrl} alt="UPI QR Code" style={{ width: '180px', height: '180px', display: 'block' }} />
+                      <div style={{ margin: '14px 0', display: 'flex', justifyContent: 'center' }}>
+                        {qrDataUrl ? (
+                          <div style={{ padding: '8px', background: '#fff', borderRadius: '12px', display: 'inline-block' }}>
+                            <img src={qrDataUrl} alt="UPI QR Code" style={{ width: '180px', height: '180px', display: 'block' }} />
+                          </div>
+                        ) : (
+                          <div style={{ width: '180px', height: '180px', background: '#334155', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                            Generating QR...
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <div style={{ width: '180px', height: '180px', background: '#334155', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
-                        Generating QR...
+
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(0, 0, 0, 0.3)', padding: '6px 14px', borderRadius: '20px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>UPI ID:</span>
+                        <strong style={{ fontSize: '0.88rem', color: '#60a5fa' }}>{subscriptionInfo?.merchant_upi?.upi_id || 'info@radinfotec.com'}</strong>
+                        <button
+                          onClick={copyUpiId}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: copiedUpi ? '#34d399' : '#94a3b8',
+                            cursor: 'pointer',
+                            fontSize: '0.78rem',
+                            padding: '2px 6px',
+                            textDecoration: 'underline'
+                          }}
+                        >
+                          {copiedUpi ? 'Copied!' : 'Copy'}
+                        </button>
                       </div>
-                    )}
-                  </div>
+                    </div>
 
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(0, 0, 0, 0.3)', padding: '6px 14px', borderRadius: '20px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>UPI ID:</span>
-                    <strong style={{ fontSize: '0.88rem', color: '#60a5fa' }}>{subscriptionInfo?.merchant_upi?.upi_id || 'info@radinfotec.com'}</strong>
-                    <button
-                      onClick={copyUpiId}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: copiedUpi ? '#34d399' : '#94a3b8',
-                        cursor: 'pointer',
-                        fontSize: '0.78rem',
-                        padding: '2px 6px',
-                        textDecoration: 'underline'
-                      }}
-                    >
-                      {copiedUpi ? 'Copied!' : 'Copy'}
-                    </button>
+                    {/* UTR Input Section */}
+                    <div style={{ marginBottom: '20px' }}>
+                      <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
+                        Enter 12-Digit Bank UTR / Transaction Reference ID:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 432156789012"
+                        value={paymentReference}
+                        onChange={(e) => setPaymentReference(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '12px 14px',
+                          background: 'rgba(0, 0, 0, 0.4)',
+                          border: '1px solid rgba(255, 255, 255, 0.15)',
+                          borderRadius: '8px',
+                          color: '#fff',
+                          fontSize: '0.95rem',
+                          fontFamily: 'monospace',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.35)', borderRadius: '12px', padding: '16px', marginBottom: '20px', color: '#a7f3d0', fontSize: '0.88rem', lineHeight: 1.5 }}>
+                    ✓ Your unused days&apos; prorated credit covers 100% of {targetPlan.name} ({formatCurrency(quote?.base_amount)}). No bank transfer or UTR reference is required.
                   </div>
-                </div>
+                )}
 
-                {/* UTR Input Section */}
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
-                    Enter 12-Digit Bank UTR / Transaction Reference ID:
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 432156789012"
-                    value={paymentReference}
-                    onChange={(e) => setPaymentReference(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '12px 14px',
-                      background: 'rgba(0, 0, 0, 0.4)',
-                      border: '1px solid rgba(255, 255, 255, 0.15)',
-                      borderRadius: '8px',
-                      color: '#fff',
-                      fontSize: '0.95rem',
-                      fontFamily: 'monospace',
-                      boxSizing: 'border-box'
-                    }}
-                  />
-                  {paymentError && (
-                    <p style={{ color: '#f87171', fontSize: '0.8rem', marginTop: '6px', marginBottom: 0 }}>
-                      {paymentError}
-                    </p>
-                  )}
-                </div>
+                {paymentError && (
+                  <p style={{ color: '#f87171', fontSize: '0.8rem', marginTop: 0, marginBottom: '12px' }}>
+                    {paymentError}
+                  </p>
+                )}
 
                 {/* Action Buttons */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -1009,7 +1022,11 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                       boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)'
                     }}
                   >
-                    {submittingPayment ? 'Submitting Reference...' : 'Submit Payment for Admin Verification'}
+                    {submittingPayment
+                      ? 'Submitting Reference...'
+                      : Number(quote?.final_amount ?? 0) === 0
+                        ? `Confirm Switch to ${targetPlan.name} (₹0 Due)`
+                        : 'Submit Payment for Admin Verification'}
                   </button>
                 </div>
               </div>
@@ -1087,7 +1104,11 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
               </div>
               <div>
                 <span style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Payment Method:</span>
-                <p style={{ margin: '2px 0 0', fontWeight: 600 }}>UPI (UTR: {viewingReceipt.payment_reference || 'N/A'})</p>
+                <p style={{ margin: '2px 0 0', fontWeight: 600 }}>
+                  {viewingReceipt.payment_reference === 'PRORATED-CREDIT'
+                    ? 'Prorated Plan Credit (₹0 Payable)'
+                    : `UPI (UTR: ${viewingReceipt.payment_reference || 'N/A'})`}
+                </p>
                 <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>Status: {viewingReceipt.status.toUpperCase()}</p>
               </div>
             </div>

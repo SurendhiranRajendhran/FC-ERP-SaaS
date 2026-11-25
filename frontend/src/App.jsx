@@ -2140,7 +2140,7 @@ function SuperAdminDashboard({ user, onLogout }) {
                                 </span>
                                 {inv.from_plan && inv.from_plan !== inv.to_plan && (
                                   <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '3px' }}>
-                                    Upgraded from {inv.from_plan}
+                                    {inv.type === 'upgrade' ? 'Upgraded from' : inv.type === 'downgrade' ? 'Downgraded from' : 'Switched from'} {inv.from_plan}
                                   </div>
                                 )}
                               </td>

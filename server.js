@@ -858,7 +858,7 @@ async function runStartupMigrations() {
       console.log("Migration: Created payment_transactions table.");
     }
 
-    // 20. Ensure subscription_invoices table exists for plan upgrades, renewals & payments
+    // 20. Ensure subscription_invoices table exists and supports all plan change types
     const [siTables] = await conn.query("SHOW TABLES LIKE 'subscription_invoices'");
     if (siTables.length === 0) {
       await conn.query(`
@@ -866,7 +866,7 @@ async function runStartupMigrations() {
           id INT AUTO_INCREMENT PRIMARY KEY,
           invoice_number VARCHAR(50) NOT NULL UNIQUE,
           tenant_id INT NOT NULL,
-          type ENUM('trial_conversion', 'upgrade', 'renewal') NOT NULL DEFAULT 'upgrade',
+          type ENUM('trial_conversion', 'upgrade', 'downgrade', 'plan_change', 'renewal') NOT NULL DEFAULT 'upgrade',
           from_plan VARCHAR(50) NULL DEFAULT NULL,
           to_plan VARCHAR(50) NOT NULL,
           duration_days INT NOT NULL DEFAULT 365,
@@ -888,6 +888,15 @@ async function runStartupMigrations() {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
       console.log("Migration: Created subscription_invoices table.");
+    } else {
+      const [siTypeCols] = await conn.query("SHOW COLUMNS FROM subscription_invoices LIKE 'type'");
+      const typeDef = (siTypeCols[0]?.Type || '').toLowerCase();
+      if (!typeDef.includes("'downgrade'") || !typeDef.includes("'plan_change'")) {
+        await conn.query(
+          "ALTER TABLE subscription_invoices MODIFY COLUMN type ENUM('trial_conversion', 'upgrade', 'downgrade', 'plan_change', 'renewal') NOT NULL DEFAULT 'upgrade'"
+        );
+        console.log("Migration: Updated subscription_invoices.type ENUM to support downgrade and plan_change.");
+      }
     }
 
     // 21. Ensure orders table tracks staff_meal_mode ('allowance' vs 'salary') at order time
@@ -11351,7 +11360,9 @@ function calculateSubscriptionQuote(currentPlan, currentStatus, currentExpiresAt
 
   // 1. If currently on 7-Day Free Trial or Expired: No proration credit, 100% full annual price
   if (isTrial || isExpired) {
-    const quoteType = isTrial ? 'trial_conversion' : 'renewal';
+    const quoteType = isTrial
+      ? 'trial_conversion'
+      : (toPlan === currentPlan ? 'renewal' : (targetPrice > currentPrice ? 'upgrade' : targetPrice < currentPrice ? 'downgrade' : 'plan_change'));
     return {
       from_plan: currentPlan,
       to_plan: toPlan,
@@ -11421,7 +11432,7 @@ function calculateSubscriptionQuote(currentPlan, currentStatus, currentExpiresAt
   // Deduct remaining days value from current plan as credit against new plan; starts a fresh full 365-day cycle.
   const proratedCredit = Math.min(targetPrice, unusedCredit);
   const finalPayable = Math.max(0, targetPrice - proratedCredit);
-  const quoteType = targetPrice > currentPrice ? 'upgrade' : 'plan_change';
+  const quoteType = targetPrice > currentPrice ? 'upgrade' : targetPrice < currentPrice ? 'downgrade' : 'plan_change';
 
   return {
     from_plan: currentPlan,
@@ -11697,9 +11708,6 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
     }
 
     const cleanRef = String(payment_reference || '').trim();
-    if (!cleanRef || cleanRef.length < 4) {
-      return res.status(400).json({ error: 'Please enter a valid Bank UTR / Transaction Reference Number (minimum 4 characters).' });
-    }
 
     const [rows] = await conn.query(
       'SELECT id, name, plan_name, subscription_status, subscription_expires_at FROM tenants WHERE id = ?',
@@ -11738,6 +11746,14 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
 
     const quote = calculateSubscriptionQuote(t.plan_name || 'Food Court', t.subscription_status || 'active', t.subscription_expires_at, targetPlan);
 
+    if (Number(quote.final_amount) > 0 && (!cleanRef || cleanRef.length < 4)) {
+      return res.status(400).json({ error: 'Please enter a valid Bank UTR / Transaction Reference Number (minimum 4 characters).' });
+    }
+
+    const VALID_INVOICE_TYPES = new Set(['trial_conversion', 'upgrade', 'downgrade', 'plan_change', 'renewal']);
+    const invoiceType = VALID_INVOICE_TYPES.has(quote.type) ? quote.type : 'plan_change';
+    const effectiveRef = cleanRef || 'PRORATED-CREDIT';
+
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const randSuffix = Math.floor(1000 + Math.random() * 9000);
     const finalInvoiceNumber = (invoice_number && invoice_number.startsWith('INV-')) ? invoice_number : `INV-${dateStr}-T${tenantId}-${randSuffix}`;
@@ -11754,7 +11770,7 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
             status = 'pending',
             updated_at = NOW()
         WHERE id = ? AND tenant_id = ?
-      `, [cleanRef, invoice_id, tenantId]);
+      `, [effectiveRef, invoice_id, tenantId]);
     } else {
       // Deferred creation flow: Insert invoice ONLY NOW upon payment submission
       const [insResult] = await conn.query(`
@@ -11764,14 +11780,14 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
       `, [
         finalInvoiceNumber,
         tenantId,
-        quote.type,
+        invoiceType,
         quote.from_plan,
         quote.to_plan,
         quote.duration_days,
         quote.base_amount,
         quote.prorated_credit,
         quote.final_amount,
-        cleanRef,
+        effectiveRef,
         req.user.id || null
       ]);
       finalInvoiceId = insResult.insertId;
@@ -11799,13 +11815,14 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
       await conn.commit();
       tenantPlanCache.delete(tenantId);
 
+      const actionVerb = invoiceType === 'upgrade' ? 'upgraded' : invoiceType === 'downgrade' ? 'downgraded' : invoiceType === 'renewal' ? 'renewed' : 'switched';
       return res.json({
         success: true,
         activated: true,
         invoice_id: finalInvoiceId,
         invoice_number: finalInvoiceNumber,
         new_plan: quote.to_plan,
-        message: `Plan upgraded successfully to ${quote.to_plan} for 365 days.`
+        message: `Plan ${actionVerb} successfully to ${quote.to_plan} for ${quote.duration_days || 365} days.`
       });
     }
 
@@ -11927,9 +11944,10 @@ app.put('/api/superadmin/subscription-invoices/:id/review', authenticateToken, a
       await conn.commit();
       tenantPlanCache.delete(inv.tenant_id);
 
+      const actionVerb = inv.type === 'upgrade' ? 'upgraded' : inv.type === 'downgrade' ? 'downgraded' : inv.type === 'renewal' ? 'renewed' : 'switched';
       return res.json({
         success: true,
-        message: `Invoice #${inv.invoice_number} approved! Tenant #${inv.tenant_id} upgraded to ${inv.to_plan} for ${days} days.`
+        message: `Invoice #${inv.invoice_number} approved! Tenant #${inv.tenant_id} ${actionVerb} to ${inv.to_plan} for ${days} days.`
       });
     } else {
       // Reject action
