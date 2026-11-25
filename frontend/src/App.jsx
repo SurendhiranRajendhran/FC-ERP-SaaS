@@ -112,7 +112,7 @@ function StaffMealLedgerModal({ staffId, staffName, token, onClose }) {
           ) : (
             <div>
               {/* Summary KPIs */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))', gap: '10px', marginBottom: '16px' }}>
                 <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Monthly Limit</div>
                   <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '2px' }}>₹{summary.limit.toFixed(2)}</div>
@@ -134,9 +134,9 @@ function StaffMealLedgerModal({ staffId, staffName, token, onClose }) {
                 </div>
 
                 <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Used This Period</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Allowance Used</div>
                   <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f59e0b', marginTop: '2px' }}>₹{summary.used.toFixed(2)}</div>
-                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>Since {summary.period_start ? formatISTDate(summary.period_start) : 'N/A'}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>Active since {summary.period_start ? formatISTDate(summary.period_start) : 'N/A'}</div>
                 </div>
 
                 <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
@@ -144,7 +144,21 @@ function StaffMealLedgerModal({ staffId, staffName, token, onClose }) {
                   <div style={{ fontSize: '1.05rem', fontWeight: 700, color: summary.remaining > 0 ? '#10b981' : '#ef4444', marginTop: '2px' }}>
                     ₹{summary.remaining.toFixed(2)}
                   </div>
-                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>Available balance</div>
+                  <div style={{ fontSize: '0.68rem', color: summary.exceeded > 0 ? '#ef4444' : 'var(--text-muted)', marginTop: '2px' }}>
+                    {summary.allowance_suspended ? 'Paused' : summary.exceeded > 0 ? `Exceeded by ₹${summary.exceeded.toFixed(2)}` : 'Available balance'}
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Salary Deduct</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: ((summary.salary_billed || 0) + (summary.exceeded || 0)) > 0 ? '#ef4444' : 'var(--text-main)', marginTop: '2px' }}>
+                    ₹{((summary.salary_billed || 0) + (summary.exceeded || 0)).toFixed(2)}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {(summary.salary_billed || 0) > 0 || (summary.exceeded || 0) > 0
+                      ? `Paused: ₹${(summary.salary_billed || 0).toFixed(0)} · Excess: ₹${(summary.exceeded || 0).toFixed(0)}`
+                      : 'No deduction this month'}
+                  </div>
                 </div>
               </div>
 
@@ -214,13 +228,24 @@ function StaffMealLedgerModal({ staffId, staffName, token, onClose }) {
                             {formatISTDateTime(item.timestamp)}
                           </td>
                           <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
-                            <span style={{
-                              padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600,
-                              background: item.event_type === 'Order' ? 'rgba(59, 130, 246, 0.12)' : item.event_type === 'Allowance Top-Up' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(148, 163, 184, 0.15)',
-                              color: item.event_type === 'Order' ? '#3b82f6' : item.event_type === 'Allowance Top-Up' ? '#10b981' : '#94a3b8'
-                            }}>
-                              {item.event_type === 'Order' ? '🍽️ Meal Order' : item.event_type === 'Allowance Top-Up' ? '➕ Top-Up' : '↺ Reset'}
-                            </span>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '3px' }}>
+                              <span style={{
+                                padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600,
+                                background: item.event_type === 'Order' ? 'rgba(59, 130, 246, 0.12)' : item.event_type === 'Allowance Top-Up' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(148, 163, 184, 0.15)',
+                                color: item.event_type === 'Order' ? '#3b82f6' : item.event_type === 'Allowance Top-Up' ? '#10b981' : '#94a3b8'
+                              }}>
+                                {item.event_type === 'Order' ? '🍽️ Meal Order' : item.event_type === 'Allowance Top-Up' ? '➕ Top-Up' : '↺ Reset'}
+                              </span>
+                              {item.event_type === 'Order' && (
+                                <span style={{
+                                  padding: '1px 5px', borderRadius: '3px', fontSize: '0.64rem', fontWeight: 600,
+                                  background: item.billing_mode === 'salary' ? 'rgba(239, 68, 68, 0.14)' : 'rgba(16, 185, 129, 0.12)',
+                                  color: item.billing_mode === 'salary' ? '#ef4444' : '#10b981'
+                                }}>
+                                  {item.billing_mode === 'salary' ? '💰 Salary Deduct' : '✓ Allowance'}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td style={{ padding: '8px 10px' }}>
                             <div style={{ fontWeight: 500 }}>{item.title}</div>
@@ -488,6 +513,7 @@ function MealAllowanceWidget({ staffId, staffName, limit, autoReset, mealActive,
         ) : (
           <span style={{ color: pct >= 100 ? '#dc3545' : 'inherit' }}>
             ₹{data.remaining.toFixed(2)} remaining of ₹{data.total_allowance.toFixed(2)}
+            {data.exceeded > 0 && <strong style={{ color: '#ef4444', marginLeft: '4px' }}>(Exceeded: ₹{data.exceeded.toFixed(2)})</strong>}
           </span>
         )}
       </div>
@@ -497,8 +523,8 @@ function MealAllowanceWidget({ staffId, staffName, limit, autoReset, mealActive,
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
         <span style={{ fontSize: '0.7rem', color: isSuspended ? '#ef4444' : 'var(--text-muted, #94a3b8)' }}>
           {isSuspended 
-            ? `Allowance suspended (Limit: ₹${data.limit.toFixed(0)})` 
-            : `${autoReset ? 'Resets 1st of month' : 'Manual reset only'}${data.additional > 0 ? ` (Base: ₹${data.limit.toFixed(0)} + ₹${data.additional.toFixed(0)} extra)` : ''}`
+            ? `Allowance suspended (Limit: ₹${data.limit.toFixed(0)})${data.salary_billed > 0 ? ` · Salary deduct: ₹${data.salary_billed.toFixed(0)}` : ''}` 
+            : `${autoReset ? 'Resets 1st of month' : 'Manual reset only'}${data.additional > 0 ? ` (Base: ₹${data.limit.toFixed(0)} + ₹${data.additional.toFixed(0)} extra)` : ''}${data.salary_billed > 0 ? ` · Paused meals to salary: ₹${data.salary_billed.toFixed(0)}` : ''}`
           }
         </span>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -7318,9 +7344,10 @@ function App() {
         showToast(`Staff Meal applied for ${staffMember.name}. No meal allowance assigned — ₹${cartSubtotal.toFixed(2)} will be deducted from salary.`, 'info');
       } else if (usageData.allowance_suspended) {
         showToast(`Staff Meal applied for ${staffMember.name}. Meal allowance is suspended — ₹${cartSubtotal.toFixed(2)} will be deducted from salary.`, 'warning');
-      } else if (cartSubtotal > usageData.remaining) {
-        const excess = cartSubtotal - usageData.remaining;
-        showToast(`Staff Meal allowance exceeded for ${staffMember.name}. Remaining: ₹${usageData.remaining.toFixed(2)}. The excess amount (₹${excess.toFixed(2)}) will be deferred to payroll.`, 'warning');
+      } else if (cartSubtotal > Math.max(0, usageData.remaining || 0)) {
+        const effectiveRemaining = Math.max(0, usageData.remaining || 0);
+        const excess = cartSubtotal - effectiveRemaining;
+        showToast(`Staff Meal allowance exceeded for ${staffMember.name}. Remaining: ₹${effectiveRemaining.toFixed(2)}. The excess amount (₹${excess.toFixed(2)}) will be deferred to payroll.`, 'warning');
       } else {
         showToast(`Staff Meal applied for ${staffMember.name}`, 'success');
       }
@@ -7335,7 +7362,6 @@ function App() {
     setDiscountAmount(cartSubtotal);
     setDiscountReference(`Staff Meal: ${staffMember.name} (ID: ${staffMember.id})`);
     setSelectedStaffId(staffId);
-    showToast(`Staff Meal applied for ${staffMember.name}`, 'success');
   };
 
   const handleApplyLoyaltyRedemption = () => {

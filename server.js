@@ -890,6 +890,22 @@ async function runStartupMigrations() {
       console.log("Migration: Created subscription_invoices table.");
     }
 
+    // 21. Ensure orders table tracks staff_meal_mode ('allowance' vs 'salary') at order time
+    const [smModeCols] = await conn.query("SHOW COLUMNS FROM orders LIKE 'staff_meal_mode'");
+    if (smModeCols.length === 0) {
+      await conn.query("ALTER TABLE orders ADD COLUMN staff_meal_mode ENUM('allowance', 'salary') NULL DEFAULT NULL");
+      await conn.query(`
+        UPDATE orders o
+        JOIN staff s ON o.customer_staff_id = s.id
+        SET o.staff_meal_mode = CASE
+          WHEN s.staff_meal_enabled = 1 AND s.staff_meal_active = 1 THEN 'allowance'
+          ELSE 'salary'
+        END
+        WHERE o.discount_type = 'StaffMeal' AND o.staff_meal_mode IS NULL
+      `);
+      console.log("Migration: Added staff_meal_mode column to orders table and backfilled existing StaffMeal orders.");
+    }
+
     conn.release();
   } catch (err) {
     console.error("Migration error on startup:", err.message);
@@ -2755,45 +2771,46 @@ async function calculateStaffMealUsage(db, staffId) {
   let periodStart;
   let resetId = 0;
 
-  // When meal allowance is not assigned or is suspended
-  if (!isMealEnabled || !isMealActive) {
-    periodStart = staff.staff_meal_allocated_at || staff.created_at || monthStart;
+  // Query direct salary-billed meals in the current calendar month (orders placed while paused or unassigned)
+  const [salaryRows] = await db.query(`
+    SELECT IFNULL(SUM(oi.quantity * oi.price), 0) as salary_billed
+    FROM orders o
+    JOIN order_items oi ON o.id = oi.order_id
+    WHERE o.customer_staff_id = ?
+      AND o.discount_type = 'StaffMeal'
+      AND o.staff_meal_mode = 'salary'
+      AND o.order_date >= ?
+      AND o.status != 'Cancelled'
+  `, [staffId, monthStart]);
+  const salaryBilled = parseFloat(salaryRows[0].salary_billed || 0);
 
-    // Calculate usage in current calendar month for reporting
-    const [usageRows] = await db.query(`
-      SELECT IFNULL(SUM(oi.quantity * oi.price), 0) as used
-      FROM orders o
-      JOIN order_items oi ON o.id = oi.order_id
-      WHERE o.customer_staff_id = ?
-        AND o.discount_type = 'StaffMeal'
-        AND o.order_date >= ?
-        AND o.status != 'Cancelled'
-    `, [staffId, monthStart]);
-
-    const used = parseFloat(usageRows[0].used || 0);
+  // When meal allowance is not assigned at all
+  if (!isMealEnabled) {
     return {
       staff,
-      limit: rawLimit,
+      limit: 0,
       auto_reset: autoReset,
-      period_start: periodStart,
-      used,
+      period_start: monthStart,
+      used: 0,
+      salary_billed: salaryBilled,
+      exceeded: 0,
       additional: 0,
       total_allowance: 0,
       remaining: 0,
       unlimited: false,
-      staff_meal_enabled: isMealEnabled,
+      staff_meal_enabled: false,
       staff_meal_active: isMealActive,
-      allowance_suspended: isMealEnabled && !isMealActive,
+      allowance_suspended: false,
       has_allowance: false
     };
   }
 
   const limit = rawLimit;
+  const mStartTime = new Date(monthStart);
 
   if (autoReset) {
     if (resetLogs.length > 0) {
       const resetTime = new Date(resetLogs[0].created_at);
-      const mStartTime = new Date(monthStart);
       if (resetTime >= mStartTime) {
         periodStart = resetLogs[0].created_at;
         resetId = resetLogs[0].id;
@@ -2801,8 +2818,11 @@ async function calculateStaffMealUsage(db, staffId) {
         periodStart = monthStart;
         resetId = 0;
       }
+    } else if (staff.staff_meal_allocated_at && new Date(staff.staff_meal_allocated_at) >= mStartTime) {
+      periodStart = staff.staff_meal_allocated_at;
+      resetId = 0;
     } else {
-      periodStart = staff.staff_meal_allocated_at || monthStart;
+      periodStart = monthStart;
       resetId = 0;
     }
   } else {
@@ -2827,19 +2847,21 @@ async function calculateStaffMealUsage(db, staffId) {
   const additional = parseFloat(additionalLogs[0].extra || 0);
   const totalAllowance = limit + additional;
 
-  // Calculate used allowance in this period from active StaffMeal orders
+  // Calculate used allowance strictly from 'allowance'-mode StaffMeal orders (excludes 'salary' orders placed while paused/unassigned)
   const [usageRows] = await db.query(`
     SELECT IFNULL(SUM(oi.quantity * oi.price), 0) as used
     FROM orders o
     JOIN order_items oi ON o.id = oi.order_id
     WHERE o.customer_staff_id = ?
       AND o.discount_type = 'StaffMeal'
+      AND (o.staff_meal_mode = 'allowance' OR o.staff_meal_mode IS NULL)
       AND o.order_date >= ?
       AND o.status != 'Cancelled'
   `, [staffId, periodStart]);
 
   const used = parseFloat(usageRows[0].used || 0);
-  const remaining = totalAllowance - used;
+  const exceeded = Math.max(0, used - totalAllowance);
+  const remaining = isMealActive ? Math.max(0, totalAllowance - used) : 0;
 
   return {
     staff,
@@ -2847,14 +2869,16 @@ async function calculateStaffMealUsage(db, staffId) {
     auto_reset: autoReset,
     period_start: periodStart,
     used,
+    salary_billed: salaryBilled,
+    exceeded,
     additional,
     total_allowance: totalAllowance,
     remaining,
     unlimited: false,
     staff_meal_enabled: true,
-    staff_meal_active: true,
-    allowance_suspended: false,
-    has_allowance: true
+    staff_meal_active: isMealActive,
+    allowance_suspended: !isMealActive,
+    has_allowance: isMealActive
   };
 }
 
@@ -2902,6 +2926,7 @@ app.post('/api/orders', async (req, res) => {
   try {
     await connection.beginTransaction();
 
+    let staffMealMode = null;
     if (discount_type === 'StaffMeal' && customer_staff_id) {
       const [staffCheck] = await connection.query('SELECT vendor_id FROM staff WHERE id = ?', [customer_staff_id]);
       if (staffCheck.length === 0) {
@@ -2919,22 +2944,11 @@ app.post('/api/orders', async (req, res) => {
         }
       }
 
-      // Staff Meal limit enforcement
+      // Snapshot whether Staff Meal order is covered by active allowance or billed directly to salary (paused / unassigned)
       const usageData = await calculateStaffMealUsage(connection, customer_staff_id);
-      if (usageData && !usageData.unlimited) {
-        let orderSubtotal = 0;
-        for (const oi of orderItems) {
-          const [ir] = await connection.query('SELECT price, special_price, is_special FROM items WHERE id = ?', [oi.item_id]);
-          if (ir.length > 0) {
-            const p = (ir[0].is_special && ir[0].special_price != null) ? parseFloat(ir[0].special_price) : parseFloat(ir[0].price);
-            orderSubtotal += p * parseInt(oi.quantity);
-          }
-        }
-        // Removed hard block: Excess meal cost will now be deducted from their net salary during payroll.
-        // if (orderSubtotal > usageData.remaining) {
-        //   throw new Error(...);
-        // }
-      }
+      staffMealMode = (usageData && usageData.staff_meal_enabled && usageData.staff_meal_active)
+        ? 'allowance'
+        : 'salary';
     }
 
     // 1. Calculate order total & tax and double-check menu item validity
@@ -3096,8 +3110,8 @@ app.post('/api/orders', async (req, res) => {
 
     // 4. Write order headers
     const [orderResult] = await connection.query(
-      'INSERT INTO orders (token_number, total_amount, gst_amount, payment_mode, status, discount_type, discount_value, discount_amount, discount_reference, payment_details, customer_id, billing_staff_id, is_upsold, order_source, customer_name, customer_phone, pickup_slot, customer_staff_id) VALUES (?, ?, ?, ?, "Pending", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [tokenNumber, finalPayable, gstTotal, payment_mode, discount_type, parseFloat(discount_value), parseFloat(discount_amount), discount_reference, paymentDetailsStr, customer_id ? parseInt(customer_id) : null, billing_staff_id ? parseInt(billing_staff_id) : null, is_upsold ? 1 : 0, order_source, customer_name, customer_phone, pickup_slot, customer_staff_id ? parseInt(customer_staff_id) : null]
+      'INSERT INTO orders (token_number, total_amount, gst_amount, payment_mode, status, discount_type, discount_value, discount_amount, discount_reference, payment_details, customer_id, billing_staff_id, is_upsold, order_source, customer_name, customer_phone, pickup_slot, customer_staff_id, staff_meal_mode) VALUES (?, ?, ?, ?, "Pending", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [tokenNumber, finalPayable, gstTotal, payment_mode, discount_type, parseFloat(discount_value), parseFloat(discount_amount), discount_reference, paymentDetailsStr, customer_id ? parseInt(customer_id) : null, billing_staff_id ? parseInt(billing_staff_id) : null, is_upsold ? 1 : 0, order_source, customer_name, customer_phone, pickup_slot, customer_staff_id ? parseInt(customer_staff_id) : null, staffMealMode]
     );
     const orderId = orderResult.insertId;
 
@@ -5150,6 +5164,8 @@ app.get('/api/staff/:id/meal-usage', async (req, res) => {
       auto_reset: usageData.auto_reset,
       period_start: usageData.period_start,
       used: usageData.used,
+      salary_billed: usageData.salary_billed,
+      exceeded: usageData.exceeded,
       additional: usageData.additional,
       total_allowance: usageData.total_allowance,
       remaining: usageData.remaining,
@@ -5184,6 +5200,7 @@ app.get('/api/staff/:id/meal-ledger', async (req, res) => {
         o.token_number,
         o.order_date,
         o.status,
+        o.staff_meal_mode,
         bs.name as cashier_name,
         GROUP_CONCAT(CONCAT(i.name, ' x', oi.quantity) SEPARATOR ', ') as items_description,
         IFNULL(SUM(oi.quantity * oi.price), 0) as total_cost
@@ -5217,6 +5234,7 @@ app.get('/api/staff/:id/meal-ledger', async (req, res) => {
         id: `ord-${o.id}`,
         timestamp: o.order_date,
         event_type: 'Order',
+        billing_mode: o.staff_meal_mode || 'allowance',
         title: `Meal Order (${o.token_number})`,
         description: o.items_description || 'Staff meal items',
         amount: -parseFloat(o.total_cost),
@@ -5243,6 +5261,8 @@ app.get('/api/staff/:id/meal-ledger', async (req, res) => {
         auto_reset: usageData.auto_reset,
         period_start: usageData.period_start,
         used: usageData.used,
+        salary_billed: usageData.salary_billed,
+        exceeded: usageData.exceeded,
         additional: usageData.additional,
         total_allowance: usageData.total_allowance,
         remaining: usageData.remaining,
@@ -5283,8 +5303,8 @@ app.post('/api/staff/:id/meal-adjustment', async (req, res) => {
     }
 
     await pool.query(
-      'INSERT INTO staff_meal_adjustments (staff_id, type, amount, note, created_by) VALUES (?, ?, ?, ?, ?)',
-      [id, type, type === 'additional' ? (amount || 0) : 0, note || null, req.user.id || null]
+      'INSERT INTO staff_meal_adjustments (staff_id, type, amount, note, created_by, tenant_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, type, type === 'additional' ? (amount || 0) : 0, note || null, req.user.id || null, req.user.tenant_id || null]
     );
     res.json({ success: true });
   } catch (error) {
@@ -5438,11 +5458,11 @@ app.put('/api/staff/:id', async (req, res) => {
     const prevEnabled = s.staff_meal_enabled === 1;
     const updateMealEnabled = staff_meal_enabled !== undefined ? (staff_meal_enabled ? 1 : 0) : (s.staff_meal_enabled || 0);
     const updateMealActive = staff_meal_active !== undefined ? (staff_meal_active ? 1 : 0) : (s.staff_meal_active !== undefined ? s.staff_meal_active : 1);
-    const updateMealLimit = updateMealEnabled ? (staff_meal_limit !== undefined ? parseFloat(staff_meal_limit || 0) : parseFloat(s.staff_meal_limit || 0)) : 0;
+    const updateMealLimit = updateMealEnabled ? (staff_meal_limit !== undefined ? parseFloat(staff_meal_limit || 0) : parseFloat(s.staff_meal_limit || 0)) : parseFloat(s.staff_meal_limit || 0);
     const updateMealAutoReset = staff_meal_auto_reset !== undefined ? (staff_meal_auto_reset ? 1 : 0) : s.staff_meal_auto_reset;
 
     let updateMealAllocatedAt = s.staff_meal_allocated_at;
-    if (!prevEnabled && updateMealEnabled && !updateMealAllocatedAt) {
+    if (!prevEnabled && updateMealEnabled) {
       updateMealAllocatedAt = new Date();
     }
 
@@ -5464,10 +5484,10 @@ app.put('/api/staff/:id', async (req, res) => {
 
     if (updateMealEnabled && updateMealLimit > 0) {
       const [resets] = await pool.query('SELECT id FROM staff_meal_adjustments WHERE staff_id = ? AND type = "reset" LIMIT 1', [id]);
-      if (resets.length === 0) {
+      if (resets.length === 0 || !prevEnabled) {
         await pool.query(
-          'INSERT INTO staff_meal_adjustments (staff_id, type, amount, note, created_by, tenant_id) VALUES (?, "reset", 0, "Initial meal allowance assigned", ?, ?)',
-          [id, req.user.id || null, req.user.tenant_id || null]
+          'INSERT INTO staff_meal_adjustments (staff_id, type, amount, note, created_by, tenant_id) VALUES (?, "reset", 0, ?, ?, ?)',
+          [id, resets.length === 0 ? 'Initial meal allowance assigned' : 'Meal allowance re-assigned', req.user.id || null, req.user.tenant_id || null]
         );
       }
     }
@@ -6544,9 +6564,11 @@ app.post('/api/payroll/generate', async (req, res) => {
       // TDS deduction (configured percentage)
       const tdsDeduction = grossSalary * (parseFloat(staff.tds_percentage || 0) / 100);
 
-      // Meal deductions from orders and order_items
+      // Meal deductions from orders and order_items separated by order-time billing mode ('salary' vs 'allowance')
       const [mealSum] = await connection.query(`
-        SELECT IFNULL(SUM(oi.quantity * oi.price), 0) as total_meal_cost
+        SELECT 
+          IFNULL(SUM(CASE WHEN o.staff_meal_mode = 'salary' THEN oi.quantity * oi.price ELSE 0 END), 0) as direct_salary_cost,
+          IFNULL(SUM(CASE WHEN o.staff_meal_mode = 'allowance' OR o.staff_meal_mode IS NULL THEN oi.quantity * oi.price ELSE 0 END), 0) as allowance_meal_cost
         FROM orders o
         JOIN order_items oi ON o.id = oi.order_id
         WHERE o.customer_staff_id = ? 
@@ -6556,16 +6578,12 @@ app.post('/api/payroll/generate', async (req, res) => {
           AND o.status != 'Cancelled'
       `, [staff.id, month, year]);
 
-      const totalMealCost = parseFloat(mealSum[0].total_meal_cost || 0);
+      const directSalaryMealCost = parseFloat(mealSum[0].direct_salary_cost || 0);
+      const allowanceMealCost = parseFloat(mealSum[0].allowance_meal_cost || 0);
       const baseLimit = parseFloat(staff.staff_meal_limit || 0);
-      const isMealEnabled = staff.staff_meal_enabled === 1;
-      const isMealActive = staff.staff_meal_active === 1;
 
-      let mealDeduction = 0;
-      if (!isMealEnabled || !isMealActive) {
-        // No allowance assigned or allowance suspended: 100% of meal consumption is deducted from salary
-        mealDeduction = totalMealCost;
-      } else {
+      let allowanceExcess = 0;
+      if (allowanceMealCost > 0) {
         // Query extra allowance top-ups added for this staff in this payroll month/year
         const [extraAdjustments] = await connection.query(`
           SELECT IFNULL(SUM(amount), 0) as extra_allowance
@@ -6578,8 +6596,10 @@ app.post('/api/payroll/generate', async (req, res) => {
 
         const extraAllowance = parseFloat(extraAdjustments[0].extra_allowance || 0);
         const effectiveMealLimit = baseLimit + extraAllowance;
-        mealDeduction = Math.max(0, totalMealCost - effectiveMealLimit);
+        allowanceExcess = Math.max(0, allowanceMealCost - effectiveMealLimit);
       }
+
+      const mealDeduction = directSalaryMealCost + allowanceExcess;
 
       // Net salary
       const netSalary = grossSalary - pfDeduction - esiDeduction - tdsDeduction - mealDeduction;
