@@ -75,7 +75,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
       return;
     }
 
-    if (isHighestTier && plan?.name === currentPlanName && subStatus === 'active' && !isWithinLastMonth) {
+    if (plan?.name === currentPlanName && isCurrentRenewLocked) {
       alert(renewLockedMessage);
       return;
     }
@@ -266,7 +266,9 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
   const isWithinLastMonth = subscriptionInfo?.can_renew !== undefined
     ? Boolean(subscriptionInfo.can_renew)
     : (subStatus === 'trial' || subStatus === 'expired' || (renewalUnlockDate ? Date.now() >= renewalUnlockDate.getTime() : daysRemaining <= 30));
-  const isEnterpriseRenewLocked = isHighestTier && subStatus === 'active' && !isWithinLastMonth;
+  const isCurrentRenewLocked = subStatus === 'active' && !isWithinLastMonth;
+  const isOverviewRenewLocked = isHighestTier && isCurrentRenewLocked;
+  const currentPlanPrice = plans.find(pl => pl.name === currentPlanName)?.price_annual ?? 0;
   const renewLockedMessage = renewalUnlockDate
     ? `Renew Subscription will be enabled 1 month before the expiry date (from ${formatISTDate(renewalUnlockDate)}).`
     : 'Renew Subscription will be enabled 1 month before the expiry date.';
@@ -451,7 +453,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                   Awaiting Super Admin approval
                 </div>
               </div>
-            ) : subStatus === 'trial' || subStatus === 'expired' || (isHighestTier ? isWithinLastMonth : daysRemaining <= 30) ? (
+            ) : subStatus === 'trial' || subStatus === 'expired' || isWithinLastMonth ? (
               <button
                 onClick={() => {
                   const target = plans.find(p => p.name === currentPlanName) || plans[1];
@@ -473,7 +475,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
               >
                 {subStatus === 'trial' ? '🌟 Activate Paid Plan Now' : subStatus === 'expired' ? '🚨 Renew Subscription' : isHighestTier ? '🔄 Renew Subscription' : '🔄 Renew Current Plan'}
               </button>
-            ) : isEnterpriseRenewLocked ? (
+            ) : isOverviewRenewLocked ? (
               renderLockedRenewButton('overview', 'overview')
             ) : (
               <button
@@ -559,7 +561,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
           {plans.map((p) => {
             const isCurrent = p.name === currentPlanName;
             const badgeStyle = getPlanBadgeColor(p.name);
-            const isEnterprise = p.name === 'Enterprise';
+            const isDowngradeTier = currentPlanPrice > 0 && p.price_annual < currentPlanPrice;
 
             return (
               <div
@@ -652,7 +654,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                       Pending Verification
                     </button>
                   ) : isCurrent ? (
-                    isEnterpriseRenewLocked ? (
+                    isCurrentRenewLocked ? (
                       renderLockedRenewButton('card', 'card')
                     ) : (
                       <button
@@ -669,7 +671,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                           cursor: 'pointer'
                         }}
                       >
-                        {subStatus === 'expired' ? 'Renew Expired Plan' : isEnterprise ? '🔄 Renew Subscription' : 'Renew 1-Year Cycle'}
+                        {subStatus === 'trial' ? '🌟 Activate Paid Plan' : subStatus === 'expired' ? '🚨 Renew Subscription' : '🔄 Renew Subscription'}
                       </button>
                     )
                   ) : (
@@ -688,7 +690,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
                       }}
                     >
-                      {subStatus === 'trial' ? `Subscribe to ${p.name}` : `Upgrade to ${p.name}`}
+                      {subStatus === 'trial' ? `Subscribe to ${p.name}` : isDowngradeTier ? `Switch to ${p.name}` : `Upgrade to ${p.name}`}
                     </button>
                   )}
                 </div>

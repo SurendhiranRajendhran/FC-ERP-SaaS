@@ -11554,10 +11554,10 @@ app.get('/api/subscription/current', authenticateToken, async (req, res) => {
   }
 });
 
-function checkEarlyEnterpriseRenewalError(tenantRow, targetPlan) {
+function checkEarlyRenewalError(tenantRow, targetPlan) {
   const currentPlan = tenantRow.plan_name || 'Food Court';
   const subStatus = tenantRow.subscription_status || 'active';
-  if (currentPlan === 'Enterprise' && targetPlan === 'Enterprise' && !isWithinRenewalWindow(subStatus, tenantRow.subscription_expires_at)) {
+  if (targetPlan === currentPlan && !isWithinRenewalWindow(subStatus, tenantRow.subscription_expires_at)) {
     return 'Renew Subscription will be enabled 1 month before the expiry date.';
   }
   return null;
@@ -11594,7 +11594,7 @@ app.get('/api/subscription/quote', authenticateToken, async (req, res) => {
     const subStatus = t.subscription_status || 'active';
     const expiresAt = t.subscription_expires_at;
 
-    const earlyErr = checkEarlyEnterpriseRenewalError(t, to_plan);
+    const earlyErr = checkEarlyRenewalError(t, to_plan);
     if (earlyErr) {
       return res.status(400).json({ error: earlyErr });
     }
@@ -11659,7 +11659,7 @@ app.post('/api/subscription/order', authenticateToken, async (req, res) => {
     }
 
     const t = rows[0];
-    const earlyErr = checkEarlyEnterpriseRenewalError(t, to_plan);
+    const earlyErr = checkEarlyRenewalError(t, to_plan);
     if (earlyErr) {
       return res.status(400).json({ error: earlyErr });
     }
@@ -11716,7 +11716,7 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
       return res.status(400).json({ error: `Invalid target plan: ${targetPlan}` });
     }
 
-    const earlyErr = checkEarlyEnterpriseRenewalError(t, targetPlan);
+    const earlyErr = checkEarlyRenewalError(t, targetPlan);
     if (earlyErr) {
       return res.status(400).json({ error: earlyErr });
     }
