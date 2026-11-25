@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
-import { formatISTDateTime, formatISTDate } from './dateUtils';
+import { formatISTDateTime, formatISTDate, parseISTDate } from './dateUtils';
 
 export default function BillingSubscription({ user, currentPlan, isFeaturePermitted, onPlanUpdated }) {
   const [loading, setLoading] = useState(true);
@@ -24,8 +24,9 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
   const [paymentSuccess, setPaymentSuccess] = useState(null);
   const [copiedUpi, setCopiedUpi] = useState(false);
 
-  // Receipt Modal
+  // Receipt Modal & Tooltip State
   const [viewingReceipt, setViewingReceipt] = useState(null);
+  const [renewTooltipTarget, setRenewTooltipTarget] = useState(null);
 
   const token = localStorage.getItem('token');
 
@@ -71,6 +72,11 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
   const handleOpenUpgrade = async (plan) => {
     if (hasPendingRequest) {
       alert(`You already have a payment verification request (${pendingInvoice?.invoice_number} for ${pendingInvoice?.to_plan}) pending Super Admin review. You cannot submit another request until the existing one is approved or rejected.`);
+      return;
+    }
+
+    if (isHighestTier && plan?.name === currentPlanName && subStatus === 'active' && !isWithinLastMonth) {
+      alert(renewLockedMessage);
       return;
     }
 
@@ -242,6 +248,91 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
   const pendingInvoice = subscriptionInfo?.pending_invoice || invoices.find(inv => inv.status === 'pending') || null;
   const hasPendingRequest = Boolean(pendingInvoice);
 
+  const isHighestTier = currentPlanName === 'Enterprise';
+  const getOneMonthBeforeDate = (expVal) => {
+    const exp = parseISTDate(expVal);
+    if (!exp || isNaN(exp.getTime())) return null;
+    const targetMonth = exp.getMonth() - 1;
+    const unlock = new Date(exp.getTime());
+    unlock.setMonth(targetMonth);
+    if (unlock.getMonth() !== ((targetMonth + 12) % 12)) {
+      unlock.setDate(0);
+    }
+    return unlock;
+  };
+  const renewalUnlockDate = subscriptionInfo?.renewal_unlock_date
+    ? new Date(subscriptionInfo.renewal_unlock_date)
+    : getOneMonthBeforeDate(expiresAt);
+  const isWithinLastMonth = subscriptionInfo?.can_renew !== undefined
+    ? Boolean(subscriptionInfo.can_renew)
+    : (subStatus === 'trial' || subStatus === 'expired' || (renewalUnlockDate ? Date.now() >= renewalUnlockDate.getTime() : daysRemaining <= 30));
+  const isEnterpriseRenewLocked = isHighestTier && subStatus === 'active' && !isWithinLastMonth;
+  const renewLockedMessage = renewalUnlockDate
+    ? `Renew Subscription will be enabled 1 month before the expiry date (from ${formatISTDate(renewalUnlockDate)}).`
+    : 'Renew Subscription will be enabled 1 month before the expiry date.';
+
+  const renderLockedRenewButton = (targetKey, variant = 'overview') => {
+    const isOverview = variant === 'overview';
+    return (
+      <div
+        style={{ width: '100%', position: 'relative' }}
+        title={renewLockedMessage}
+        onMouseEnter={() => setRenewTooltipTarget(targetKey)}
+        onMouseLeave={() => setRenewTooltipTarget(null)}
+      >
+        <button
+          disabled={true}
+          aria-label={renewLockedMessage}
+          style={{
+            width: '100%',
+            padding: isOverview ? '12px 20px' : '10px 16px',
+            background: 'rgba(148, 163, 184, 0.14)',
+            color: '#94a3b8',
+            border: '1px solid rgba(148, 163, 184, 0.3)',
+            borderRadius: isOverview ? '10px' : '8px',
+            fontWeight: isOverview ? 700 : 600,
+            fontSize: isOverview ? '0.95rem' : '0.88rem',
+            cursor: 'not-allowed',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px'
+          }}
+        >
+          <span>🔄</span>
+          <span>Renew Subscription</span>
+        </button>
+        {renewTooltipTarget === targetKey && (
+          <div
+            role="tooltip"
+            style={{
+              position: 'absolute',
+              bottom: 'calc(100% + 8px)',
+              right: isOverview ? 0 : 'auto',
+              left: isOverview ? 'auto' : '50%',
+              transform: isOverview ? 'none' : 'translateX(-50%)',
+              width: 'max-content',
+              maxWidth: '280px',
+              background: '#0f172a',
+              color: '#f8fafc',
+              border: '1px solid rgba(251, 191, 36, 0.5)',
+              borderRadius: '8px',
+              padding: '8px 12px',
+              fontSize: '0.76rem',
+              lineHeight: 1.45,
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+              zIndex: 60,
+              pointerEvents: 'none',
+              textAlign: 'center'
+            }}
+          >
+            {renewLockedMessage}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="view-panel active" style={{ padding: '24px 28px', maxWidth: '1400px', margin: '0 auto' }}>
       
@@ -290,7 +381,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
         padding: '24px',
         marginBottom: '32px',
         position: 'relative',
-        overflow: 'hidden',
+        overflow: 'visible',
         boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25)'
       }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '24px', alignItems: 'center' }}>
@@ -360,7 +451,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                   Awaiting Super Admin approval
                 </div>
               </div>
-            ) : subStatus === 'trial' || subStatus === 'expired' || daysRemaining <= 30 ? (
+            ) : subStatus === 'trial' || subStatus === 'expired' || (isHighestTier ? isWithinLastMonth : daysRemaining <= 30) ? (
               <button
                 onClick={() => {
                   const target = plans.find(p => p.name === currentPlanName) || plans[1];
@@ -380,8 +471,10 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                   transition: 'all 0.2s'
                 }}
               >
-                {subStatus === 'trial' ? '🌟 Activate Paid Plan Now' : subStatus === 'expired' ? '🚨 Renew Subscription' : '🔄 Renew Current Plan'}
+                {subStatus === 'trial' ? '🌟 Activate Paid Plan Now' : subStatus === 'expired' ? '🚨 Renew Subscription' : isHighestTier ? '🔄 Renew Subscription' : '🔄 Renew Current Plan'}
               </button>
+            ) : isEnterpriseRenewLocked ? (
+              renderLockedRenewButton('overview', 'overview')
             ) : (
               <button
                 onClick={() => {
@@ -559,22 +652,26 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                       Pending Verification
                     </button>
                   ) : isCurrent ? (
-                    <button
-                      onClick={() => handleOpenUpgrade(p)}
-                      style={{
-                        width: '100%',
-                        padding: '10px 16px',
-                        background: 'rgba(16, 185, 129, 0.15)',
-                        border: '1px solid #10b981',
-                        color: '#34d399',
-                        borderRadius: '8px',
-                        fontWeight: 600,
-                        fontSize: '0.88rem',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {subStatus === 'expired' ? 'Renew Expired Plan' : 'Renew 1-Year Cycle'}
-                    </button>
+                    isEnterpriseRenewLocked ? (
+                      renderLockedRenewButton('card', 'card')
+                    ) : (
+                      <button
+                        onClick={() => handleOpenUpgrade(p)}
+                        style={{
+                          width: '100%',
+                          padding: '10px 16px',
+                          background: 'rgba(16, 185, 129, 0.15)',
+                          border: '1px solid #10b981',
+                          color: '#34d399',
+                          borderRadius: '8px',
+                          fontWeight: 600,
+                          fontSize: '0.88rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {subStatus === 'expired' ? 'Renew Expired Plan' : isEnterprise ? '🔄 Renew Subscription' : 'Renew 1-Year Cycle'}
+                      </button>
+                    )
                   ) : (
                     <button
                       onClick={() => handleOpenUpgrade(p)}

@@ -11452,6 +11452,30 @@ function calculateSubscriptionQuote(currentPlan, currentStatus, currentExpiresAt
   };
 }
 
+function getOneMonthBeforeDate(expiresAtVal) {
+  if (!expiresAtVal) return null;
+  const exp = new Date(expiresAtVal);
+  if (isNaN(exp.getTime())) return null;
+  const targetMonth = exp.getMonth() - 1;
+  const unlock = new Date(exp.getTime());
+  unlock.setMonth(targetMonth);
+  if (unlock.getMonth() !== ((targetMonth + 12) % 12)) {
+    unlock.setDate(0);
+  }
+  return unlock;
+}
+
+function isWithinRenewalWindow(subStatus, expiresAtVal) {
+  if (subStatus === 'trial' || subStatus === 'expired') return true;
+  if (!expiresAtVal) return false;
+  const exp = new Date(expiresAtVal);
+  if (isNaN(exp.getTime())) return false;
+  const now = new Date();
+  if (exp.getTime() <= now.getTime()) return true;
+  const unlockDate = getOneMonthBeforeDate(exp);
+  return Boolean(unlockDate && now.getTime() >= unlockDate.getTime());
+}
+
 // 1. GET Current Subscription & Pricing Catalog
 app.get('/api/subscription/current', authenticateToken, async (req, res) => {
   try {
@@ -11464,6 +11488,8 @@ app.get('/api/subscription/current', authenticateToken, async (req, res) => {
         subscription_expires_at: null,
         days_remaining: 9999,
         is_expired: false,
+        can_renew: false,
+        renewal_unlock_date: null,
         merchant_upi: OFFICIAL_MERCHANT_UPI,
         plans: PLAN_CATALOG
       });
@@ -11490,6 +11516,10 @@ app.get('/api/subscription/current', authenticateToken, async (req, res) => {
       daysRemaining = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     }
 
+    const effectiveStatus = isExpired ? 'expired' : subStatus;
+    const renewalUnlockDate = getOneMonthBeforeDate(expiresAt);
+    const canRenew = isWithinRenewalWindow(effectiveStatus, expiresAt);
+
     // Check for any active pending subscription invoice awaiting Super Admin review
     const [pendingInvoices] = await pool.query(
       `SELECT id, invoice_number, type, from_plan, to_plan, base_amount, prorated_credit, final_amount, payment_reference, created_at
@@ -11505,11 +11535,13 @@ app.get('/api/subscription/current', authenticateToken, async (req, res) => {
       tenant_name: t.name,
       owner_email: t.owner_email,
       current_plan: currentPlan,
-      subscription_status: isExpired ? 'expired' : subStatus,
+      subscription_status: effectiveStatus,
       subscription_expires_at: t.subscription_expires_at,
       days_remaining: daysRemaining,
       is_expired: isExpired,
       is_trial: subStatus === 'trial',
+      can_renew: canRenew,
+      renewal_unlock_date: renewalUnlockDate ? renewalUnlockDate.toISOString() : null,
       entitlements: PLAN_ENTITLEMENTS[currentPlan] || PLAN_ENTITLEMENTS['Food Court'],
       merchant_upi: OFFICIAL_MERCHANT_UPI,
       plans: PLAN_CATALOG,
@@ -11521,6 +11553,15 @@ app.get('/api/subscription/current', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to retrieve subscription information' });
   }
 });
+
+function checkEarlyEnterpriseRenewalError(tenantRow, targetPlan) {
+  const currentPlan = tenantRow.plan_name || 'Food Court';
+  const subStatus = tenantRow.subscription_status || 'active';
+  if (currentPlan === 'Enterprise' && targetPlan === 'Enterprise' && !isWithinRenewalWindow(subStatus, tenantRow.subscription_expires_at)) {
+    return 'Renew Subscription will be enabled 1 month before the expiry date.';
+  }
+  return null;
+}
 
 // 2. GET Proration & Pricing Quote for Plan Upgrade or Renewal
 app.get('/api/subscription/quote', authenticateToken, async (req, res) => {
@@ -11552,6 +11593,11 @@ app.get('/api/subscription/quote', authenticateToken, async (req, res) => {
     const currentPlan = t.plan_name || 'Food Court';
     const subStatus = t.subscription_status || 'active';
     const expiresAt = t.subscription_expires_at;
+
+    const earlyErr = checkEarlyEnterpriseRenewalError(t, to_plan);
+    if (earlyErr) {
+      return res.status(400).json({ error: earlyErr });
+    }
 
     const quote = calculateSubscriptionQuote(currentPlan, subStatus, expiresAt, to_plan);
 
@@ -11613,6 +11659,11 @@ app.post('/api/subscription/order', authenticateToken, async (req, res) => {
     }
 
     const t = rows[0];
+    const earlyErr = checkEarlyEnterpriseRenewalError(t, to_plan);
+    if (earlyErr) {
+      return res.status(400).json({ error: earlyErr });
+    }
+
     const quote = calculateSubscriptionQuote(t.plan_name || 'Food Court', t.subscription_status || 'active', t.subscription_expires_at, to_plan);
 
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -11663,6 +11714,11 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
     const targetPlan = to_plan || 'Canteen Pro';
     if (!PLAN_ENTITLEMENTS[targetPlan]) {
       return res.status(400).json({ error: `Invalid target plan: ${targetPlan}` });
+    }
+
+    const earlyErr = checkEarlyEnterpriseRenewalError(t, targetPlan);
+    if (earlyErr) {
+      return res.status(400).json({ error: earlyErr });
     }
 
     // Guard: Prevent duplicate submissions while an existing request is pending Super Admin review
