@@ -4589,26 +4589,42 @@ app.get('/api/vendors/performance/my-stats', async (req, res) => {
 app.post('/api/vendors/settlements/calculate', async (req, res) => {
   const { startDate, endDate, totalCommonAreaCost, totalCost: totalCostAlt, splitMethod } = req.body;
   const cost = totalCommonAreaCost !== undefined ? totalCommonAreaCost : totalCostAlt;
-  if (!startDate || !endDate || cost === undefined || !splitMethod) {
+  if (!startDate || !endDate || cost === undefined || cost === '' || !splitMethod) {
     return res.status(400).json({ error: 'startDate, endDate, totalCommonAreaCost, and splitMethod are required.' });
   }
+  if (startDate > endDate) {
+    return res.status(400).json({ error: 'Start date cannot be after end date.' });
+  }
 
+  const totalCost = parseFloat(cost);
+  if (!Number.isFinite(totalCost) || totalCost < 0) {
+    return res.status(400).json({ error: 'totalCommonAreaCost must be a valid non-negative number.' });
+  }
+  if (!['Equal', 'Stall Area', 'Sales Percentage'].includes(splitMethod)) {
+    return res.status(400).json({ error: 'Invalid splitMethod. Must be Equal, Stall Area, or Sales Percentage.' });
+  }
+
+  const tenantId = (req.user && req.user.tenant_id) || (tenantStorage.getStore() && tenantStorage.getStore().tenant_id) || 1;
   const startStr = `${startDate} 00:00:00`;
   const endStr = `${endDate} 23:59:59`;
-  const totalCost = parseFloat(cost);
 
+  const conn = await pool.getConnection();
   try {
+    await conn.beginTransaction();
+
     // 0. Check for overlaps — strict block (no overwrite allowed)
-    const [overlaps] = await pool.query(`
+    const [overlaps] = await conn.query(`
       SELECT id, start_date, end_date, status FROM vendor_settlements 
-      WHERE start_date <= ? AND end_date >= ?
-    `, [endDate, startDate]);
+      WHERE tenant_id = ? AND start_date <= ? AND end_date >= ?
+    `, [tenantId, endDate, startDate]);
 
     if (overlaps.length > 0) {
+      await conn.rollback();
       return res.status(400).json({ error: "Overlapping occurred and blocked." });
     }
     // 1. Get gross sales & info for all vendors in this period
-    const [vendorsSales] = await pool.query(`
+    // Explicit outer WHERE v.tenant_id = ? prevents rewriteQuery from injecting v.tenant_id into the inner subquery
+    const [vendorsSales] = await conn.query(`
       SELECT 
         v.id as vendor_id,
         v.name,
@@ -4621,12 +4637,14 @@ app.post('/api/vendors/settlements/calculate', async (req, res) => {
         FROM order_items oi
         JOIN items i ON oi.item_id = i.id
         JOIN orders o ON oi.order_id = o.id
-        WHERE o.status != 'Cancelled' AND o.order_date BETWEEN ? AND ?
+        WHERE o.status != 'Cancelled' AND o.order_date BETWEEN ? AND ? AND o.tenant_id = ?
         GROUP BY i.vendor_id
       ) sales ON v.id = sales.vendor_id
-    `, [startStr, endStr]);
+      WHERE v.tenant_id = ?
+    `, [startStr, endStr, tenantId, tenantId]);
 
     if (vendorsSales.length === 0) {
+      await conn.rollback();
       return res.status(400).json({ error: 'No vendors found to settle.' });
     }
 
@@ -4645,16 +4663,19 @@ app.post('/api/vendors/settlements/calculate', async (req, res) => {
         allocatedCost = totalGrossSales > 0 ? totalCost * (parseFloat(v.gross_sales || 0) / totalGrossSales) : totalCost / vendorsSales.length;
       }
 
-      const gross = parseFloat(v.gross_sales);
-      const commission = gross * (parseFloat(v.commission_rate || 10.00) / 100);
+      const gross = parseFloat(v.gross_sales) || 0;
+      const commRate = (v.commission_rate !== null && v.commission_rate !== undefined && v.commission_rate !== '')
+        ? parseFloat(v.commission_rate)
+        : 10.00;
+      const commission = gross * (commRate / 100);
       const duesToAdmin = commission + allocatedCost;
 
       // 2. Insert into vendor_settlements
       const netPayout = gross - duesToAdmin;
-      const [insertResult] = await pool.query(`
-        INSERT INTO vendor_settlements (vendor_id, start_date, end_date, gross_sales, commission_amount, common_area_cost, net_payout, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')
-      `, [v.vendor_id, startDate, endDate, gross, commission, allocatedCost, netPayout]);
+      const [insertResult] = await conn.query(`
+        INSERT INTO vendor_settlements (vendor_id, start_date, end_date, gross_sales, commission_amount, common_area_cost, net_payout, status, tenant_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', ?)
+      `, [v.vendor_id, startDate, endDate, gross, commission, allocatedCost, netPayout, tenantId]);
 
       settlements.push({
         id: insertResult.insertId,
@@ -4670,10 +4691,14 @@ app.post('/api/vendors/settlements/calculate', async (req, res) => {
       });
     }
 
+    await conn.commit();
     res.json({ success: true, message: 'Settlements calculated successfully', settlements });
   } catch (error) {
+    await conn.rollback().catch(() => {});
     console.error('Settlement calculation failed:', error);
     res.status(500).json({ error: 'Failed to calculate settlements' });
+  } finally {
+    conn.release();
   }
 });
 
