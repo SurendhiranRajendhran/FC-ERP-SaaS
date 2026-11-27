@@ -65,6 +65,13 @@ window.fetch = async (...args) => {
   }
   
   const response = await originalFetch(resource, config);
+  if (response.status === 403 && token && typeof resource === 'string' && resource.startsWith(API_BASE)) {
+    response.clone().json().then(body => {
+      if (body && (body.required_feature || body.current_plan)) {
+        window.dispatchEvent(new CustomEvent('plan-sync-needed'));
+      }
+    }).catch(() => {});
+  }
   return response;
 };
 
@@ -4134,22 +4141,54 @@ function App() {
     setActiveTab('dashboard');
   };
 
+  const lastPlanSyncRef = React.useRef(0);
+
   const refreshUserPlan = async () => {
+    const authToken = localStorage.getItem('token');
+    if (!authToken) return;
     try {
+      lastPlanSyncRef.current = Date.now();
       const res = await originalFetch(`${API_BASE}/auth/me`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        headers: { 'Authorization': `Bearer ${authToken}` }
       });
       if (res.ok) {
         const data = await res.json();
         if (data.user) {
-          setUser(data.user);
-          localStorage.setItem('user', JSON.stringify(data.user));
+          setUser(prev => {
+            const unchanged =
+              prev &&
+              prev.tenant_plan === data.user.tenant_plan &&
+              prev.subscription_status === data.user.subscription_status &&
+              JSON.stringify(prev.entitlements || {}) === JSON.stringify(data.user.entitlements || {});
+            if (unchanged) return prev;
+            localStorage.setItem('user', JSON.stringify(data.user));
+            return data.user;
+          });
         }
       }
     } catch (err) {
       console.error('Failed to refresh user plan:', err);
     }
   };
+
+  // Auto-sync plan entitlements without requiring logout/re-login (e.g. after Super Admin approval)
+  useEffect(() => {
+    if (!token || !user || user.role === 'Super Admin') return;
+    const syncIfStale = () => {
+      if (document.visibilityState && document.visibilityState !== 'visible') return;
+      if (Date.now() - lastPlanSyncRef.current < 15000) return;
+      refreshUserPlan();
+    };
+    const onPlanSyncNeeded = () => refreshUserPlan();
+    window.addEventListener('focus', syncIfStale);
+    document.addEventListener('visibilitychange', syncIfStale);
+    window.addEventListener('plan-sync-needed', onPlanSyncNeeded);
+    return () => {
+      window.removeEventListener('focus', syncIfStale);
+      document.removeEventListener('visibilitychange', syncIfStale);
+      window.removeEventListener('plan-sync-needed', onPlanSyncNeeded);
+    };
+  }, [token, user?.id]);
 
   // Listen for token expiry dispatched by the fetch interceptor
   useEffect(() => {

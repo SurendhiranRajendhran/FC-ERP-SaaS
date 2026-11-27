@@ -1230,15 +1230,49 @@ const PLAN_ENTITLEMENTS = {
   }
 };
 
+const PLAN_TIER_ORDER = {
+  'Canteen Basic': 1,
+  'Canteen Pro': 2,
+  'Food Court': 3,
+  'Enterprise': 4
+};
+
+function getPlanRank(planName) {
+  return PLAN_TIER_ORDER[planName] || 0;
+}
+
 const tenantPlanCache = new Map(); // tenantId -> { plan_name, subscription_status, subscription_expires_at, is_active, _cachedAt }
 
-async function resolveTenantPlan(tenantId) {
+function invalidateTenantPlanCache(tenantId, broadcast = true) {
+  if (tenantId !== undefined && tenantId !== null) {
+    const numericId = parseInt(tenantId, 10);
+    tenantPlanCache.delete(tenantId);
+    if (!Number.isNaN(numericId)) {
+      tenantPlanCache.delete(numericId);
+      tenantPlanCache.delete(String(numericId));
+    }
+  } else {
+    tenantPlanCache.clear();
+  }
+  if (broadcast && process.send) {
+    try {
+      process.send({ type: 'INVALIDATE_TENANT_PLAN_CACHE', tenantId });
+    } catch (e) {
+      // IPC not available or ignored
+    }
+  }
+}
+
+async function resolveTenantPlan(tenantId, forceRefresh = false) {
   if (!tenantId || tenantId === 1 || tenantId === 'superadmin') {
     return { plan_name: 'Enterprise', subscription_status: 'active', subscription_expires_at: null, is_active: 1 };
   }
-  const cached = tenantPlanCache.get(tenantId);
-  if (cached && (Date.now() - cached._cachedAt < 60000)) {
-    return cached;
+  const cacheKey = parseInt(tenantId, 10) || tenantId;
+  if (!forceRefresh) {
+    const cached = tenantPlanCache.get(cacheKey);
+    if (cached && (Date.now() - cached._cachedAt < 60000)) {
+      return cached;
+    }
   }
   try {
     const [rows] = await pool.query('SELECT plan_name, subscription_status, subscription_expires_at, is_active FROM tenants WHERE id = ?', [tenantId]);
@@ -1250,7 +1284,7 @@ async function resolveTenantPlan(tenantId) {
         is_active: rows[0].is_active !== undefined ? rows[0].is_active : 1,
         _cachedAt: Date.now()
       };
-      tenantPlanCache.set(tenantId, info);
+      tenantPlanCache.set(cacheKey, info);
       return info;
     }
   } catch (err) {
@@ -1575,7 +1609,7 @@ app.get('/api/auth/me', async (req, res) => {
     tenantPlan = 'Enterprise';
     subscriptionStatus = 'active';
   } else if (req.user.tenant_id) {
-    const planInfo = await resolveTenantPlan(req.user.tenant_id);
+    const planInfo = await resolveTenantPlan(req.user.tenant_id, true);
     tenantPlan = planInfo.plan_name || 'Food Court';
     subscriptionStatus = planInfo.subscription_status || 'active';
     subscriptionExpiresAt = planInfo.subscription_expires_at || null;
@@ -1944,8 +1978,11 @@ function invalidateMenuItemsCache(broadcast = true) {
 // In worker processes, listen for broadcasted cache invalidation from Primary
 if (cluster.isWorker) {
   process.on('message', (msg) => {
-    if (msg && msg.type === 'INVALIDATE_ITEMS_CACHE') {
+    if (!msg) return;
+    if (msg.type === 'INVALIDATE_ITEMS_CACHE') {
       invalidateMenuItemsCache(false);
+    } else if (msg.type === 'INVALIDATE_TENANT_PLAN_CACHE') {
+      invalidateTenantPlanCache(msg.tenantId, false);
     }
   });
 }
@@ -11040,8 +11077,8 @@ app.put('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'), as
 
     await conn.query(tenantUpdateSql, tenantParams);
 
-    // Invalidate cache
-    tenantPlanCache.delete(parseInt(id, 10));
+    // Invalidate cache across all cluster workers
+    invalidateTenantPlanCache(parseInt(id, 10));
 
     // Update owner user record
     let passwordQuerySegment = '';
@@ -11186,8 +11223,8 @@ app.delete('/api/tenants/:id', authenticateToken, authorizeRoles('Super Admin'),
 
     await conn.commit();
 
-    // Invalidate cached plan
-    tenantPlanCache.delete(tenantId);
+    // Invalidate cached plan across all cluster workers
+    invalidateTenantPlanCache(tenantId);
 
     res.json({ success: true, message: 'Food court and all associated data permanently removed successfully' });
   } catch (error) {
@@ -11295,6 +11332,7 @@ const PLAN_CATALOG = [
   {
     id: 'Canteen Basic',
     name: 'Canteen Basic',
+    tier_rank: 1,
     price_annual: 12000,
     headline: 'Essential Single-Facility Canteen',
     description: 'Designed for single-counter school, college, or hostel cafeterias requiring rapid billing and item-level menu control.',
@@ -11312,6 +11350,7 @@ const PLAN_CATALOG = [
   {
     id: 'Canteen Pro',
     name: 'Canteen Pro',
+    tier_rank: 2,
     price_annual: 20000,
     headline: 'Advanced Canteen with Student RFID & QR Ordering',
     description: 'The complete digital canteen suite featuring student RFID meal cards, QR table ordering, and kitchen display screen.',
@@ -11332,6 +11371,7 @@ const PLAN_CATALOG = [
   {
     id: 'Food Court',
     name: 'Food Court',
+    tier_rank: 3,
     price_annual: 40000,
     headline: 'Multi-Vendor Food Court Platform',
     description: 'Purpose-built for malls, tech parks, and campus food courts with partitioned vendor stalls, manager logins, and revenue splits.',
@@ -11350,6 +11390,7 @@ const PLAN_CATALOG = [
   {
     id: 'Enterprise',
     name: 'Enterprise',
+    tier_rank: 4,
     price_annual: 75000,
     headline: 'Multi-Branch Campus & Corporate Dining Network',
     description: 'For university networks, corporate chains, and franchise groups requiring centralized multi-branch oversight and dedicated SLA.',
@@ -11387,7 +11428,7 @@ function calculateSubscriptionQuote(currentPlan, currentStatus, currentExpiresAt
   if (isTrial || isExpired) {
     const quoteType = isTrial
       ? 'trial_conversion'
-      : (toPlan === currentPlan ? 'renewal' : (targetPrice > currentPrice ? 'upgrade' : targetPrice < currentPrice ? 'downgrade' : 'plan_change'));
+      : (toPlan === currentPlan ? 'renewal' : (targetPrice > currentPrice ? 'upgrade' : 'plan_change'));
     return {
       from_plan: currentPlan,
       to_plan: toPlan,
@@ -11452,12 +11493,12 @@ function calculateSubscriptionQuote(currentPlan, currentStatus, currentExpiresAt
     };
   }
 
-  // Upgrading to higher tier (or lateral plan change):
+  // Upgrading to higher tier:
   // Reset 1-Year Cycle with Prorated Credit:
   // Deduct remaining days value from current plan as credit against new plan; starts a fresh full 365-day cycle.
   const proratedCredit = Math.min(targetPrice, unusedCredit);
   const finalPayable = Math.max(0, targetPrice - proratedCredit);
-  const quoteType = targetPrice > currentPrice ? 'upgrade' : targetPrice < currentPrice ? 'downgrade' : 'plan_change';
+  const quoteType = targetPrice > currentPrice ? 'upgrade' : 'plan_change';
 
   return {
     from_plan: currentPlan,
@@ -11599,6 +11640,15 @@ function checkEarlyRenewalError(tenantRow, targetPlan) {
   return null;
 }
 
+function checkSubscriptionTargetAllowed(tenantRow, targetPlan) {
+  const currentPlan = tenantRow.plan_name || 'Food Court';
+  const subStatus = tenantRow.subscription_status || 'active';
+  if (subStatus !== 'trial' && getPlanRank(targetPlan) < getPlanRank(currentPlan)) {
+    return 'Plan downgrades are not supported. Only plan upgrades and renewals are available.';
+  }
+  return checkEarlyRenewalError(tenantRow, targetPlan);
+}
+
 // 2. GET Proration & Pricing Quote for Plan Upgrade or Renewal
 app.get('/api/subscription/quote', authenticateToken, async (req, res) => {
   try {
@@ -11630,7 +11680,7 @@ app.get('/api/subscription/quote', authenticateToken, async (req, res) => {
     const subStatus = t.subscription_status || 'active';
     const expiresAt = t.subscription_expires_at;
 
-    const earlyErr = checkEarlyRenewalError(t, to_plan);
+    const earlyErr = checkSubscriptionTargetAllowed(t, to_plan);
     if (earlyErr) {
       return res.status(400).json({ error: earlyErr });
     }
@@ -11695,7 +11745,7 @@ app.post('/api/subscription/order', authenticateToken, async (req, res) => {
     }
 
     const t = rows[0];
-    const earlyErr = checkEarlyRenewalError(t, to_plan);
+    const earlyErr = checkSubscriptionTargetAllowed(t, to_plan);
     if (earlyErr) {
       return res.status(400).json({ error: earlyErr });
     }
@@ -11749,7 +11799,7 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
       return res.status(400).json({ error: `Invalid target plan: ${targetPlan}` });
     }
 
-    const earlyErr = checkEarlyRenewalError(t, targetPlan);
+    const earlyErr = checkSubscriptionTargetAllowed(t, targetPlan);
     if (earlyErr) {
       return res.status(400).json({ error: earlyErr });
     }
@@ -11777,7 +11827,7 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
 
     const VALID_INVOICE_TYPES = new Set(['trial_conversion', 'upgrade', 'downgrade', 'plan_change', 'renewal']);
     const invoiceType = VALID_INVOICE_TYPES.has(quote.type) ? quote.type : 'plan_change';
-    const effectiveRef = cleanRef || 'PRORATED-CREDIT';
+    const effectiveRef = cleanRef || 'ADMIN-REVIEW-REQUIRED';
 
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const randSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -11818,39 +11868,6 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
       finalInvoiceId = insResult.insertId;
     }
 
-    // Auto-activate ONLY if 100% prorated credit covered the entire target price (final_amount === 0)
-    if (Number(quote.final_amount) === 0) {
-      await conn.query(`
-        UPDATE tenants
-        SET plan_name = ?,
-            subscription_status = 'active',
-            subscription_expires_at = DATE_ADD(NOW(), INTERVAL ? DAY)
-        WHERE id = ?
-      `, [quote.to_plan, quote.duration_days || 365, tenantId]);
-
-      await conn.query(`
-        UPDATE subscription_invoices
-        SET status = 'approved',
-            reviewed_by_user_id = ?,
-            reviewed_at = NOW(),
-            admin_notes = 'Auto-activated (100% Prorated Credit Applied)'
-        WHERE id = ?
-      `, [req.user.id, finalInvoiceId]);
-
-      await conn.commit();
-      tenantPlanCache.delete(tenantId);
-
-      const actionVerb = invoiceType === 'upgrade' ? 'upgraded' : invoiceType === 'downgrade' ? 'downgraded' : invoiceType === 'renewal' ? 'renewed' : 'switched';
-      return res.json({
-        success: true,
-        activated: true,
-        invoice_id: finalInvoiceId,
-        invoice_number: finalInvoiceNumber,
-        new_plan: quote.to_plan,
-        message: `Plan ${actionVerb} successfully to ${quote.to_plan} for ${quote.duration_days || 365} days.`
-      });
-    }
-
     await conn.commit();
 
     res.json({
@@ -11858,7 +11875,7 @@ app.post('/api/subscription/submit-payment', authenticateToken, async (req, res)
       activated: false,
       invoice_id: finalInvoiceId,
       invoice_number: finalInvoiceNumber,
-      message: 'UTR / Payment reference submitted successfully. Your payment is queued for Central Admin verification.'
+      message: 'UTR / Payment reference submitted successfully. Your payment is queued for Super Admin verification.'
     });
   } catch (err) {
     await conn.rollback();
@@ -11967,7 +11984,7 @@ app.put('/api/superadmin/subscription-invoices/:id/review', authenticateToken, a
       `, [req.user.id, admin_notes || 'Approved by Super Admin', id]);
 
       await conn.commit();
-      tenantPlanCache.delete(inv.tenant_id);
+      invalidateTenantPlanCache(inv.tenant_id);
 
       const actionVerb = inv.type === 'upgrade' ? 'upgraded' : inv.type === 'downgrade' ? 'downgraded' : inv.type === 'renewal' ? 'renewed' : 'switched';
       return res.json({
@@ -12113,7 +12130,7 @@ if (isClustered && isPrimary) {
 
   // IPC Message Broker: broadcast cache invalidations from any worker to all other workers
   cluster.on('message', (worker, message) => {
-    if (message && message.type === 'INVALIDATE_ITEMS_CACHE') {
+    if (message && (message.type === 'INVALIDATE_ITEMS_CACHE' || message.type === 'INVALIDATE_TENANT_PLAN_CACHE')) {
       for (const id in cluster.workers) {
         const w = cluster.workers[id];
         if (w && w.id !== worker.id) {

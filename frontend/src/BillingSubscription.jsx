@@ -28,6 +28,13 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
   const [viewingReceipt, setViewingReceipt] = useState(null);
   const [renewTooltipTarget, setRenewTooltipTarget] = useState(null);
 
+  const PLAN_TIER_ORDER = {
+    'Canteen Basic': 1,
+    'Canteen Pro': 2,
+    'Food Court': 3,
+    'Enterprise': 4
+  };
+
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -44,6 +51,14 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
       if (res.ok) {
         const data = await res.json();
         setSubscriptionInfo(data);
+        if (
+          onPlanUpdated &&
+          data.current_plan &&
+          (data.current_plan !== currentPlan ||
+            (data.subscription_status && data.subscription_status !== user?.subscription_status))
+        ) {
+          onPlanUpdated();
+        }
       }
     } catch (err) {
       console.error('Failed to load subscription info:', err);
@@ -72,6 +87,11 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
   const handleOpenUpgrade = async (plan) => {
     if (hasPendingRequest) {
       alert(`You already have a payment verification request (${pendingInvoice?.invoice_number} for ${pendingInvoice?.to_plan}) pending Super Admin review. You cannot submit another request until the existing one is approved or rejected.`);
+      return;
+    }
+
+    const targetRank = plan?.tier_rank || PLAN_TIER_ORDER[plan?.name] || 0;
+    if (subStatus !== 'trial' && targetRank > 0 && currentTierRank > 0 && targetRank < currentTierRank) {
       return;
     }
 
@@ -268,7 +288,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
     : (subStatus === 'trial' || subStatus === 'expired' || (renewalUnlockDate ? Date.now() >= renewalUnlockDate.getTime() : daysRemaining <= 30));
   const isCurrentRenewLocked = subStatus === 'active' && !isWithinLastMonth;
   const isOverviewRenewLocked = isHighestTier && isCurrentRenewLocked;
-  const currentPlanPrice = plans.find(pl => pl.name === currentPlanName)?.price_annual ?? 0;
+  const currentTierRank = PLAN_TIER_ORDER[currentPlanName] || 0;
   const renewLockedMessage = renewalUnlockDate
     ? `Renew Subscription will be enabled 1 month before the expiry date (from ${formatISTDate(renewalUnlockDate)}).`
     : 'Renew Subscription will be enabled 1 month before the expiry date.';
@@ -561,7 +581,8 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
           {plans.map((p) => {
             const isCurrent = p.name === currentPlanName;
             const badgeStyle = getPlanBadgeColor(p.name);
-            const isDowngradeTier = currentPlanPrice > 0 && p.price_annual < currentPlanPrice;
+            const tierRank = p.tier_rank || PLAN_TIER_ORDER[p.name] || 0;
+            const isLowerTier = subStatus !== 'trial' && tierRank > 0 && currentTierRank > 0 && tierRank < currentTierRank;
 
             return (
               <div
@@ -674,6 +695,23 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                         {subStatus === 'trial' ? '🌟 Activate Paid Plan' : subStatus === 'expired' ? '🚨 Renew Subscription' : '🔄 Renew Subscription'}
                       </button>
                     )
+                  ) : isLowerTier ? (
+                    <button
+                      disabled={true}
+                      style={{
+                        width: '100%',
+                        padding: '10px 16px',
+                        background: 'rgba(148, 163, 184, 0.1)',
+                        border: '1px solid rgba(148, 163, 184, 0.25)',
+                        color: '#94a3b8',
+                        borderRadius: '8px',
+                        fontWeight: 600,
+                        fontSize: '0.85rem',
+                        cursor: 'not-allowed'
+                      }}
+                    >
+                      ✓ Included in Your Current Plan
+                    </button>
                   ) : (
                     <button
                       onClick={() => handleOpenUpgrade(p)}
@@ -690,7 +728,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
                       }}
                     >
-                      {subStatus === 'trial' ? `Subscribe to ${p.name}` : isDowngradeTier ? `Switch to ${p.name}` : `Upgrade to ${p.name}`}
+                      {subStatus === 'trial' ? `Subscribe to ${p.name}` : `Upgrade to ${p.name}`}
                     </button>
                   )}
                 </div>
@@ -858,8 +896,8 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
             <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fff', margin: '0 0 6px 0' }}>
               {quote?.type === 'renewal'
                 ? 'Renew Subscription'
-                : (quote?.type === 'downgrade' || quote?.type === 'plan_change' || (subStatus !== 'trial' && targetPlan.price_annual < currentPlanPrice))
-                  ? `Switch to ${targetPlan.name}`
+                : subStatus === 'trial'
+                  ? `Activate ${targetPlan.name}`
                   : `Upgrade to ${targetPlan.name}`}
             </h3>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0 0 20px 0' }}>
@@ -1024,9 +1062,7 @@ export default function BillingSubscription({ user, currentPlan, isFeaturePermit
                   >
                     {submittingPayment
                       ? 'Submitting Reference...'
-                      : Number(quote?.final_amount ?? 0) === 0
-                        ? `Confirm Switch to ${targetPlan.name} (₹0 Due)`
-                        : 'Submit Payment for Admin Verification'}
+                      : 'Submit Payment for Admin Verification'}
                   </button>
                 </div>
               </div>
